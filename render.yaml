@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: dreamapt-backend
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: FRONTEND_URL
+        sync: false
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3003
