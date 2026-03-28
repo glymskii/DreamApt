@@ -364,10 +364,10 @@ function ReviewsSection({ propertyId }: { propertyId: string }) {
       </CardHeader>
       <CardContent>
         {/* Rating summary */}
-        <div className="flex items-center gap-4 mb-5 p-3 bg-muted/50 rounded-lg">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4 mb-5 p-3 bg-muted/50 rounded-lg">
           {reviewsData.averageRating > 0 && (
             <div className="flex items-center gap-3">
-              <span className={`text-4xl font-bold ${ratingColor}`}>
+              <span className={`text-3xl sm:text-4xl font-bold ${ratingColor}`}>
                 {reviewsData.averageRating.toFixed(1)}
               </span>
               <div>
@@ -380,7 +380,7 @@ function ReviewsSection({ propertyId }: { propertyId: string }) {
               </div>
             </div>
           )}
-          <div className="ml-auto text-right">
+          <div className="sm:ml-auto sm:text-right">
             {reviewsData.buildingName && (
               <p className="text-sm font-medium">{reviewsData.buildingName}</p>
             )}
@@ -651,19 +651,23 @@ export default function PropertyDetailPage() {
   return (
     <div className="min-h-screen bg-slate-50">
       <Header />
-      <main className="container mx-auto px-4 py-8 max-w-5xl">
-        {/* Nav */}
-        <div className="flex items-center justify-between mb-6">
+      <main className="container mx-auto px-4 py-4 sm:py-8 max-w-5xl">
+        {/* Nav — responsive */}
+        <div className="flex items-center justify-between mb-4 sm:mb-6 gap-2">
           <Button
             variant="ghost"
+            size="sm"
             onClick={() => router.push(`/projects/${projectId}/results`)}
+            className="shrink-0"
           >
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            К результатам
+            <ArrowLeft className="h-4 w-4 mr-1 sm:mr-2" />
+            <span className="hidden sm:inline">К результатам</span>
+            <span className="sm:hidden">Назад</span>
           </Button>
           <div className="flex gap-2">
             <Button
               variant="outline"
+              size="sm"
               onClick={() => {
                 if (isWishlisted) {
                   remove.mutate(property.id);
@@ -673,27 +677,29 @@ export default function PropertyDetailPage() {
               }}
             >
               <Heart
-                className={`h-4 w-4 mr-2 ${
+                className={`h-4 w-4 sm:mr-2 ${
                   isWishlisted ? "fill-red-500 text-red-500" : ""
                 }`}
               />
-              {isWishlisted ? "В избранном" : "В избранное"}
+              <span className="hidden sm:inline">
+                {isWishlisted ? "В избранном" : "В избранное"}
+              </span>
             </Button>
-            <Button asChild>
+            <Button size="sm" asChild>
               <a
                 href={property.krishaUrl}
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                <ExternalLink className="h-4 w-4 mr-2" />
-                Krisha.kz
+                <ExternalLink className="h-4 w-4 sm:mr-2" />
+                <span className="hidden sm:inline">Krisha.kz</span>
               </a>
             </Button>
           </div>
         </div>
 
-        {/* Photo gallery */}
-        <div className="grid grid-cols-4 gap-2 mb-6 h-80 rounded-lg overflow-hidden">
+        {/* Photo gallery — responsive: 1 col on mobile, 4 cols on md+ */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-1 sm:gap-2 mb-4 sm:mb-6 h-48 sm:h-64 md:h-80 rounded-lg overflow-hidden">
           {property.photos?.length > 0 ? (
             <>
               <div className="col-span-2 row-span-2">
@@ -706,7 +712,7 @@ export default function PropertyDetailPage() {
               {property.photos
                 .slice(1, 5)
                 .map((photo: string, i: number) => (
-                  <div key={i}>
+                  <div key={i} className="hidden md:block">
                     <img
                       src={photo}
                       alt=""
@@ -714,19 +720,81 @@ export default function PropertyDetailPage() {
                     />
                   </div>
                 ))}
+              {/* On mobile show only 2nd photo */}
+              {property.photos[1] && (
+                <div className="md:hidden col-span-1 row-span-1">
+                  <img
+                    src={property.photos[1]}
+                    alt=""
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+              )}
+              {property.photos[2] && (
+                <div className="md:hidden col-span-1 row-span-1">
+                  <img
+                    src={property.photos[2]}
+                    alt=""
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+              )}
             </>
           ) : (
-            <div className="col-span-4 bg-muted flex items-center justify-center">
+            <div className="col-span-2 md:col-span-4 bg-muted flex items-center justify-center">
               <span className="text-muted-foreground">Нет фото</span>
             </div>
           )}
         </div>
 
         {/* ═══════════ TWO COLUMN LAYOUT ═══════════ */}
-        <div className="grid gap-6 lg:grid-cols-3">
+        {/* On mobile: score cards first (order-first), then details */}
+        <div className="grid gap-4 sm:gap-6 lg:grid-cols-3">
+          {/* ────── RIGHT COLUMN on mobile first (scores) ────── */}
+          <div className="lg:hidden space-y-4">
+            {/* Mobile score summary */}
+            {property.scoreTotal > 0 && (
+              <Card>
+                <CardContent className="py-4">
+                  <div className="flex items-center gap-4">
+                    <Badge
+                      className={`text-lg px-3 py-1 ${
+                        property.scoreTotal >= 85
+                          ? "bg-green-500"
+                          : property.scoreTotal >= 70
+                          ? "bg-yellow-500"
+                          : "bg-orange-500"
+                      } text-white border-0`}
+                    >
+                      {Math.round(property.scoreTotal)}%
+                    </Badge>
+                    <div className="flex-1 grid grid-cols-2 gap-2 text-xs">
+                      <div>
+                        <span className="text-muted-foreground">Дорога:</span>{" "}
+                        <span className="font-medium">{Math.round(property.scoreCommute)}%</span>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Инфра:</span>{" "}
+                        <span className="font-medium">{Math.round(property.scoreInfrastructure)}%</span>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Жизнь:</span>{" "}
+                        <span className="font-medium">{Math.round(property.scoreLifestyle)}%</span>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Цена:</span>{" "}
+                        <span className="font-medium">{Math.round(property.scoreValue ?? 0)}%</span>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+
           {/* ────── LEFT COLUMN (2/3 width) ────── */}
           {/* Priority order: Details → Reviews → CJM → Recommendations */}
-          <div className="lg:col-span-2 space-y-6">
+          <div className="lg:col-span-2 space-y-4 sm:space-y-6">
             {/* 1. Property details — always first */}
             <Card>
               <CardHeader>
@@ -752,7 +820,7 @@ export default function PropertyDetailPage() {
               <CardContent>
                 <h2 className="text-lg font-medium mb-4">{property.title}</h2>
 
-                <div className="grid grid-cols-2 gap-4 text-sm">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 text-sm">
                   <div className="flex items-center gap-2">
                     <Building className="h-4 w-4 text-muted-foreground" />
                     <span>{property.complexName || "\u2014"}</span>
@@ -876,7 +944,7 @@ export default function PropertyDetailPage() {
           </div>
 
           {/* ────── RIGHT COLUMN (1/3 width) ────── */}
-          <div className="space-y-6">
+          <div className="space-y-4 sm:space-y-6">
             {/* Score breakdown */}
             {property.scoreTotal > 0 && (
               <Card>

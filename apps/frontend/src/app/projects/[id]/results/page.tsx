@@ -4,11 +4,13 @@ import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useProperties } from "@/hooks/useProperties";
 import { useToggleWishlist } from "@/hooks/useWishlist";
-import { useProject } from "@/hooks/useProjects";
+import { useProject, useCreateProject, useUpdateInterview } from "@/hooks/useProjects";
 import { Header } from "@/components/layout/Header";
 import { PropertyCard } from "@/components/property/PropertyCard";
+import { EditSearchDialog } from "@/components/search/EditSearchDialog";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, SortAsc, Loader2, Search, BarChart3, CheckCircle2 } from "lucide-react";
+import { api } from "@/lib/api-client";
+import { ArrowLeft, SortAsc, Loader2, Search, BarChart3, CheckCircle2, SlidersHorizontal } from "lucide-react";
 
 const SORT_OPTIONS = [
   { value: "scoreTotal", label: "По рейтингу" },
@@ -112,12 +114,16 @@ export default function ResultsPage() {
   const projectId = params.id as string;
   const [sort, setSort] = useState("scoreTotal");
   const [page, setPage] = useState(1);
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
 
   const { data: project, refetch: refetchProject } = useProject(projectId);
   const { data, isLoading, refetch: refetchProperties } = useProperties(projectId, sort, page);
   const { add, remove } = useToggleWishlist();
+  const updateInterview = useUpdateInterview(projectId);
+  const createProject = useCreateProject();
 
   const isSearching = project?.status === "searching" || project?.status === "scoring";
+  const hasResults = (data?.total || 0) > 0;
 
   // Auto-refresh while search is in progress
   useEffect(() => {
@@ -139,6 +145,23 @@ export default function ResultsPage() {
     }
   };
 
+  const handleEditApply = async (answers: Record<string, unknown>, name: string) => {
+    if (!hasResults) {
+      // No results → restart current search (update interview and re-search)
+      await updateInterview.mutateAsync({ answers, name });
+      await api.post("/search/start", { projectId });
+      refetchProject();
+      refetchProperties();
+    } else {
+      // Has results → create new project, save answers, start search
+      const newProject = await createProject.mutateAsync(name);
+      const newUpdateInterview = api.patch<unknown>(`/projects/${newProject.id}/interview`, { answers, name });
+      await newUpdateInterview;
+      await api.post("/search/start", { projectId: newProject.id });
+      router.push(`/projects/${newProject.id}/results`);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-50">
       <Header />
@@ -147,14 +170,26 @@ export default function ResultsPage() {
           <Button variant="ghost" size="icon" onClick={() => router.push("/dashboard")}>
             <ArrowLeft className="h-5 w-5" />
           </Button>
-          <div>
-            <h1 className="text-2xl font-bold">{project?.name || "Результаты поиска"}</h1>
+          <div className="flex-1 min-w-0">
+            <h1 className="text-2xl font-bold truncate">{project?.name || "Результаты поиска"}</h1>
             {data && !isSearching && (
               <p className="text-sm text-muted-foreground">
                 Найдено {data.total} квартир
               </p>
             )}
           </div>
+          {/* Edit Search Button */}
+          {!isSearching && (
+            <Button
+              variant="outline"
+              onClick={() => setEditDialogOpen(true)}
+              className="shrink-0"
+            >
+              <SlidersHorizontal className="h-4 w-4 mr-2" />
+              <span className="hidden sm:inline">Изменить параметры</span>
+              <span className="sm:hidden">Параметры</span>
+            </Button>
+          )}
         </div>
 
         {/* Show progress when searching */}
@@ -166,14 +201,15 @@ export default function ResultsPage() {
         ) : (
           <>
             {/* Sort controls */}
-            <div className="flex items-center gap-2 mb-6">
-              <SortAsc className="h-4 w-4 text-muted-foreground" />
+            <div className="flex items-center gap-2 mb-6 overflow-x-auto">
+              <SortAsc className="h-4 w-4 text-muted-foreground shrink-0" />
               {SORT_OPTIONS.map((opt) => (
                 <Button
                   key={opt.value}
                   variant={sort === opt.value ? "default" : "outline"}
                   size="sm"
                   onClick={() => { setSort(opt.value); setPage(1); }}
+                  className="shrink-0"
                 >
                   {opt.label}
                 </Button>
@@ -181,7 +217,7 @@ export default function ResultsPage() {
             </div>
 
             {isLoading ? (
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                 {Array.from({ length: 8 }).map((_, i) => (
                   <div key={i} className="rounded-lg border bg-card animate-pulse">
                     <div className="h-48 bg-muted" />
@@ -195,7 +231,7 @@ export default function ResultsPage() {
               </div>
             ) : data && data.properties.length > 0 ? (
               <>
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                   {data.properties.map((property) => (
                     <PropertyCard
                       key={property.id}
@@ -232,15 +268,30 @@ export default function ResultsPage() {
                 )}
               </>
             ) : (
-              <div className="text-center py-16">
+              <div className="text-center py-16 space-y-4">
                 <p className="text-muted-foreground">
                   Квартиры не найдены. Попробуйте расширить параметры поиска.
                 </p>
+                <Button
+                  variant="outline"
+                  onClick={() => setEditDialogOpen(true)}
+                >
+                  <SlidersHorizontal className="h-4 w-4 mr-2" />
+                  Изменить параметры
+                </Button>
               </div>
             )}
           </>
         )}
       </main>
+
+      {/* Edit Search Dialog */}
+      <EditSearchDialog
+        isOpen={editDialogOpen}
+        onClose={() => setEditDialogOpen(false)}
+        initialData={project?.interviewAnswers || null}
+        onApply={handleEditApply}
+      />
     </div>
   );
 }

@@ -36,14 +36,14 @@ export default function DashboardPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
         <div>
-          <h1 className="text-3xl font-bold">Мои поиски</h1>
-          <p className="text-muted-foreground mt-1">
+          <h1 className="text-2xl sm:text-3xl font-bold">Мои поиски</h1>
+          <p className="text-sm sm:text-base text-muted-foreground mt-1">
             Создайте новый поиск квартиры или просмотрите существующие
           </p>
         </div>
-        <Button onClick={handleCreate} disabled={createProject.isPending}>
+        <Button onClick={handleCreate} disabled={createProject.isPending} className="shrink-0 w-full sm:w-auto">
           <Plus className="h-4 w-4 mr-2" />
           Новый поиск
         </Button>
