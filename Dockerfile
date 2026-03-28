@@ -1,33 +1,26 @@
-FROM node:20-slim AS base
+FROM node:20-alpine AS base
 
-RUN npm install -g pnpm@9
+RUN corepack enable && corepack prepare pnpm@9 --activate
 
 WORKDIR /app
 
-# Copy workspace config
+# Copy workspace config + all package.json files in one layer
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json ./
-
-# Copy package.json files for all workspaces
 COPY packages/shared/package.json packages/shared/tsconfig.json ./packages/shared/
 COPY apps/backend/package.json apps/backend/tsconfig.json apps/backend/tsconfig.build.json apps/backend/nest-cli.json ./apps/backend/
 
 # Install dependencies
 RUN pnpm install --frozen-lockfile
 
-# Copy source code
+# Copy source code and build in one step
 COPY packages/shared/src ./packages/shared/src
 COPY apps/backend/src ./apps/backend/src
-
-# Build shared package
-RUN cd packages/shared && pnpm run build
-
-# Build backend
-RUN cd apps/backend && pnpm run build
+RUN cd packages/shared && pnpm run build && cd /app/apps/backend && pnpm run build
 
 # Production stage
-FROM node:20-slim AS production
+FROM node:20-alpine AS production
 
-RUN npm install -g pnpm@9
+RUN corepack enable && corepack prepare pnpm@9 --activate
 
 WORKDIR /app
 
@@ -37,13 +30,9 @@ COPY apps/backend/package.json ./apps/backend/
 
 RUN pnpm install --frozen-lockfile --prod
 
-# Copy built files
+# Copy built files (JSON data included via resolveJsonModule)
 COPY --from=base /app/packages/shared/dist ./packages/shared/dist
-COPY --from=base /app/packages/shared/src ./packages/shared/src
 COPY --from=base /app/apps/backend/dist ./apps/backend/dist
-
-# Copy JSON data files needed at runtime
-COPY packages/shared/src/constants/*.json ./packages/shared/src/constants/
 
 EXPOSE 3003
 
