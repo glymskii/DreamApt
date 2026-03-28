@@ -1,14 +1,22 @@
 import * as path from "path";
 import * as dotenv from "dotenv";
 
-// Load .env from monorepo root
-dotenv.config({ path: path.resolve(__dirname, "../../../.env") });
+// Load .env from monorepo root (only in development)
+if (process.env.NODE_ENV !== "production") {
+  dotenv.config({ path: path.resolve(__dirname, "../../../.env") });
+}
 
 import { NestFactory } from "@nestjs/core";
 import { ValidationPipe } from "@nestjs/common";
 import { AppModule } from "./app.module";
 
 async function bootstrap() {
+  // Log startup diagnostics
+  const dbUrl = process.env.DATABASE_URL;
+  console.log(`[Bootstrap] NODE_ENV=${process.env.NODE_ENV}`);
+  console.log(`[Bootstrap] DATABASE_URL=${dbUrl ? dbUrl.replace(/\/\/.*@/, '//***@') : 'NOT SET'}`);
+  console.log(`[Bootstrap] PORT=${process.env.PORT}`);
+
   const app = await NestFactory.create(AppModule);
 
   app.setGlobalPrefix("api");
