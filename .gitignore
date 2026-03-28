@@ -1,0 +1,19 @@
+node_modules
+dist
+.next
+.turbo
+*.tsbuildinfo
+.env
+.env.local
+.env.production
+.DS_Store
+coverage
+.claude/
+*.output
+/tmp/
+
+# Compiled shared package (generated from .ts sources)
+packages/shared/src/**/*.js
+packages/shared/src/**/*.js.map
+packages/shared/src/**/*.d.ts
+packages/shared/src/**/*.d.ts.map

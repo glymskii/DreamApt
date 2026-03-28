@@ -1,0 +1,24 @@
+{
+  "name": "parser",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "dev": "ts-node --project tsconfig.json src/index.ts",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0",
+    "bottleneck": "^2.19.5",
+    "bullmq": "^5.0.0",
+    "sharp": "^0.33.0",
+    "pg": "^8.13.0",
+    "typeorm": "^0.3.20",
+    "@dreamapt/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.0"
+  }
+}
