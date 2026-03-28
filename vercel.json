@@ -1,0 +1,7 @@
+{
+  "buildCommand": "pnpm --filter @dreamapt/shared build && pnpm --filter frontend build",
+  "installCommand": "pnpm install",
+  "outputDirectory": "apps/frontend/.next",
+  "framework": "nextjs",
+  "ignoreCommand": "exit 0"
+}
