@@ -913,7 +913,7 @@ export default function PropertyDetailPage() {
                     Рейтинг эксперта
                   </CardTitle>
                   <p className="text-xs text-muted-foreground">
-                    по оценке Шутова-Тихонова
+                    по оценке Тихона Шутова
                   </p>
                 </CardHeader>
                 <CardContent className="space-y-3">
@@ -954,7 +954,7 @@ export default function PropertyDetailPage() {
                     Сейсмическая безопасность
                   </CardTitle>
                   <p className="text-xs text-muted-foreground">
-                    по карте разломов Шутова-Тихонова
+                    по карте разломов Тихона Шутова
                   </p>
                 </CardHeader>
                 <CardContent className="space-y-3">
