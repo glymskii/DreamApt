@@ -168,6 +168,22 @@ export class ComplexService {
     };
   }
 
+  /** Delete complexes outside Almaty bounds */
+  async deleteNonAlmaty(): Promise<number> {
+    const all = await this.complexesRepo.find();
+    let deleted = 0;
+    for (const c of all) {
+      if (!c.lat || !c.lng) continue;
+      const lat = Number(c.lat);
+      const lng = Number(c.lng);
+      if (lat < 43.0 || lat > 43.5 || lng < 76.4 || lng > 77.5) {
+        await this.complexesRepo.delete(c.id);
+        deleted++;
+      }
+    }
+    return deleted;
+  }
+
   async getProjectForScoring(projectId: string) {
     return this.projectsRepo.findOne({ where: { id: projectId } });
   }

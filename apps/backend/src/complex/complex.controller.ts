@@ -94,6 +94,13 @@ export class ComplexController {
     return this.complexService.getMapData(projectId);
   }
 
+  @Post("complexes/cleanup-non-almaty")
+  @UseGuards(JwtAuthGuard)
+  async cleanupNonAlmaty() {
+    const deleted = await this.complexService.deleteNonAlmaty();
+    return { deleted };
+  }
+
   @Post("complexes/parse-krisha")
   @UseGuards(JwtAuthGuard)
   async parseAllFromKrisha() {
