@@ -17,6 +17,75 @@ export class ComplexService {
     private projectsRepo: Repository<SearchProjectEntity>,
   ) {}
 
+  /** Get all complexes globally, deduplicated by normalized name (best score wins) */
+  async findAllForMap() {
+    const all = await this.complexesRepo.find({
+      select: [
+        "id", "name", "displayName", "lat", "lng", "scoreTotal", "priceAvg",
+        "listingsCount", "seismicRiskLevel", "seismicDistanceMeters",
+        "commuteMinutes", "photoUrl", "district", "priceMin", "priceMax",
+        "shutovCategory", "scoreInfrastructure", "scoreLifestyle",
+        "scoreCommute", "scoreSeismic",
+      ],
+    });
+
+    // Deduplicate by normalized name — keep the one with highest score
+    const dedupMap = new Map<string, ResidentialComplexEntity>();
+    for (const c of all) {
+      if (!c.lat || !c.lng) continue;
+      const key = c.name.toLowerCase().trim();
+      const existing = dedupMap.get(key);
+      if (!existing || (Number(c.scoreTotal) || 0) > (Number(existing.scoreTotal) || 0)) {
+        dedupMap.set(key, c);
+      }
+    }
+
+    const { FAULT_LINES, FAULT_ZONES } = await import("@dreamapt/shared");
+
+    return {
+      complexes: Array.from(dedupMap.values()),
+      faultLines: [...(FAULT_LINES || []), ...(FAULT_ZONES || [])],
+    };
+  }
+
+  /** Global paginated list of all complexes (deduplicated) */
+  async findAllGlobal(sort: string = "scoreTotal", page: number = 1, limit: number = 50) {
+    const orderMap: Record<string, { field: string; dir: "ASC" | "DESC" }> = {
+      scoreTotal: { field: "scoreTotal", dir: "DESC" },
+      priceAvg: { field: "priceAvg", dir: "ASC" },
+      listingsCount: { field: "listingsCount", dir: "DESC" },
+      seismicDistanceMeters: { field: "seismicDistanceMeters", dir: "ASC" },
+    };
+    const order = orderMap[sort] || orderMap.scoreTotal;
+
+    const all = await this.complexesRepo.find({
+      order: { [order.field]: order.dir },
+    });
+
+    // Deduplicate by name
+    const dedupMap = new Map<string, ResidentialComplexEntity>();
+    for (const c of all) {
+      const key = c.name.toLowerCase().trim();
+      const existing = dedupMap.get(key);
+      if (!existing || (Number(c.scoreTotal) || 0) > (Number(existing.scoreTotal) || 0)) {
+        dedupMap.set(key, c);
+      }
+    }
+
+    const deduped = Array.from(dedupMap.values());
+    // Re-sort after dedup
+    deduped.sort((a, b) => {
+      const aVal = Number((a as any)[order.field]) || 0;
+      const bVal = Number((b as any)[order.field]) || 0;
+      return order.dir === "DESC" ? bVal - aVal : aVal - bVal;
+    });
+
+    const total = deduped.length;
+    const paged = deduped.slice((page - 1) * limit, page * limit);
+
+    return { complexes: paged, total, page, totalPages: Math.ceil(total / limit) };
+  }
+
   async findByProject(
     projectId: string,
     sort: string = "scoreTotal",
@@ -37,12 +106,7 @@ export class ComplexService {
       take: limit,
     });
 
-    return {
-      complexes,
-      total,
-      page,
-      totalPages: Math.ceil(total / limit),
-    };
+    return { complexes, total, page, totalPages: Math.ceil(total / limit) };
   }
 
   async findOne(id: string) {
@@ -96,7 +160,6 @@ export class ComplexService {
       ],
     });
 
-    // Import fault data from shared package
     const { FAULT_LINES, FAULT_ZONES } = await import("@dreamapt/shared");
 
     return {
