@@ -3,6 +3,7 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { ResidentialComplexEntity } from "../database/entities/residential-complex.entity";
 import { PropertyEntity } from "../database/entities/property.entity";
+import { SearchProjectEntity } from "../database/entities/search-project.entity";
 import { findShutovRating, findNearestFault, SHUTOV_CATEGORY_COLORS, SHUTOV_CATEGORY_LABELS } from "@dreamapt/shared";
 
 @Injectable()
@@ -12,6 +13,8 @@ export class ComplexService {
     private complexesRepo: Repository<ResidentialComplexEntity>,
     @InjectRepository(PropertyEntity)
     private propertiesRepo: Repository<PropertyEntity>,
+    @InjectRepository(SearchProjectEntity)
+    private projectsRepo: Repository<SearchProjectEntity>,
   ) {}
 
   async findByProject(
@@ -99,5 +102,9 @@ export class ComplexService {
       complexes: complexes.filter((c) => c.lat && c.lng),
       faultLines: FAULT_LINES || [],
     };
+  }
+
+  async getProjectForScoring(projectId: string) {
+    return this.projectsRepo.findOne({ where: { id: projectId } });
   }
 }

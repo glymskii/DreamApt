@@ -255,7 +255,7 @@ export class SearchService {
   }
 
   /** Group properties into residential complexes */
-  private async groupPropertiesIntoComplexes(projectId: string): Promise<void> {
+  async groupPropertiesIntoComplexes(projectId: string): Promise<void> {
     const properties = await this.propertiesRepo.find({ where: { projectId } });
 
     // Partition by has name vs no name
@@ -452,7 +452,7 @@ export class SearchService {
   }
 
   /** Score all complexes in a project */
-  private async scoreComplexes(
+  async scoreComplexes(
     projectId: string,
     interviewAnswers: Record<string, unknown>,
   ): Promise<void> {
