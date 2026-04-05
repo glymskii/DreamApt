@@ -470,7 +470,14 @@ export class SearchService {
       const avgInfra = scored.reduce((s, p) => s + Number(p.scoreInfrastructure || 0), 0) / scored.length;
       const avgLifestyle = scored.reduce((s, p) => s + Number(p.scoreLifestyle || 0), 0) / scored.length;
 
-      // Seismic score from cached risk level
+      // Refresh seismic cache (recalculate from latest fault data)
+      if (complex.lat && complex.lng) {
+        const seismic = findNearestFault(Number(complex.lat), Number(complex.lng));
+        complex.seismicRiskLevel = seismic.riskLevel;
+        complex.seismicDistanceMeters = Math.round(seismic.distanceMeters);
+      }
+
+      // Seismic score from risk level
       let seismicScore = 100;
       if (complex.seismicRiskLevel) {
         const seismicScores: Record<string, number> = {
