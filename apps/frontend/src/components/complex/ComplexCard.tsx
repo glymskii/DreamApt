@@ -39,9 +39,14 @@ export function ComplexCard({ complex, onClick }: Props) {
     ? SEISMIC_ICONS[complex.seismicRiskLevel]
     : null;
 
+  const isHighRisk =
+    complex.seismicRiskLevel === "critical" || complex.seismicRiskLevel === "high";
+
   return (
     <Card
-      className="overflow-hidden cursor-pointer hover:shadow-md transition-shadow"
+      className={`overflow-hidden cursor-pointer hover:shadow-md transition-shadow ${
+        isHighRisk ? "ring-1 ring-red-200 bg-red-50/30" : ""
+      }`}
       onClick={onClick}
     >
       <div className="relative">

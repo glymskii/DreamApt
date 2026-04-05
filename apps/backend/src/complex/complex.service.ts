@@ -90,7 +90,8 @@ export class ComplexService {
       where: { projectId },
       select: [
         "id", "displayName", "lat", "lng", "scoreTotal", "priceAvg",
-        "listingsCount", "seismicRiskLevel", "commuteMinutes", "photoUrl",
+        "listingsCount", "seismicRiskLevel", "seismicDistanceMeters",
+        "commuteMinutes", "photoUrl",
         "district", "priceMin", "priceMax", "shutovCategory",
       ],
     });

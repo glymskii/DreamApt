@@ -126,6 +126,30 @@ export default function ComplexDetailPage() {
             )}
           </div>
 
+          {/* Seismic warning banner */}
+          {(complex.seismicRiskLevel === "critical" || complex.seismicRiskLevel === "high") && (
+            <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-lg mb-4">
+              <AlertTriangle className="h-5 w-5 text-red-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-semibold text-red-800">
+                  {complex.seismicRiskLevel === "critical"
+                    ? "Этот ЖК находится на сейсмическом разломе"
+                    : "Этот ЖК находится в опасной сейсмической зоне"}
+                </p>
+                <p className="text-xs text-red-700 mt-1">
+                  {complex.seismicDistanceMeters != null && (
+                    <>
+                      Расстояние до ближайшего разлома: {Number(complex.seismicDistanceMeters) < 1000
+                        ? `${complex.seismicDistanceMeters} м`
+                        : `${(Number(complex.seismicDistanceMeters) / 1000).toFixed(1)} км`}.{" "}
+                    </>
+                  )}
+                  Рекомендуется запросить у застройщика результаты вибродинамических испытаний.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Key stats */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <Card>

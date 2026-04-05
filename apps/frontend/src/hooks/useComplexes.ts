@@ -96,6 +96,7 @@ export interface MapData {
     priceAvg: number | null;
     listingsCount: number;
     seismicRiskLevel: string | null;
+    seismicDistanceMeters: number | null;
     commuteMinutes: number | null;
     photoUrl: string | null;
     district: string | null;
