@@ -9,6 +9,7 @@ import { AIModule } from "./ai/ai.module";
 import { CommuteModule } from "./commute/commute.module";
 import { ScoringModule } from "./scoring/scoring.module";
 import { CJMModule } from "./cjm/cjm.module";
+import { ComplexModule } from "./complex/complex.module";
 import { HealthController } from "./health.controller";
 
 @Module({
@@ -23,6 +24,7 @@ import { HealthController } from "./health.controller";
     CommuteModule,
     ScoringModule,
     CJMModule,
+    ComplexModule,
   ],
   controllers: [HealthController],
 })

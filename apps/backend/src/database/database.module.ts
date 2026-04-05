@@ -3,7 +3,7 @@ import { TypeOrmModule } from "@nestjs/typeorm";
 import { UserEntity } from "./entities/user.entity";
 import { SearchProjectEntity } from "./entities/search-project.entity";
 import { PropertyEntity } from "./entities/property.entity";
-import { PropertyGroupEntity } from "./entities/property-group.entity";
+import { ResidentialComplexEntity } from "./entities/residential-complex.entity";
 import { CJMScenarioEntity } from "./entities/cjm-scenario.entity";
 import { WishlistItemEntity } from "./entities/wishlist-item.entity";
 
@@ -11,7 +11,7 @@ const entities = [
   UserEntity,
   SearchProjectEntity,
   PropertyEntity,
-  PropertyGroupEntity,
+  ResidentialComplexEntity,
   CJMScenarioEntity,
   WishlistItemEntity,
 ];

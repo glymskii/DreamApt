@@ -31,7 +31,7 @@ export interface FaultProximityResult {
   riskColor: string;
 }
 
-const FAULT_LINES: FaultLine[] = (faultData as any).faultLines;
+export const FAULT_LINES: FaultLine[] = (faultData as any).faultLines;
 
 /** Haversine distance in meters between two points */
 function haversineMeters(

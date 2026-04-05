@@ -14,7 +14,7 @@ export class WishlistService {
     return {
       items: await this.wishlistRepo.find({
         where: { userId },
-        relations: ["property"],
+        relations: ["property", "complex"],
         order: { createdAt: "DESC" },
       }),
     };
@@ -33,6 +33,28 @@ export class WishlistService {
   async remove(userId: string, propertyId: string) {
     await this.wishlistRepo.delete({ userId, propertyId });
     return { success: true };
+  }
+
+  async addComplex(userId: string, complexId: string) {
+    const existing = await this.wishlistRepo.findOne({
+      where: { userId, complexId },
+    });
+    if (existing) throw new ConflictException("Already in wishlist");
+
+    const item = this.wishlistRepo.create({ userId, complexId });
+    return this.wishlistRepo.save(item);
+  }
+
+  async removeComplex(userId: string, complexId: string) {
+    await this.wishlistRepo.delete({ userId, complexId });
+    return { success: true };
+  }
+
+  async isComplexWishlisted(userId: string, complexId: string): Promise<boolean> {
+    const item = await this.wishlistRepo.findOne({
+      where: { userId, complexId },
+    });
+    return !!item;
   }
 
   async isWishlisted(userId: string, propertyIds: string[]): Promise<Set<string>> {

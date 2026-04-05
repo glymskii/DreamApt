@@ -46,10 +46,10 @@ export class PropertiesService {
 
   async findDuplicates(id: string) {
     const property = await this.propertiesRepo.findOne({ where: { id } });
-    if (!property || !property.groupId) return { duplicates: [] };
+    if (!property || !property.complexId) return { duplicates: [] };
 
     const duplicates = await this.propertiesRepo.find({
-      where: { groupId: property.groupId },
+      where: { complexId: property.complexId },
     });
     return { duplicates: duplicates.filter((p) => p.id !== id) };
   }

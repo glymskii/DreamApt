@@ -9,7 +9,7 @@ import {
   Index,
 } from "typeorm";
 import { SearchProjectEntity } from "./search-project.entity";
-import { PropertyGroupEntity } from "./property-group.entity";
+import { ResidentialComplexEntity } from "./residential-complex.entity";
 import { CJMScenarioEntity } from "./cjm-scenario.entity";
 import { WishlistItemEntity } from "./wishlist-item.entity";
 
@@ -119,8 +119,8 @@ export class PropertyEntity {
   @Column({ name: "scoring_explanation", type: "text", nullable: true })
   scoringExplanation: string;
 
-  @Column({ name: "group_id", nullable: true })
-  groupId: string;
+  @Column({ name: "complex_id", nullable: true })
+  complexId: string;
 
   @Column({ name: "is_primary", default: true })
   isPrimary: boolean;
@@ -132,9 +132,9 @@ export class PropertyEntity {
   @JoinColumn({ name: "project_id" })
   project: SearchProjectEntity;
 
-  @ManyToOne(() => PropertyGroupEntity, (group) => group.properties)
-  @JoinColumn({ name: "group_id" })
-  group: PropertyGroupEntity;
+  @ManyToOne(() => ResidentialComplexEntity, (complex) => complex.properties, { onDelete: "SET NULL" })
+  @JoinColumn({ name: "complex_id" })
+  complex: ResidentialComplexEntity;
 
   @OneToMany(() => CJMScenarioEntity, (scenario) => scenario.property)
   cjmScenarios: CJMScenarioEntity[];

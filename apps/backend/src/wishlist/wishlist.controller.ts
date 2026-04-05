@@ -30,4 +30,14 @@ export class WishlistController {
   async remove(@Request() req, @Param("propertyId") propertyId: string) {
     return this.wishlistService.remove(req.user.id, propertyId);
   }
+
+  @Post("complex")
+  async addComplex(@Request() req, @Body() body: { complexId: string }) {
+    return this.wishlistService.addComplex(req.user.id, body.complexId);
+  }
+
+  @Delete("complex/:complexId")
+  async removeComplex(@Request() req, @Param("complexId") complexId: string) {
+    return this.wishlistService.removeComplex(req.user.id, complexId);
+  }
 }

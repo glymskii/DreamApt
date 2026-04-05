@@ -10,7 +10,7 @@ import {
 } from "typeorm";
 import { UserEntity } from "./user.entity";
 import { PropertyEntity } from "./property.entity";
-import { PropertyGroupEntity } from "./property-group.entity";
+import { ResidentialComplexEntity } from "./residential-complex.entity";
 
 @Entity("search_projects")
 export class SearchProjectEntity {
@@ -51,6 +51,6 @@ export class SearchProjectEntity {
   @OneToMany(() => PropertyEntity, (property) => property.project)
   properties: PropertyEntity[];
 
-  @OneToMany(() => PropertyGroupEntity, (group) => group.project)
-  propertyGroups: PropertyGroupEntity[];
+  @OneToMany(() => ResidentialComplexEntity, (complex) => complex.project)
+  complexes: ResidentialComplexEntity[];
 }
