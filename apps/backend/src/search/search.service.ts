@@ -256,6 +256,16 @@ export class SearchService {
 
   /** Group properties into residential complexes */
   async groupPropertiesIntoComplexes(projectId: string): Promise<void> {
+    // Delete existing complexes for this project (clean re-grouping)
+    await this.complexesRepo.delete({ projectId });
+    // Reset complexId on all properties
+    await this.propertiesRepo
+      .createQueryBuilder()
+      .update()
+      .set({ complexId: null as any, isPrimary: true })
+      .where("projectId = :projectId", { projectId })
+      .execute();
+
     const properties = await this.propertiesRepo.find({ where: { projectId } });
 
     // Partition by has name vs no name
