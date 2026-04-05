@@ -96,11 +96,11 @@ export class ComplexService {
     });
 
     // Import fault data from shared package
-    const { FAULT_LINES } = await import("@dreamapt/shared");
+    const { FAULT_LINES, FAULT_ZONES } = await import("@dreamapt/shared");
 
     return {
       complexes: complexes.filter((c) => c.lat && c.lng),
-      faultLines: FAULT_LINES || [],
+      faultLines: [...(FAULT_LINES || []), ...(FAULT_ZONES || [])],
     };
   }
 

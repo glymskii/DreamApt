@@ -32,6 +32,7 @@ export interface FaultProximityResult {
 }
 
 export const FAULT_LINES: FaultLine[] = (faultData as any).faultLines;
+export const FAULT_ZONES: FaultLine[] = (faultData as any).faultZones;
 
 /** Haversine distance in meters between two points */
 function haversineMeters(
@@ -95,7 +96,9 @@ export function findNearestFault(
   let minDistance = Infinity;
   let nearestFault: FaultLine | null = null;
 
-  for (const fault of FAULT_LINES) {
+  // Check both fault lines and fault zones
+  const allFaults = [...FAULT_LINES, ...FAULT_ZONES];
+  for (const fault of allFaults) {
     const coords = fault.coordinates;
     for (let i = 0; i < coords.length - 1; i++) {
       const [aLat, aLng] = coords[i];
