@@ -13,6 +13,7 @@ interface MapSidebarProps {
   selectedId: string | null;
   onSelect: (id: string) => void;
   onHover: (id: string | null) => void;
+  isMobile?: boolean;
 }
 
 const DISTRICTS = [
@@ -56,7 +57,7 @@ function getSeismicLabel(risk: string | null): string {
   return labels[risk || ""] || "";
 }
 
-export function MapSidebar({ data, selectedId, onSelect, onHover }: MapSidebarProps) {
+export function MapSidebar({ data, selectedId, onSelect, onHover, isMobile }: MapSidebarProps) {
   const [search, setSearch] = useState("");
   const [districtFilter, setDistrictFilter] = useState("");
   const [riskFilter, setRiskFilter] = useState<string[]>([]);
@@ -91,7 +92,7 @@ export function MapSidebar({ data, selectedId, onSelect, onHover }: MapSidebarPr
   };
 
   return (
-    <div className="w-[340px] h-full bg-white border-r flex flex-col shrink-0 hidden lg:flex">
+    <div className={`${isMobile ? "w-full" : "w-[340px] hidden lg:flex"} h-full bg-white border-r flex flex-col shrink-0`}>
       {/* Search */}
       <div className="p-3 border-b space-y-2">
         <div className="relative">

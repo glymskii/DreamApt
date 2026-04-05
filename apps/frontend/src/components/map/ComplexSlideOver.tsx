@@ -45,11 +45,17 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
 
   return (
     <div
-      className="fixed top-0 right-0 h-full w-full sm:w-[420px] bg-white shadow-2xl z-50 flex flex-col transition-transform duration-300 ease-out"
-      style={{ transform: "translateX(0)" }}
+      className="fixed z-50 bg-white shadow-2xl flex flex-col transition-transform duration-300 ease-out
+        bottom-0 left-0 right-0 h-[75dvh] rounded-t-2xl
+        sm:top-0 sm:right-0 sm:left-auto sm:bottom-auto sm:h-full sm:w-[420px] sm:rounded-none"
     >
+      {/* Mobile drag handle */}
+      <div className="sm:hidden flex justify-center pt-2 pb-1 shrink-0">
+        <div className="w-10 h-1 bg-gray-300 rounded-full" />
+      </div>
+
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b shrink-0">
+      <div className="flex items-center justify-between px-4 py-2 sm:py-3 border-b shrink-0">
         <h2 className="font-semibold text-sm truncate">
           {complex?.displayName || "Загрузка..."}
         </h2>

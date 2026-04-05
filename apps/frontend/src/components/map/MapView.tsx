@@ -375,8 +375,8 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
     <div className="relative w-full h-full">
       <div ref={mapContainer} className="w-full h-full" />
 
-      {/* Controls */}
-      <div className="absolute top-3 left-3 bg-white/95 backdrop-blur rounded-lg shadow-lg p-3 space-y-2 max-w-[180px] z-10">
+      {/* Controls - repositioned for mobile (no sidebar overlap) */}
+      <div className="absolute top-2 left-2 sm:top-3 sm:left-3 bg-white/95 backdrop-blur rounded-lg shadow-lg p-2 sm:p-3 space-y-1.5 sm:space-y-2 max-w-[160px] sm:max-w-[180px] z-10">
         <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Слои</p>
         <label className="flex items-center gap-2 text-xs cursor-pointer">
           <input type="checkbox" checked={showFaults} onChange={(e) => setShowFaults(e.target.checked)} className="rounded accent-red-500 w-3.5 h-3.5" />
@@ -409,7 +409,7 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
       </div>
 
       {/* Compact legend */}
-      <div className="absolute bottom-3 left-3 bg-white/95 backdrop-blur rounded-lg shadow-lg p-2.5 text-[10px] space-y-1 z-10">
+      <div className="absolute bottom-2 left-2 sm:bottom-3 sm:left-3 bg-white/95 backdrop-blur rounded-lg shadow-lg p-2 sm:p-2.5 text-[9px] sm:text-[10px] space-y-0.5 sm:space-y-1 z-10">
         {colorMode === "seismic" ? (
           <>
             <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-green-500" />Безопасно ({riskCounts.safe})</div>
