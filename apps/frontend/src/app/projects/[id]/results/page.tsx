@@ -132,6 +132,7 @@ export default function ResultsPage() {
   const [complexPage, setComplexPage] = useState(1);
   const [propertyPage, setPropertyPage] = useState(1);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [isMigrating, setIsMigrating] = useState(false);
 
   const { data: project, refetch: refetchProject } = useProject(projectId);
   const {
@@ -181,6 +182,23 @@ export default function ResultsPage() {
       router.push(`/projects/${newProject.id}/results`);
     }
   };
+
+  const handleMigrateComplexes = async () => {
+    setIsMigrating(true);
+    try {
+      await api.post(`/projects/${projectId}/migrate-complexes`, {});
+      refetchComplexes();
+    } catch (err) {
+      console.error("Migration failed:", err);
+    } finally {
+      setIsMigrating(false);
+    }
+  };
+
+  const hasPropertiesButNoComplexes =
+    !isSearching &&
+    (complexesData?.total || 0) === 0 &&
+    (propertiesData?.total || 0) > 0;
 
   const sortOptions = viewMode === "complexes" ? COMPLEX_SORT_OPTIONS : PROPERTY_SORT_OPTIONS;
   const currentSort = viewMode === "complexes" ? complexSort : propertySort;
@@ -335,13 +353,40 @@ export default function ResultsPage() {
                 </>
               ) : (
                 <div className="text-center py-16 space-y-4">
-                  <p className="text-muted-foreground">
-                    ЖК не найдены. Попробуйте расширить параметры поиска.
-                  </p>
-                  <Button variant="outline" onClick={() => setEditDialogOpen(true)}>
-                    <SlidersHorizontal className="h-4 w-4 mr-2" />
-                    Изменить параметры
-                  </Button>
+                  {hasPropertiesButNoComplexes ? (
+                    <>
+                      <Building className="h-12 w-12 mx-auto text-muted-foreground" />
+                      <p className="text-muted-foreground">
+                        Этот поиск был создан до обновления. Нажмите кнопку ниже, чтобы сгруппировать квартиры по ЖК.
+                      </p>
+                      <Button
+                        onClick={handleMigrateComplexes}
+                        disabled={isMigrating}
+                      >
+                        {isMigrating ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            Группируем...
+                          </>
+                        ) : (
+                          <>
+                            <Building className="h-4 w-4 mr-2" />
+                            Сгруппировать по ЖК
+                          </>
+                        )}
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-muted-foreground">
+                        ЖК не найдены. Попробуйте расширить параметры поиска.
+                      </p>
+                      <Button variant="outline" onClick={() => setEditDialogOpen(true)}>
+                        <SlidersHorizontal className="h-4 w-4 mr-2" />
+                        Изменить параметры
+                      </Button>
+                    </>
+                  )}
                 </div>
               )
             ) : (
