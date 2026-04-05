@@ -19,7 +19,7 @@ export class ResidentialComplexEntity {
   @PrimaryGeneratedColumn("uuid")
   id: string;
 
-  @Column({ name: "project_id" })
+  @Column({ name: "project_id", nullable: true })
   projectId: string;
 
   @Column()
@@ -27,6 +27,12 @@ export class ResidentialComplexEntity {
 
   @Column({ name: "display_name", nullable: true })
   displayName: string;
+
+  @Column({ name: "krisha_complex_id", nullable: true })
+  krishaComplexId: string;
+
+  @Column({ name: "krisha_url", nullable: true })
+  krishaUrl: string;
 
   @Column({ type: "decimal", precision: 10, scale: 7, nullable: true })
   lat: number;

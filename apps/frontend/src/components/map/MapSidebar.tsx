@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { MapPin, Clock, Search, Activity, Building, Star, AlertTriangle } from "lucide-react";
 import { formatPrice } from "@/lib/utils";
+import { matchesSearch } from "@/lib/transliterate";
 import type { MapData } from "@/hooks/useComplexes";
 
 interface MapSidebarProps {
@@ -65,11 +66,10 @@ export function MapSidebar({ data, selectedId, onSelect, onHover }: MapSidebarPr
     let result = data.complexes;
 
     if (search) {
-      const q = search.toLowerCase();
       result = result.filter(
         (c) =>
-          c.displayName.toLowerCase().includes(q) ||
-          (c.district || "").toLowerCase().includes(q),
+          matchesSearch(c.displayName, search) ||
+          matchesSearch(c.district || "", search),
       );
     }
 

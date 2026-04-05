@@ -2,6 +2,7 @@ import { Module, forwardRef } from "@nestjs/common";
 import { TypeOrmModule } from "@nestjs/typeorm";
 import { ComplexController } from "./complex.controller";
 import { ComplexService } from "./complex.service";
+import { KrishaComplexParserService } from "./krisha-complex-parser.service";
 import { ResidentialComplexEntity } from "../database/entities/residential-complex.entity";
 import { PropertyEntity } from "../database/entities/property.entity";
 import { SearchProjectEntity } from "../database/entities/search-project.entity";
@@ -15,7 +16,7 @@ import { SearchModule } from "../search/search.module";
     forwardRef(() => SearchModule),
   ],
   controllers: [ComplexController],
-  providers: [ComplexService],
+  providers: [ComplexService, KrishaComplexParserService],
   exports: [ComplexService],
 })
 export class ComplexModule {}

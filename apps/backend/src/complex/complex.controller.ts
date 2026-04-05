@@ -7,6 +7,7 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import { ComplexService } from "./complex.service";
+import { KrishaComplexParserService } from "./krisha-complex-parser.service";
 import { SearchService } from "../search/search.service";
 import { JwtAuthGuard } from "../auth/auth.guard";
 
@@ -14,6 +15,7 @@ import { JwtAuthGuard } from "../auth/auth.guard";
 export class ComplexController {
   constructor(
     private complexService: ComplexService,
+    private krishaComplexParser: KrishaComplexParserService,
     private searchService: SearchService,
   ) {}
 
@@ -90,6 +92,16 @@ export class ComplexController {
   @UseGuards(JwtAuthGuard)
   async getMapData(@Param("projectId") projectId: string) {
     return this.complexService.getMapData(projectId);
+  }
+
+  @Post("complexes/parse-krisha")
+  @UseGuards(JwtAuthGuard)
+  async parseAllFromKrisha() {
+    // Run in background — return immediately
+    this.krishaComplexParser.parseAndSaveAll().catch((err) => {
+      console.error("Krisha complex parsing failed:", err);
+    });
+    return { started: true, message: "Parsing all Almaty complexes from Krisha.kz in background" };
   }
 
   @Post("projects/:projectId/migrate-complexes")
