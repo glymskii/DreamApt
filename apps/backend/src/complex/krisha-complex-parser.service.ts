@@ -67,28 +67,40 @@ export class KrishaComplexParserService {
       const cards = $("[data-complex-id]");
       if (cards.length === 0) break;
 
-      cards.each((_i, el) => {
+      // Use a[data-complex-id] for more reliable parsing
+      $("a[data-complex-id]").each((_i, el) => {
         const id = $(el).attr("data-complex-id");
         if (!id || seenIds.has(id)) return;
         seenIds.add(id);
 
-        const linkEl = $(el).find('a[href*="/complex/show/"]').first();
-        const href = linkEl.attr("href") || "";
-        const name = $(el).find("img").first().attr("alt") || "";
+        const href = $(el).attr("href") || "";
+        if (!href.includes("/complex/show/")) return;
+
+        // Extract name: try img alt first, then ЖК text pattern, then URL slug
+        let name = $(el).find("img").first().attr("alt") || "";
+        if (!name) {
+          const allText = $(el).text();
+          const jkMatch = allText.match(/ЖК\s+([^\n]+)/);
+          name = jkMatch ? jkMatch[1].trim().split(/\s{2,}/)[0] : "";
+        }
+        if (!name) {
+          const slugMatch = href.match(/\/complex\/show\/almaty\/([^/]+)/);
+          if (slugMatch) name = slugMatch[1];
+        }
+        if (!name) return;
+
         const priceText = $(el).find(".complex-card__price-from, [class*=price]").first().text().trim();
         const state = $(el).find(".complex-card__state").first().text().trim();
         const photoUrl = $(el).find("img").first().attr("src") || null;
 
-        if (name && href) {
-          allComplexes.push({
-            krishaComplexId: id,
-            name: name.replace(/^ЖК\s+/i, "").trim(),
-            krishaUrl: href.startsWith("http") ? href : `${BASE_URL}${href}`,
-            priceText,
-            state,
-            photoUrl,
-          });
-        }
+        allComplexes.push({
+          krishaComplexId: id,
+          name: name.replace(/^ЖК\s+/i, "").trim(),
+          krishaUrl: href.startsWith("http") ? href : `${BASE_URL}${href}`,
+          priceText,
+          state,
+          photoUrl,
+        });
       });
 
       this.logger.log(`Page ${page}: found ${cards.length} cards, total unique: ${allComplexes.length}`);
