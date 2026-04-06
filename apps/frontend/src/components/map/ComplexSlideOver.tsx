@@ -214,12 +214,21 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
       {/* Footer */}
       {complex && (
         <div className="border-t px-4 py-3 shrink-0">
-          <Link href={`/projects/${complex.projectId}/complex/${complex.id}`}>
-            <Button className="w-full" size="sm">
-              Подробнее о ЖК
-              <ChevronRight className="h-4 w-4 ml-1" />
-            </Button>
-          </Link>
+          {complex.projectId ? (
+            <Link href={`/projects/${complex.projectId}/complex/${complex.id}`}>
+              <Button className="w-full" size="sm">
+                Подробнее о ЖК
+                <ChevronRight className="h-4 w-4 ml-1" />
+              </Button>
+            </Link>
+          ) : complex.krishaUrl ? (
+            <a href={complex.krishaUrl} target="_blank" rel="noopener noreferrer">
+              <Button className="w-full" size="sm" variant="outline">
+                <ExternalLink className="h-4 w-4 mr-1" />
+                Открыть на Krisha.kz
+              </Button>
+            </a>
+          ) : null}
         </div>
       )}
     </div>

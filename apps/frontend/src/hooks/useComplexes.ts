@@ -5,9 +5,11 @@ import { api } from "@/lib/api-client";
 
 export interface ResidentialComplex {
   id: string;
-  projectId: string;
+  projectId: string | null;
   name: string;
   displayName: string;
+  krishaComplexId: string | null;
+  krishaUrl: string | null;
   lat: number | null;
   lng: number | null;
   district: string | null;

@@ -16,7 +16,7 @@ import { formatPrice, formatArea } from "@/lib/utils";
 import {
   ArrowLeft, Building, MapPin, Clock, TrendingUp, Ruler,
   Calendar, Star, Shield, AlertTriangle, Activity, Home,
-  ChevronRight, ExternalLink, SortAsc,
+  ChevronRight, ExternalLink, SortAsc, Search,
 } from "lucide-react";
 
 const SHUTOV_LABELS: Record<number, string> = {
@@ -93,10 +93,10 @@ export default function ComplexDetailPage() {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => router.push(`/projects/${projectId}/results`)}
+            onClick={() => router.back()}
           >
             <ArrowLeft className="h-4 w-4 mr-1" />
-            К результатам
+            Назад
           </Button>
         </div>
 
@@ -283,9 +283,28 @@ export default function ComplexDetailPage() {
                     );
                   })}
                   {(!properties || properties.length === 0) && (
-                    <p className="text-sm text-muted-foreground text-center py-4">
-                      Объявления не найдены
-                    </p>
+                    <div className="text-center py-6 space-y-3">
+                      <Building className="h-8 w-8 mx-auto text-muted-foreground" />
+                      <div>
+                        <p className="text-sm font-medium">Объявления пока не найдены</p>
+                        <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">
+                          DreamApt показывает объявления только из ваших поисков.
+                          Запустите новый поиск с нужными параметрами — и квартиры этого ЖК появятся здесь.
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={async () => {
+                          const { useCreateProject } = await import("@/hooks/useProjects");
+                          // Navigate to dashboard for new search
+                          router.push("/dashboard");
+                        }}
+                      >
+                        <Search className="h-3.5 w-3.5 mr-1" />
+                        Новый поиск
+                      </Button>
+                    </div>
                   )}
                 </div>
               </CardContent>
