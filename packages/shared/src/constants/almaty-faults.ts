@@ -42,19 +42,18 @@ function haversineMeters(
   lng2: number,
 ): number {
   const R = 6371000;
-  const toRad = (d: number) => (d * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLng = toRad(lng2 - lng1);
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
   const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLng / 2) *
+      Math.sin(dLng / 2);
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-/**
- * Calculate minimum distance from a point to a line segment.
- * Returns distance in meters.
- */
+/** Distance from a point to a line segment (flat-earth approx for short distances) */
 function distanceToSegment(
   pLat: number,
   pLng: number,
@@ -63,20 +62,17 @@ function distanceToSegment(
   bLat: number,
   bLng: number,
 ): number {
-  // Project point onto line segment using flat-earth approximation
-  // (acceptable for short segments within a city)
-  const cosLat = Math.cos((pLat * Math.PI) / 180);
-  const dx = (bLng - aLng) * cosLat;
-  const dy = bLat - aLat;
-  const px = (pLng - aLng) * cosLat;
-  const py = pLat - aLat;
+  const latScale = 111320;
+  const lngScale = 111320 * Math.cos((pLat * Math.PI) / 180);
 
-  const lenSq = dx * dx + dy * dy;
-  if (lenSq === 0) {
-    return haversineMeters(pLat, pLng, aLat, aLng);
-  }
+  const px = (pLng - aLng) * lngScale;
+  const py = (pLat - aLat) * latScale;
+  const bx = (bLng - aLng) * lngScale;
+  const by = (bLat - aLat) * latScale;
 
-  let t = (px * dx + py * dy) / lenSq;
+  const dot = px * bx + py * by;
+  const lenSq = bx * bx + by * by;
+  let t = lenSq > 0 ? dot / lenSq : 0;
   t = Math.max(0, Math.min(1, t));
 
   const projLat = aLat + t * (bLat - aLat);
@@ -86,65 +82,82 @@ function distanceToSegment(
 }
 
 /**
- * Find the nearest fault line to a given coordinate.
- * Returns distance in meters and fault info.
+ * Find the most dangerous fault relative to a given coordinate.
+ *
+ * Strategy: for each fault, compute effective distance = raw_distance / danger_multiplier.
+ * The fault with the SMALLEST effective distance is the most relevant threat.
+ * This ensures a confirmed fault (danger=3) at 900m is considered more dangerous
+ * than a disputed fault (danger=1) at 700m.
+ *
+ * Risk thresholds (on effective distance):
+ *   <200m  = critical ("На разломе")
+ *   <500m  = high ("Опасная зона")
+ *   <1200m = moderate ("Зона внимания")
+ *   <3000m = low ("Умеренный риск")
+ *   >3000m = safe ("Безопасная зона")
  */
 export function findNearestFault(
   lat: number,
   lng: number,
 ): FaultProximityResult {
-  let minDistance = Infinity;
-  let nearestFault: FaultLine | null = null;
+  let bestEffectiveDistance = Infinity;
+  let bestRawDistance = Infinity;
+  let bestFault: FaultLine | null = null;
 
-  // Check both fault lines and fault zones
   const allFaults = [...FAULT_LINES, ...FAULT_ZONES];
+
   for (const fault of allFaults) {
     const coords = fault.coordinates;
+    let minDist = Infinity;
+
+    // Check distance to each segment
     for (let i = 0; i < coords.length - 1; i++) {
       const [aLat, aLng] = coords[i];
       const [bLat, bLng] = coords[i + 1];
       const dist = distanceToSegment(lat, lng, aLat, aLng, bLat, bLng);
-      if (dist < minDistance) {
-        minDistance = dist;
-        nearestFault = fault;
-      }
+      if (dist < minDist) minDist = dist;
     }
-    // Also check distance to individual points
+
+    // Also check individual points
     for (const [pLat, pLng] of coords) {
       const dist = haversineMeters(lat, lng, pLat, pLng);
-      if (dist < minDistance) {
-        minDistance = dist;
-        nearestFault = fault;
-      }
+      if (dist < minDist) minDist = dist;
+    }
+
+    // Effective distance: closer for more dangerous faults
+    const effectiveDist = minDist / (fault.danger || 1);
+
+    if (effectiveDist < bestEffectiveDistance) {
+      bestEffectiveDistance = effectiveDist;
+      bestRawDistance = minDist;
+      bestFault = fault;
     }
   }
 
-  const distanceMeters = Math.round(minDistance);
+  const distanceMeters = Math.round(bestRawDistance);
 
-  // Determine risk level based on distance AND fault danger level
-  const dangerMultiplier = nearestFault?.danger ?? 1;
-  const effectiveDistance = distanceMeters / dangerMultiplier;
-
+  // Relaxed thresholds — Almaty is a seismically active city,
+  // most buildings are built to seismic codes. Only flag truly close proximity.
   let riskLevel: FaultProximityResult["riskLevel"];
   let riskLabel: string;
   let riskColor: string;
 
-  if (effectiveDistance < 100) {
+  if (bestEffectiveDistance < 200) {
     riskLevel = "critical";
     riskLabel = "На разломе";
     riskColor = "#dc2626"; // red
-  } else if (effectiveDistance < 300) {
+  } else if (bestEffectiveDistance < 500) {
     riskLevel = "high";
     riskLabel = "Опасная зона";
     riskColor = "#f97316"; // orange
-  } else if (effectiveDistance < 700) {
+  } else if (bestEffectiveDistance < 1200) {
     riskLevel = "moderate";
     riskLabel = "Зона внимания";
     riskColor = "#eab308"; // yellow
-  } else if (effectiveDistance < 1500) {
+  } else if (bestEffectiveDistance < 3000) {
     riskLevel = "low";
     riskLabel = "Умеренный риск";
-    riskColor = "#22c55e"; // green
+    riskColor = "#84cc16"; // lime
   } else {
     riskLevel = "safe";
     riskLabel = "Безопасная зона";
@@ -153,12 +166,12 @@ export function findNearestFault(
 
   return {
     distanceMeters,
-    nearestFault: nearestFault
+    nearestFault: bestFault
       ? {
-          name: nearestFault.name,
-          level: nearestFault.level,
-          label: nearestFault.label,
-          danger: nearestFault.danger,
+          name: bestFault.name,
+          level: bestFault.level,
+          label: bestFault.label,
+          danger: bestFault.danger,
         }
       : { name: "Неизвестно", level: "unknown", label: "Неизвестно", danger: 0 },
     riskLevel,
