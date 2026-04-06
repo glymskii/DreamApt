@@ -120,18 +120,32 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
                 </div>
               </div>
 
-              {/* Seismic warning */}
-              {isHighRisk && (
-                <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
-                  <AlertTriangle className="h-4 w-4 text-red-600 shrink-0 mt-0.5" />
+              {/* Seismic info — always show when data available */}
+              {seismic?.found && (
+                <div className={`flex items-start gap-2 p-3 rounded-lg border ${
+                  isHighRisk
+                    ? "bg-red-50 border-red-200"
+                    : seismic.riskLevel === "moderate"
+                    ? "bg-yellow-50 border-yellow-200"
+                    : "bg-green-50 border-green-200"
+                }`}>
+                  {isHighRisk ? (
+                    <AlertTriangle className="h-4 w-4 text-red-600 shrink-0 mt-0.5" />
+                  ) : (
+                    <Activity className="h-4 w-4 shrink-0 mt-0.5" style={{ color: seismic.riskColor }} />
+                  )}
                   <div>
-                    <p className="text-xs font-semibold text-red-800">
-                      {seismic.riskLevel === "critical" ? "На сейсмическом разломе" : "Опасная сейсмическая зона"}
+                    <p className={`text-xs font-semibold ${
+                      isHighRisk ? "text-red-800" : seismic.riskLevel === "moderate" ? "text-yellow-800" : "text-green-800"
+                    }`}>
+                      {seismic.riskLabel}
                     </p>
-                    <p className="text-xs text-red-700 mt-0.5">
+                    <p className={`text-xs mt-0.5 ${
+                      isHighRisk ? "text-red-700" : "text-muted-foreground"
+                    }`}>
                       {seismic.distanceMeters < 1000
                         ? `${seismic.distanceMeters} м`
-                        : `${(seismic.distanceMeters / 1000).toFixed(1)} км`} до разлома
+                        : `${(seismic.distanceMeters / 1000).toFixed(1)} км`} до {seismic.nearestFault?.label?.toLowerCase() || "разлома"}
                     </p>
                   </div>
                 </div>

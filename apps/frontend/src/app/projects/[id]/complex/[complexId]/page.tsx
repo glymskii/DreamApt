@@ -386,7 +386,7 @@ export default function ComplexDetailPage() {
                         {seismicRisk.distanceMeters < 1000
                           ? `${seismicRisk.distanceMeters} м`
                           : `${(seismicRisk.distanceMeters / 1000).toFixed(1)} км`}{" "}
-                        до ближайшего разлома
+                        до {seismicRisk.nearestFault?.label?.toLowerCase() || "разлома"}
                       </p>
                     </div>
                   </div>

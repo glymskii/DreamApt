@@ -287,7 +287,7 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
             ${seismicDist ? `<div style="display:flex;align-items:center;gap:6px;margin-top:6px;padding:4px 6px;border-radius:6px;font-size:11px;background:${seismicBg}">
               <span style="width:8px;height:8px;border-radius:50%;background:${getSeismicColor(seismicRisk)};flex-shrink:0"></span>
               <span>${getSeismicLabel(seismicRisk)}</span>
-              <span style="color:#888;margin-left:auto">${seismicDistStr}</span>
+              <span style="color:#888;margin-left:auto">${seismicDistStr} до разлома</span>
             </div>` : ""}
           </div>
         `).addTo(map);
