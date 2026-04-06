@@ -59,6 +59,12 @@ export class ResidentialComplexEntity {
   @Column({ name: "listings_count", default: 0 })
   listingsCount: number;
 
+  @Column({ name: "floors_max", nullable: true })
+  floorsMax: number;
+
+  @Column({ name: "floor_segment", nullable: true })
+  floorSegment: string;
+
   // Scores
   @Column({ name: "score_total", type: "decimal", precision: 5, scale: 2, nullable: true })
   scoreTotal: number;

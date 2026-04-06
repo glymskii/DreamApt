@@ -30,6 +30,8 @@ export interface ResidentialComplex {
   shutovCategory: number | null;
   seismicRiskLevel: string | null;
   seismicDistanceMeters: number | null;
+  floorsMax: number | null;
+  floorSegment: string | null;
   groupingMethod: string | null;
   scoringExplanation: string | null;
   photoUrl: string | null;
@@ -105,6 +107,8 @@ export interface MapData {
     priceMin: number | null;
     priceMax: number | null;
     shutovCategory: number | null;
+    floorsMax: number | null;
+    floorSegment: string | null;
   }>;
   faultLines: Array<{
     name: string;

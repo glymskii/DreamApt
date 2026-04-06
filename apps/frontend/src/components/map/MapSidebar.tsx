@@ -27,6 +27,13 @@ const DISTRICTS = [
   "Алатауский р-н",
 ];
 
+const FLOOR_FILTERS = [
+  { value: "low_rise", label: "🏠 1-5 эт." },
+  { value: "mid_rise", label: "🏢 6-12 эт." },
+  { value: "high_rise", label: "🏙️ 13-25 эт." },
+  { value: "skyscraper", label: "🏗️ 25+ эт." },
+];
+
 const RISK_FILTERS = [
   { value: "critical", label: "Опасная зона", color: "bg-red-500" },
   { value: "high", label: "Высокий", color: "bg-orange-500" },
@@ -61,6 +68,7 @@ export function MapSidebar({ data, selectedId, onSelect, onHover, isMobile }: Ma
   const [search, setSearch] = useState("");
   const [districtFilter, setDistrictFilter] = useState("");
   const [riskFilter, setRiskFilter] = useState<string[]>([]);
+  const [floorFilter, setFloorFilter] = useState<string[]>([]);
   const [showFilters, setShowFilters] = useState(false);
 
   const filtered = useMemo(() => {
@@ -82,12 +90,22 @@ export function MapSidebar({ data, selectedId, onSelect, onHover, isMobile }: Ma
       result = result.filter((c) => riskFilter.includes(c.seismicRiskLevel || "safe"));
     }
 
+    if (floorFilter.length > 0) {
+      result = result.filter((c) => c.floorSegment && floorFilter.includes(c.floorSegment));
+    }
+
     return result.sort((a, b) => (Number(b.scoreTotal) || 0) - (Number(a.scoreTotal) || 0));
   }, [data.complexes, search, districtFilter, riskFilter]);
 
   const toggleRisk = (risk: string) => {
     setRiskFilter((prev) =>
       prev.includes(risk) ? prev.filter((r) => r !== risk) : [...prev, risk],
+    );
+  };
+
+  const toggleFloor = (floor: string) => {
+    setFloorFilter((prev) =>
+      prev.includes(floor) ? prev.filter((f) => f !== floor) : [...prev, floor],
     );
   };
 
@@ -110,9 +128,9 @@ export function MapSidebar({ data, selectedId, onSelect, onHover, isMobile }: Ma
           className="text-xs text-muted-foreground hover:text-foreground transition-colors"
         >
           {showFilters ? "Скрыть фильтры" : "Фильтры"}
-          {(districtFilter || riskFilter.length > 0) && (
+          {(districtFilter || riskFilter.length > 0 || floorFilter.length > 0) && (
             <span className="ml-1 text-primary">
-              ({(districtFilter ? 1 : 0) + riskFilter.length})
+              ({(districtFilter ? 1 : 0) + riskFilter.length + floorFilter.length})
             </span>
           )}
         </button>
@@ -148,11 +166,30 @@ export function MapSidebar({ data, selectedId, onSelect, onHover, isMobile }: Ma
                 ))}
               </div>
             </div>
+
+            <div>
+              <p className="text-[10px] text-muted-foreground mb-1">Этажность</p>
+              <div className="flex flex-wrap gap-1">
+                {FLOOR_FILTERS.map((ff) => (
+                  <button
+                    key={ff.value}
+                    onClick={() => toggleFloor(ff.value)}
+                    className={`px-2 py-0.5 rounded-full text-[10px] border transition-colors ${
+                      floorFilter.includes(ff.value)
+                        ? "bg-blue-500 text-white border-transparent"
+                        : "border-border hover:border-primary/50"
+                    }`}
+                  >
+                    {ff.label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         )}
 
         <p className="text-[10px] text-muted-foreground">
-          {filtered.length} ЖК {search || districtFilter || riskFilter.length > 0 ? "(отфильтровано)" : ""}
+          {filtered.length} ЖК {search || districtFilter || riskFilter.length > 0 || floorFilter.length > 0 ? "(отфильтровано)" : ""}
         </p>
       </div>
 

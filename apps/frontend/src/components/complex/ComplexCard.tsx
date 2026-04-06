@@ -145,6 +145,12 @@ export function ComplexCard({ complex, onClick }: Props) {
               {complex.district}
             </span>
           )}
+          {complex.floorsMax != null && complex.floorsMax > 0 && (
+            <span className="flex items-center gap-1">
+              <Building className="h-3 w-3" />
+              {complex.floorsMax} эт.
+            </span>
+          )}
           {complex.commuteMinutes != null && complex.commuteMinutes > 0 && (
             <span className="flex items-center gap-1">
               <Clock className="h-3 w-3" />

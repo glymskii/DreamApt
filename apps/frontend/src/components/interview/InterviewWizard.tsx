@@ -9,6 +9,7 @@ import {
   ROOM_OPTIONS,
   BUILDING_TYPES,
   CONDITION_OPTIONS,
+  FLOOR_SEGMENTS,
   LIFESTYLE_OPTIONS,
   COMMUTE_MODES,
   COMMUTE_TIME_OPTIONS,
@@ -28,6 +29,7 @@ interface InterviewData {
   rooms: number[];
   buildingType: string[];
   condition: string[];
+  floorSegments: string[];
   areaMin: number;
   areaMax: number;
   workLocation: { lat: number; lng: number; label: string };
@@ -45,6 +47,7 @@ const INITIAL_DATA: InterviewData = {
   rooms: [],
   buildingType: [],
   condition: [],
+  floorSegments: [],
   areaMin: 40,
   areaMax: 120,
   workLocation: { lat: 43.238, lng: 76.945, label: "" },
@@ -377,6 +380,26 @@ export function InterviewWizard({ onComplete }: Props) {
                     }`}
                   >
                     {c.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <h4 className="text-sm font-medium mb-3">Этажность дома</h4>
+              <div className="grid grid-cols-2 gap-3">
+                {FLOOR_SEGMENTS.map((f) => (
+                  <button
+                    key={f.value}
+                    onClick={() => toggleArray("floorSegments", f.value)}
+                    className={`p-3 rounded-lg border text-left transition-colors ${
+                      data.floorSegments.includes(f.value)
+                        ? "border-primary bg-primary/5 font-medium"
+                        : "border-border hover:border-primary/50"
+                    }`}
+                  >
+                    <span className="text-lg mr-2">{f.icon}</span>
+                    <span className="text-sm">{f.label}</span>
+                    <p className="text-xs text-muted-foreground mt-0.5">{f.description}</p>
                   </button>
                 ))}
               </div>
@@ -964,6 +987,13 @@ export function InterviewWizard({ onComplete }: Props) {
           <div className="space-y-4">
             <SummaryRow label="Районы" value={data.districts.map((d) => ALMATY_DISTRICTS.find((x) => x.value === d)?.label).join(", ")} />
             <SummaryRow label="Комнаты" value={data.rooms.join(", ")} />
+            <SummaryRow
+              label="Этажность"
+              value={data.floorSegments.length > 0
+                ? data.floorSegments.map((f) => FLOOR_SEGMENTS.find((x) => x.value === f)?.label).join(", ")
+                : "Любая"
+              }
+            />
             <SummaryRow label="Площадь" value={`${data.areaMin}–${data.areaMax} м²`} />
             <SummaryRow label="Работа" value={data.workLocation.label} />
             <SummaryRow label="Транспорт" value={COMMUTE_MODES.find((m) => m.value === data.commuteMode)?.label || ""} />

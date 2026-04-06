@@ -406,6 +406,16 @@ export class SearchService {
     const districts = group.map((p) => p.district).filter(Boolean);
     const district = districts.length > 0 ? this.mostCommon(districts) : null;
 
+    // Floor segment
+    const floors = group.filter((p) => p.floorTotal > 0).map((p) => Number(p.floorTotal));
+    const floorsMax = floors.length > 0 ? Math.max(...floors) : null;
+    const floorSegment = floorsMax
+      ? floorsMax <= 5 ? "low_rise"
+        : floorsMax <= 12 ? "mid_rise"
+        : floorsMax <= 25 ? "high_rise"
+        : "skyscraper"
+      : null;
+
     // Best photo
     const photoUrl = group.find((p) => p.photos?.length > 0)?.photos[0] || null;
 
@@ -438,6 +448,8 @@ export class SearchService {
       priceMax: priceMax as any,
       priceAvg: priceAvg as any,
       listingsCount: group.length,
+      floorsMax: floorsMax as any,
+      floorSegment: floorSegment as any,
       groupingMethod: method,
       photoUrl: photoUrl as any,
       seismicRiskLevel: seismicRiskLevel as any,

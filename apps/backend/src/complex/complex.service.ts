@@ -25,14 +25,17 @@ export class ComplexService {
         "listingsCount", "seismicRiskLevel", "seismicDistanceMeters",
         "commuteMinutes", "photoUrl", "district", "priceMin", "priceMax",
         "shutovCategory", "scoreInfrastructure", "scoreLifestyle",
-        "scoreCommute", "scoreSeismic",
+        "scoreCommute", "scoreSeismic", "floorsMax", "floorSegment",
       ],
     });
 
     // Deduplicate by normalized name — keep the one with highest score
+    // Also filter to Almaty bounds only
     const dedupMap = new Map<string, ResidentialComplexEntity>();
     for (const c of all) {
       if (!c.lat || !c.lng) continue;
+      const lat = Number(c.lat), lng = Number(c.lng);
+      if (lat < 43.0 || lat > 43.5 || lng < 76.4 || lng > 77.5) continue;
       const key = c.name.toLowerCase().trim();
       const existing = dedupMap.get(key);
       if (!existing || (Number(c.scoreTotal) || 0) > (Number(existing.scoreTotal) || 0)) {
