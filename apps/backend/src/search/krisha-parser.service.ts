@@ -2,9 +2,12 @@ import { Injectable, Logger } from "@nestjs/common";
 import Bottleneck from "bottleneck";
 import * as cheerio from "cheerio";
 
-const RATE_LIMIT_MS = parseInt(process.env.KRISHA_RATE_LIMIT_MS || "3000");
-const MAX_PAGES = parseInt(process.env.KRISHA_MAX_PAGES || "3");
-const MAX_DETAILS = parseInt(process.env.KRISHA_MAX_DETAILS || "20");
+const RATE_LIMIT_MS = parseInt(process.env.KRISHA_RATE_LIMIT_MS || "1500");
+const MAX_PAGES = parseInt(process.env.KRISHA_MAX_PAGES || "10");
+const MAX_DETAILS = parseInt(process.env.KRISHA_MAX_DETAILS || "120");
+const MAX_CONCURRENT = parseInt(process.env.KRISHA_MAX_CONCURRENT || "3");
+const DETAIL_TIMEOUT_MS = parseInt(process.env.KRISHA_DETAIL_TIMEOUT_MS || "15000");
+const RESERVOIR_CAP = parseInt(process.env.KRISHA_RESERVOIR || "200");
 
 const USER_AGENTS = [
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -70,7 +73,10 @@ export class KrishaParserService {
   constructor() {
     this.limiter = new Bottleneck({
       minTime: RATE_LIMIT_MS,
-      maxConcurrent: 1,
+      maxConcurrent: MAX_CONCURRENT,
+      reservoir: RESERVOIR_CAP,
+      reservoirRefreshInterval: 60 * 1000,
+      reservoirRefreshAmount: RESERVOIR_CAP,
     });
   }
 
@@ -81,21 +87,28 @@ export class KrishaParserService {
   private async fetchPage(url: string): Promise<cheerio.CheerioAPI> {
     return this.limiter.schedule(async () => {
       this.logger.log(`Fetching: ${url}`);
-      const res = await fetch(url, {
-        headers: {
-          "User-Agent": this.getRandomUA(),
-          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-          "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.8",
-          Referer: "https://krisha.kz/",
-        },
-      });
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), DETAIL_TIMEOUT_MS);
+      try {
+        const res = await fetch(url, {
+          headers: {
+            "User-Agent": this.getRandomUA(),
+            Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.8",
+            Referer: "https://krisha.kz/",
+          },
+          signal: controller.signal,
+        });
 
-      if (!res.ok) {
-        throw new Error(`Krisha returned ${res.status} for ${url}`);
+        if (!res.ok) {
+          throw new Error(`Krisha returned ${res.status} for ${url}`);
+        }
+
+        const html = await res.text();
+        return cheerio.load(html);
+      } finally {
+        clearTimeout(timeoutId);
       }
-
-      const html = await res.text();
-      return cheerio.load(html);
     });
   }
 
@@ -207,8 +220,8 @@ export class KrishaParserService {
       districtPaths.push(undefined);
     }
 
-    // Distribute pages across districts
-    const pagesPerDistrict = Math.max(1, Math.ceil(MAX_PAGES / districtPaths.length));
+    // Each district gets the full MAX_PAGES quota (not divided)
+    const pagesPerDistrict = MAX_PAGES;
 
     for (const districtPath of districtPaths) {
       const baseParams = {
@@ -399,21 +412,82 @@ export class KrishaParserService {
       params["Адрес"] ||
       listing.district;
 
-    // Coordinates
+    // Coordinates — try multiple strategies
     let lat: number | null = null;
     let lng: number | null = null;
 
+    // Attempt 1: [data-lat] attribute on map element
     const mapEl = $("[data-lat]");
     if (mapEl.length) {
-      lat = parseFloat(mapEl.attr("data-lat") || "");
-      lng = parseFloat(mapEl.attr("data-lon") || mapEl.attr("data-lng") || "");
+      const l = parseFloat(mapEl.attr("data-lat") || "");
+      const g = parseFloat(mapEl.attr("data-lon") || mapEl.attr("data-lng") || "");
+      if (!isNaN(l) && !isNaN(g)) {
+        lat = l;
+        lng = g;
+      }
     }
 
+    // Attempt 2: "lat":X,"lon":Y in script text
     if (!lat) {
       const coordMatch = scriptText.match(/"lat"\s*:\s*([\d.]+).*?"lon"\s*:\s*([\d.]+)/);
       if (coordMatch) {
         lat = parseFloat(coordMatch[1]);
         lng = parseFloat(coordMatch[2]);
+      }
+    }
+
+    // Attempt 3: JSON-LD geo data (schema.org/Place)
+    if (!lat) {
+      $('script[type="application/ld+json"]').each((_i, el) => {
+        if (lat) return;
+        try {
+          const parsed = JSON.parse($(el).html() || "{}");
+          const candidates = Array.isArray(parsed) ? parsed : [parsed, ...(parsed["@graph"] || [])];
+          for (const obj of candidates) {
+            const geo = obj?.geo;
+            if (geo?.latitude && geo?.longitude) {
+              lat = parseFloat(geo.latitude);
+              lng = parseFloat(geo.longitude);
+              return;
+            }
+          }
+        } catch {
+          // ignore malformed JSON-LD
+        }
+      });
+    }
+
+    // Attempt 4: broader regex patterns in script text
+    if (!lat) {
+      const patterns = [
+        /"point"\s*:\s*\{\s*"lat"\s*:\s*([\d.]+)\s*,\s*"lon"\s*:\s*([\d.]+)/,
+        /"center"\s*:\s*\[\s*([\d.]+)\s*,\s*([\d.]+)\s*\]/,
+        /map\.point\s*=\s*\[\s*([\d.]+)\s*,\s*([\d.]+)\s*\]/,
+        /center:\s*\[\s*([\d.]+)\s*,\s*([\d.]+)\s*\]/,
+      ];
+      for (const pat of patterns) {
+        const m = scriptText.match(pat);
+        if (m) {
+          const a = parseFloat(m[1]);
+          const b = parseFloat(m[2]);
+          // Detect [lng,lat] vs [lat,lng] by Almaty range (lat ~43, lng ~76)
+          if (a > 70 && b < 50) {
+            lng = a;
+            lat = b;
+          } else {
+            lat = a;
+            lng = b;
+          }
+          break;
+        }
+      }
+    }
+
+    // Sanity check: coordinates must be in Almaty bounds (lat 43.0-43.5, lng 76.4-77.5)
+    if (lat !== null && lng !== null) {
+      if (lat < 43.0 || lat > 43.5 || lng < 76.4 || lng > 77.5) {
+        lat = null;
+        lng = null;
       }
     }
 
@@ -464,9 +538,38 @@ export class KrishaParserService {
     };
   }
 
+  /** Build a fallback property detail from listing data only (when scrapeDetail fails) */
+  private listingToStubDetail(listing: KrishaListingItem): KrishaPropertyDetail {
+    return {
+      krishaId: listing.krishaId,
+      krishaUrl: listing.krishaUrl,
+      title: listing.title,
+      price: listing.price,
+      rooms: listing.rooms,
+      areaTotal: listing.areaTotal,
+      areaLiving: 0,
+      areaKitchen: 0,
+      floor: 0,
+      floorTotal: 0,
+      buildingType: "",
+      yearBuilt: null,
+      condition: "",
+      district: listing.district,
+      address: listing.district,
+      complexName: "",
+      lat: null,
+      lng: null,
+      phone: "",
+      sellerType: "",
+      photos: listing.photoThumb ? [listing.photoThumb] : [],
+      description: "",
+    };
+  }
+
   /**
    * Full parse pipeline: search → list → details
-   * Returns fully parsed properties ready to save
+   * Returns fully parsed properties ready to save.
+   * Detail fetching is parallelized via Bottleneck (maxConcurrent=MAX_CONCURRENT).
    */
   async parseFromKrisha(
     interviewAnswers: Record<string, unknown>,
@@ -483,45 +586,23 @@ export class KrishaParserService {
       return [];
     }
 
-    // Step 2: Get details for each listing (limited)
+    // Step 2: Get details for each listing (parallel, rate-limited by Bottleneck)
     const toFetch = listings.slice(0, MAX_DETAILS);
-    const properties: KrishaPropertyDetail[] = [];
+    this.logger.log(`Fetching details for ${toFetch.length} listings (concurrency=${MAX_CONCURRENT})`);
+    const startTime = Date.now();
 
-    for (const listing of toFetch) {
-      try {
-        const detail = await this.scrapeDetail(listing);
-        properties.push(detail);
-        this.logger.log(`Parsed detail: ${detail.krishaId} - ${detail.title}`);
-      } catch (err) {
-        this.logger.error(`Failed to parse detail ${listing.krishaId}: ${err}`);
-        // Still save basic info from listing
-        properties.push({
-          krishaId: listing.krishaId,
-          krishaUrl: listing.krishaUrl,
-          title: listing.title,
-          price: listing.price,
-          rooms: listing.rooms,
-          areaTotal: listing.areaTotal,
-          areaLiving: 0,
-          areaKitchen: 0,
-          floor: 0,
-          floorTotal: 0,
-          buildingType: "",
-          yearBuilt: null,
-          condition: "",
-          district: listing.district,
-          address: listing.district,
-          complexName: "",
-          lat: null,
-          lng: null,
-          phone: "",
-          sellerType: "",
-          photos: listing.photoThumb ? [listing.photoThumb] : [],
-          description: "",
-        });
-      }
-    }
+    const results = await Promise.all(
+      toFetch.map((listing) =>
+        this.scrapeDetail(listing).catch((err) => {
+          this.logger.warn(`Failed to parse detail ${listing.krishaId}: ${err}`);
+          return this.listingToStubDetail(listing);
+        }),
+      ),
+    );
 
-    return properties;
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    this.logger.log(`Fetched ${results.length} details in ${elapsed}s`);
+
+    return results;
   }
 }

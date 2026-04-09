@@ -122,6 +122,11 @@ export class SearchService {
   /**
    * Filter properties by proximity to user-specified locations.
    * Each location has a radiusKm — property must be within that radius of at least ONE location.
+   *
+   * Softened (Phase 4.1): properties without coordinates are NOT dropped —
+   * we keep them rather than silently losing listings whose coords we failed to extract.
+   * Coordinate backfill runs BEFORE this filter, so no-coord properties at this point
+   * are ones we truly couldn't locate.
    */
   private filterByProximity(
     properties: KrishaPropertyDetail[],
@@ -136,8 +141,13 @@ export class SearchService {
     }
 
     const before = properties.length;
+    let noCoordKept = 0;
     const filtered = properties.filter((prop) => {
-      if (!prop.lat || !prop.lng) return false;
+      // No coords → keep (don't silently drop)
+      if (!prop.lat || !prop.lng) {
+        noCoordKept++;
+        return true;
+      }
 
       // Property must be within radius of at least one proximity location
       return proximityLocations.some((loc) => {
@@ -147,10 +157,182 @@ export class SearchService {
     });
 
     this.logger.log(
-      `Proximity filter: ${before} → ${filtered.length} properties (locations: ${proximityLocations.map((l) => `${l.name} ${l.radiusKm}km`).join(", ")})`,
+      `Proximity filter: ${before} → ${filtered.length} (kept ${noCoordKept} without coords) [${proximityLocations.map((l) => `${l.name} ${l.radiusKm}km`).join(", ")}]`,
     );
 
     return filtered;
+  }
+
+  /**
+   * Filter properties by floor segments (low_rise/mid_rise/high_rise/skyscraper).
+   * Unknown floor count (0 or missing) → kept (we don't want to drop listings over missing data).
+   */
+  private filterByFloorSegments(
+    properties: KrishaPropertyDetail[],
+    interviewAnswers: Record<string, unknown>,
+  ): KrishaPropertyDetail[] {
+    const segs = interviewAnswers.floorSegments as string[] | undefined;
+    if (!segs || segs.length === 0) return properties;
+
+    const segmentOf = (floorsMax: number): string =>
+      floorsMax <= 5 ? "low_rise"
+      : floorsMax <= 12 ? "mid_rise"
+      : floorsMax <= 25 ? "high_rise"
+      : "skyscraper";
+
+    const before = properties.length;
+    const filtered = properties.filter((p) => {
+      const ft = Number(p.floorTotal) || 0;
+      if (ft <= 0) return true; // unknown → keep
+      return segs.includes(segmentOf(ft));
+    });
+    this.logger.log(`FloorSegments filter (${segs.join(",")}): ${before} → ${filtered.length}`);
+    return filtered;
+  }
+
+  /**
+   * Load a Map from normalized complex name → {lat, lng} using the global
+   * residential_complexes table. Built once per pipeline run and reused for
+   * fuzzy fallback when Krisha didn't provide coordinates.
+   */
+  private async loadComplexCoordIndex(): Promise<Map<string, { lat: number; lng: number }>> {
+    const rows = await this.complexesRepo
+      .createQueryBuilder("c")
+      .select(["c.name", "c.displayName", "c.lat", "c.lng"])
+      .where("c.lat IS NOT NULL AND c.lng IS NOT NULL")
+      .getMany();
+
+    const idx = new Map<string, { lat: number; lng: number }>();
+    for (const r of rows) {
+      const lat = Number(r.lat);
+      const lng = Number(r.lng);
+      if (!lat || !lng) continue;
+      // Index under both normalized name and normalized displayName
+      const keys = [r.name, r.displayName].filter(Boolean) as string[];
+      for (const k of keys) {
+        const norm = this.normalizeComplexName(k);
+        if (norm && !idx.has(norm)) idx.set(norm, { lat, lng });
+      }
+    }
+    this.logger.log(`Loaded complex coord index: ${idx.size} entries`);
+    return idx;
+  }
+
+  /**
+   * Backfill missing lat/lng on parsed properties using:
+   *  1) exact normalized complex name match in the local index
+   *  2) fuzzy Levenshtein match (≤2) in the local index
+   *  3) 2GIS catalog API fallback (only for properties with complexName)
+   *
+   * Mutates the input array in place (properties are ephemeral between parse and save).
+   */
+  private async backfillCoordinates(
+    properties: KrishaPropertyDetail[],
+    complexIndex: Map<string, { lat: number; lng: number }>,
+  ): Promise<KrishaPropertyDetail[]> {
+    let fromDb = 0;
+    let fromFuzzy = 0;
+    let fromTwoGis = 0;
+    let stillMissing = 0;
+    let skipped = 0;
+
+    for (const p of properties) {
+      if (p.lat && p.lng) {
+        skipped++;
+        continue;
+      }
+
+      // No complex name AND no coords → can't do anything
+      if (!p.complexName || p.complexName.trim().length < 2) {
+        stillMissing++;
+        continue;
+      }
+
+      const norm = this.normalizeComplexName(p.complexName);
+
+      // 1) Exact normalized match
+      const hit = complexIndex.get(norm);
+      if (hit) {
+        p.lat = hit.lat;
+        p.lng = hit.lng;
+        fromDb++;
+        continue;
+      }
+
+      // 2) Fuzzy Levenshtein match
+      let fuzzyHit: { lat: number; lng: number } | null = null;
+      for (const [k, v] of complexIndex) {
+        if (Math.abs(k.length - norm.length) > 3) continue;
+        if (this.levenshtein(k, norm) <= 2) {
+          fuzzyHit = v;
+          break;
+        }
+      }
+      if (fuzzyHit) {
+        p.lat = fuzzyHit.lat;
+        p.lng = fuzzyHit.lng;
+        fromFuzzy++;
+        complexIndex.set(norm, fuzzyHit);
+        continue;
+      }
+
+      // 3) 2GIS geocoding fallback
+      try {
+        const coord = await this.geocodeViaTwoGis(p.complexName);
+        if (coord) {
+          p.lat = coord.lat;
+          p.lng = coord.lng;
+          fromTwoGis++;
+          complexIndex.set(norm, coord);
+          continue;
+        }
+      } catch (err) {
+        this.logger.warn(`2GIS geocode failed for "${p.complexName}": ${err}`);
+      }
+
+      stillMissing++;
+    }
+
+    this.logger.log(
+      `Coord backfill: had=${skipped}, DB=${fromDb}, fuzzy=${fromFuzzy}, 2GIS=${fromTwoGis}, missing=${stillMissing}`,
+    );
+    return properties;
+  }
+
+  /**
+   * Look up a complex by name on 2GIS catalog API, biased to Almaty.
+   * Returns lat/lng only if the result falls within Almaty bounds.
+   * Key matches the one used in nearby-places.service.ts.
+   */
+  private async geocodeViaTwoGis(
+    complexName: string,
+  ): Promise<{ lat: number; lng: number } | null> {
+    const key = process.env.TWOGIS_API_KEY || "rubnkm7490";
+    const q = encodeURIComponent(`ЖК ${complexName} Алматы`);
+    const url = `https://catalog.api.2gis.com/3.0/items?q=${q}&fields=items.point&page_size=1&key=${key}`;
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    try {
+      const res = await fetch(url, {
+        headers: { Accept: "application/json" },
+        signal: controller.signal,
+      });
+      if (!res.ok) return null;
+      const json: any = await res.json();
+      const item = json?.result?.items?.[0];
+      const pt = item?.point;
+      if (!pt?.lat || !(pt?.lon || pt?.lng)) return null;
+      const lat = Number(pt.lat);
+      const lng = Number(pt.lon ?? pt.lng);
+      // Almaty bounds sanity check
+      if (lat < 43.0 || lat > 43.5 || lng < 76.4 || lng > 77.5) return null;
+      return { lat, lng };
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }
 
   /** Haversine distance in km */
@@ -177,10 +359,18 @@ export class SearchService {
       let parsedProperties = await this.krishaParser.parseFromKrisha(interviewAnswers);
       this.logger.log(`Parsed ${parsedProperties.length} properties from Krisha.kz`);
 
+      // Phase 1.4: Backfill missing coordinates from complex DB + 2GIS fallback
+      // (must run BEFORE filters that depend on lat/lng)
+      const complexIndex = await this.loadComplexCoordIndex();
+      parsedProperties = await this.backfillCoordinates(parsedProperties, complexIndex);
+
       // Phase 1.5: Apply developer filter
       parsedProperties = this.filterByDeveloper(parsedProperties, interviewAnswers);
 
-      // Phase 1.6: Apply proximity filter
+      // Phase 1.55: Apply floor segments filter
+      parsedProperties = this.filterByFloorSegments(parsedProperties, interviewAnswers);
+
+      // Phase 1.6: Apply proximity filter (now soft — keeps properties without coords)
       parsedProperties = this.filterByProximity(parsedProperties, interviewAnswers);
 
       if (parsedProperties.length === 0) {
