@@ -8,6 +8,8 @@
     --foreground: 240 10% 3.9%;
     --card: 0 0% 100%;
     --card-foreground: 240 10% 3.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 3.9%;
     --primary: 240 5.9% 10%;
     --primary-foreground: 0 0% 98%;
     --secondary: 240 4.8% 95.9%;
@@ -22,6 +24,33 @@
     --input: 240 5.9% 90%;
     --ring: 240 5.9% 10%;
     --radius: 0.5rem;
+    /* App-specific surfaces */
+    --surface: 210 20% 98%;        /* page bg (was slate-50) */
+    --surface-elevated: 0 0% 100%; /* card bg on surface */
+  }
+
+  .dark {
+    --background: 240 10% 3.9%;
+    --foreground: 0 0% 98%;
+    --card: 240 6% 10%;
+    --card-foreground: 0 0% 98%;
+    --popover: 240 6% 10%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 0 0% 98%;
+    --primary-foreground: 240 5.9% 10%;
+    --secondary: 240 3.7% 15.9%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 240 3.7% 15.9%;
+    --muted-foreground: 240 5% 64.9%;
+    --accent: 240 3.7% 15.9%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 62.8% 50%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 3.7% 15.9%;
+    --input: 240 3.7% 15.9%;
+    --ring: 240 4.9% 83.9%;
+    --surface: 240 10% 5%;
+    --surface-elevated: 240 6% 10%;
   }
 }
 
@@ -33,4 +62,31 @@
     @apply bg-background text-foreground;
     font-family: system-ui, -apple-system, sans-serif;
   }
+}
+
+/* MapLibre GL popup theming for dark mode */
+.dark .maplibregl-popup-content {
+  background: hsl(var(--card));
+  color: hsl(var(--card-foreground));
+  border: 1px solid hsl(var(--border));
+}
+.dark .maplibregl-popup-tip {
+  border-top-color: hsl(var(--card)) !important;
+  border-bottom-color: hsl(var(--card)) !important;
+}
+.dark .maplibregl-popup-close-button {
+  color: hsl(var(--muted-foreground));
+}
+.dark .maplibregl-ctrl-group {
+  background: hsl(var(--card));
+}
+.dark .maplibregl-ctrl-group button {
+  background: hsl(var(--card));
+}
+.dark .maplibregl-ctrl-group button + button {
+  border-top-color: hsl(var(--border));
+}
+.dark .maplibregl-ctrl-attrib {
+  background: hsla(var(--card) / 0.7);
+  color: hsl(var(--muted-foreground));
 }

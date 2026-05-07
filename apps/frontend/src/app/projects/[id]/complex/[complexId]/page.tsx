@@ -68,7 +68,7 @@ export default function ComplexDetailPage() {
 
   if (isLoading || !complex) {
     return (
-      <div className="min-h-screen bg-slate-50">
+      <div className="min-h-screen bg-surface">
         <Header />
         <main className="container mx-auto px-4 py-8">
           <div className="animate-pulse space-y-4">
@@ -85,7 +85,7 @@ export default function ComplexDetailPage() {
     ? "bg-yellow-500" : "bg-orange-500";
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-surface">
       <Header />
       <main className="container mx-auto px-4 py-4 sm:py-8 max-w-5xl">
         {/* Nav */}

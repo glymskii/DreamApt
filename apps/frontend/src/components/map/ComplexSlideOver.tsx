@@ -46,7 +46,7 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
 
   return (
     <div
-      className="fixed z-50 bg-white shadow-2xl flex flex-col transition-transform duration-300 ease-out
+      className="fixed z-50 bg-card shadow-2xl flex flex-col transition-transform duration-300 ease-out
         bottom-0 left-0 right-0 h-[75dvh] rounded-t-2xl
         sm:top-0 sm:right-0 sm:left-auto sm:bottom-auto sm:h-full sm:w-[420px] sm:rounded-none"
     >
@@ -125,24 +125,24 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
               {seismic?.found && (
                 <div className={`flex items-start gap-2 p-3 rounded-lg border ${
                   isHighRisk
-                    ? "bg-red-50 border-red-200"
+                    ? "bg-red-50 border-red-200 dark:bg-red-950/30 dark:border-red-900"
                     : seismic.riskLevel === "moderate"
-                    ? "bg-yellow-50 border-yellow-200"
-                    : "bg-green-50 border-green-200"
+                    ? "bg-yellow-50 border-yellow-200 dark:bg-yellow-950/30 dark:border-yellow-900"
+                    : "bg-green-50 border-green-200 dark:bg-green-950/30 dark:border-green-900"
                 }`}>
                   {isHighRisk ? (
-                    <AlertTriangle className="h-4 w-4 text-red-600 shrink-0 mt-0.5" />
+                    <AlertTriangle className="h-4 w-4 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
                   ) : (
                     <Activity className="h-4 w-4 shrink-0 mt-0.5" style={{ color: seismic.riskColor }} />
                   )}
                   <div>
                     <p className={`text-xs font-semibold ${
-                      isHighRisk ? "text-red-800" : seismic.riskLevel === "moderate" ? "text-yellow-800" : "text-green-800"
+                      isHighRisk ? "text-red-800 dark:text-red-200" : seismic.riskLevel === "moderate" ? "text-yellow-800 dark:text-yellow-200" : "text-green-800 dark:text-green-200"
                     }`}>
                       {seismic.riskLabel}
                     </p>
                     <p className={`text-xs mt-0.5 ${
-                      isHighRisk ? "text-red-700" : "text-muted-foreground"
+                      isHighRisk ? "text-red-700 dark:text-red-300" : "text-muted-foreground"
                     }`}>
                       {seismic.distanceMeters < 1000
                         ? `${seismic.distanceMeters} м`

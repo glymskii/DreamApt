@@ -212,7 +212,7 @@ export default function ResultsPage() {
   const setPage = viewMode === "complexes" ? setComplexPage : setPropertyPage;
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-surface">
       <Header />
       <main className="container mx-auto px-4 py-8">
         <div className="flex items-center gap-4 mb-6">

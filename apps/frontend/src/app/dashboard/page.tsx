@@ -9,13 +9,14 @@ import { useGlobalMapData } from "@/hooks/useGlobalComplexes";
 import { MapSidebar } from "@/components/map/MapSidebar";
 import { ComplexSlideOver } from "@/components/map/ComplexSlideOver";
 import { Button } from "@/components/ui/button";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { Building2, Plus, LogOut, Loader2, List, Search, X } from "lucide-react";
 import Link from "next/link";
 
 const MapView = dynamic(() => import("@/components/map/MapView"), {
   ssr: false,
   loading: () => (
-    <div className="w-full h-full flex items-center justify-center bg-slate-100">
+    <div className="w-full h-full flex items-center justify-center bg-muted">
       <div className="text-center space-y-3">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mx-auto" />
         <p className="text-sm text-muted-foreground">Загрузка карты...</p>
@@ -47,7 +48,7 @@ export default function DashboardPage() {
   return (
     <div className="h-[100dvh] flex flex-col">
       {/* Compact header */}
-      <header className="border-b bg-white shrink-0 z-30">
+      <header className="border-b bg-card shrink-0 z-30">
         <div className="flex h-11 sm:h-12 items-center justify-between px-3 sm:px-4">
           <div className="flex items-center gap-2 sm:gap-4">
             <Link href="/dashboard" className="flex items-center gap-1.5 font-semibold text-sm">
@@ -85,6 +86,7 @@ export default function DashboardPage() {
                 Мои поиски
               </Button>
             </Link>
+            <ThemeToggle size="icon" />
             {user && (
               <Button variant="ghost" size="icon" className="h-8 w-8" onClick={logout}>
                 <LogOut className="h-3.5 w-3.5" />
@@ -113,7 +115,7 @@ export default function DashboardPage() {
               className="absolute inset-0 bg-black/30 z-30 lg:hidden"
               onClick={() => setShowMobileSidebar(false)}
             />
-            <div className="absolute top-0 left-0 bottom-0 w-[300px] bg-white z-40 lg:hidden shadow-xl overflow-y-auto">
+            <div className="absolute top-0 left-0 bottom-0 w-[300px] bg-card z-40 lg:hidden shadow-xl overflow-y-auto">
               <MapSidebar
                 data={mapData}
                 selectedId={selectedComplexId}
@@ -128,7 +130,7 @@ export default function DashboardPage() {
         {/* Map */}
         <div className="flex-1 relative">
           {isLoading || !mapData ? (
-            <div className="w-full h-full flex items-center justify-center bg-slate-100">
+            <div className="w-full h-full flex items-center justify-center bg-muted">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             </div>
           ) : (

@@ -5,6 +5,7 @@ import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { MapData } from "@/hooks/useComplexes";
 import { formatPrice } from "@/lib/utils";
+import { useTheme } from "@/components/theme-provider";
 
 interface MapViewProps {
   data: MapData;
@@ -45,7 +46,8 @@ function getFaultColor(danger: number): string {
 
 // MapTiler free key for 3D building tiles
 const MAPTILER_KEY = "get_your_own_OpIi9ZULNHzrESv6T2vL";
-const MAP_STYLE = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
+const MAP_STYLE_LIGHT = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
+const MAP_STYLE_DARK = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
 
 export default function MapView({ data, onComplexClick, hoveredComplexId, selectedComplexId }: MapViewProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
@@ -55,6 +57,8 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
   const [colorMode, setColorMode] = useState<"score" | "seismic">("score");
   const [show3D, setShow3D] = useState(false);
   const [showAirQuality, setShowAirQuality] = useState(false);
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
 
   const riskCounts = useMemo(() => {
     const counts: Record<string, number> = { critical: 0, high: 0, moderate: 0, low: 0, safe: 0 };
@@ -73,7 +77,7 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
 
     const map = new maplibregl.Map({
       container: mapContainer.current,
-      style: MAP_STYLE,
+      style: isDark ? MAP_STYLE_DARK : MAP_STYLE_LIGHT,
       center: [76.9286, 43.238],
       zoom: 12,
       pitch: 45,
@@ -448,7 +452,7 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
     });
 
     return () => { map.remove(); mapRef.current = null; };
-  }, [data]);
+  }, [data, isDark]);
 
   // Fly to selected complex
   useEffect(() => {
@@ -522,7 +526,7 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
       <div ref={mapContainer} className="w-full h-full" />
 
       {/* Controls - repositioned for mobile (no sidebar overlap) */}
-      <div className="absolute top-2 left-2 sm:top-3 sm:left-3 bg-white/95 backdrop-blur rounded-lg shadow-lg p-2 sm:p-3 space-y-1.5 sm:space-y-2 max-w-[160px] sm:max-w-[180px] z-10">
+      <div className="absolute top-2 left-2 sm:top-3 sm:left-3 bg-card/95 text-card-foreground border border-border backdrop-blur rounded-lg shadow-lg p-2 sm:p-3 space-y-1.5 sm:space-y-2 max-w-[160px] sm:max-w-[180px] z-10">
         <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Слои</p>
         <label className="flex items-center gap-2 text-xs cursor-pointer">
           <input type="checkbox" checked={showFaults} onChange={(e) => setShowFaults(e.target.checked)} className="rounded accent-red-500 w-3.5 h-3.5" />
@@ -549,13 +553,13 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
           <div className="flex gap-1">
             <button
               onClick={() => setColorMode("score")}
-              className={`px-2 py-1 rounded text-[10px] font-medium transition ${colorMode === "score" ? "bg-blue-100 text-blue-700" : "bg-gray-100 text-gray-500 hover:bg-gray-200"}`}
+              className={`px-2 py-1 rounded text-[10px] font-medium transition ${colorMode === "score" ? "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300" : "bg-muted text-muted-foreground hover:bg-accent"}`}
             >
               Рейтинг
             </button>
             <button
               onClick={() => setColorMode("seismic")}
-              className={`px-2 py-1 rounded text-[10px] font-medium transition ${colorMode === "seismic" ? "bg-red-100 text-red-700" : "bg-gray-100 text-gray-500 hover:bg-gray-200"}`}
+              className={`px-2 py-1 rounded text-[10px] font-medium transition ${colorMode === "seismic" ? "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300" : "bg-muted text-muted-foreground hover:bg-accent"}`}
             >
               Сейсмика
             </button>
@@ -564,7 +568,7 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
       </div>
 
       {/* Compact legend */}
-      <div className="absolute bottom-2 left-2 sm:bottom-3 sm:left-3 bg-white/95 backdrop-blur rounded-lg shadow-lg p-2 sm:p-2.5 text-[9px] sm:text-[10px] space-y-0.5 sm:space-y-1 z-10">
+      <div className="absolute bottom-2 left-2 sm:bottom-3 sm:left-3 bg-card/95 text-card-foreground border border-border backdrop-blur rounded-lg shadow-lg p-2 sm:p-2.5 text-[9px] sm:text-[10px] space-y-0.5 sm:space-y-1 z-10">
         {colorMode === "seismic" ? (
           <>
             <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-green-500" />Безопасно ({riskCounts.safe})</div>

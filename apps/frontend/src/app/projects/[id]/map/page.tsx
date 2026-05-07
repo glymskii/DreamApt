@@ -25,7 +25,7 @@ export default function MapPage() {
   return (
     <div className="h-screen flex flex-col">
       <Header />
-      <div className="flex items-center gap-3 px-4 py-2 border-b bg-white">
+      <div className="flex items-center gap-3 px-4 py-2 border-b bg-card">
         <Button
           variant="ghost"
           size="sm"

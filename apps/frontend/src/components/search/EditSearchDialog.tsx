@@ -288,9 +288,9 @@ export function EditSearchDialog({
       />
 
       {/* Panel */}
-      <div className="relative ml-auto w-full max-w-lg bg-white h-full overflow-y-auto shadow-xl animate-in slide-in-from-right">
+      <div className="relative ml-auto w-full max-w-lg bg-card h-full overflow-y-auto shadow-xl animate-in slide-in-from-right">
         {/* Header */}
-        <div className="sticky top-0 bg-white border-b z-10 px-6 py-4 flex items-center justify-between">
+        <div className="sticky top-0 bg-card border-b z-10 px-6 py-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold">Параметры поиска</h2>
           <button
             onClick={onClose}
@@ -582,7 +582,7 @@ export function EditSearchDialog({
                             ),
                           }))
                         }
-                        className="px-1.5 py-0.5 rounded border text-xs bg-white"
+                        className="px-1.5 py-0.5 rounded border text-xs bg-card"
                       >
                         <option value={1}>1 км</option>
                         <option value={2}>2 км</option>
@@ -767,7 +767,7 @@ export function EditSearchDialog({
         </div>
 
         {/* Footer */}
-        <div className="sticky bottom-0 bg-white border-t px-6 py-4">
+        <div className="sticky bottom-0 bg-card border-t px-6 py-4">
           <Button
             className="w-full"
             onClick={handleApply}

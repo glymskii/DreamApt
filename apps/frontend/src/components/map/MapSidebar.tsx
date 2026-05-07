@@ -110,7 +110,7 @@ export function MapSidebar({ data, selectedId, onSelect, onHover, isMobile }: Ma
   };
 
   return (
-    <div className={`${isMobile ? "w-full" : "w-[340px] hidden lg:flex"} h-full bg-white border-r flex flex-col shrink-0`}>
+    <div className={`${isMobile ? "w-full" : "w-[340px] hidden lg:flex"} h-full bg-card border-r flex flex-col shrink-0`}>
       {/* Search */}
       <div className="p-3 border-b space-y-2">
         <div className="relative">
@@ -204,7 +204,11 @@ export function MapSidebar({ data, selectedId, onSelect, onHover, isMobile }: Ma
             <div
               key={complex.id}
               className={`flex gap-3 p-3 border-b cursor-pointer transition-colors ${
-                isSelected ? "bg-blue-50" : isHighRisk ? "hover:bg-red-50/50" : "hover:bg-muted/50"
+                isSelected
+                  ? "bg-blue-50 dark:bg-blue-950/40"
+                  : isHighRisk
+                  ? "hover:bg-red-50/50 dark:hover:bg-red-950/30"
+                  : "hover:bg-muted/50"
               }`}
               onClick={() => onSelect(complex.id)}
               onMouseEnter={() => onHover(complex.id)}
