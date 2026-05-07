@@ -53,11 +53,12 @@ const MAP_STYLE_DARK = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/st
 export default function MapView({ data, onComplexClick, hoveredComplexId, selectedComplexId }: MapViewProps) {
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
+  // Layer visibility — все включены по умолчанию.
+  // Risk zones всегда вместе с разломами (без них теряют смысл).
+  // Маркеры ЖК всегда раскрашены по сейсмическому риску — это важнее
+  // общего рейтинга для решения о покупке.
   const [showFaults, setShowFaults] = useState(true);
-  const [showRiskZones, setShowRiskZones] = useState(true);
-  const [colorMode, setColorMode] = useState<"score" | "seismic">("score");
-  const [show3D, setShow3D] = useState(false);
-  const [showAirQuality, setShowAirQuality] = useState(false);
+  const [showAirQuality, setShowAirQuality] = useState(true);
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
 
@@ -374,7 +375,7 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
         source: "complexes",
         paint: {
           "circle-radius": ["interpolate", ["linear"], ["get", "listings"], 1, 8, 5, 12, 10, 16, 20, 20],
-          "circle-color": ["get", "scoreColor"],
+          "circle-color": ["get", "seismicColor"],
           "circle-opacity": 0.85,
           "circle-stroke-width": 2,
           "circle-stroke-color": "#fff",
@@ -488,29 +489,19 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
     }
   }, [hoveredComplexId]);
 
-  // Toggle layers
+  // Toggle fault lines + their risk zones together.
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !map.isStyleLoaded()) return;
+    const visibility = showFaults ? "visible" : "none";
     for (const danger of [1, 2, 3]) {
       const layerId = `faults-lines-${danger}`;
-      if (map.getLayer(layerId)) map.setLayoutProperty(layerId, "visibility", showFaults ? "visible" : "none");
+      if (map.getLayer(layerId)) map.setLayoutProperty(layerId, "visibility", visibility);
+    }
+    for (const id of ["risk-zone-low", "risk-zone-moderate", "risk-zone-high"]) {
+      if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", visibility);
     }
   }, [showFaults]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
-    for (const id of ["risk-zone-low", "risk-zone-moderate", "risk-zone-high"]) {
-      if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", showRiskZones && showFaults ? "visible" : "none");
-    }
-  }, [showRiskZones, showFaults]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !map.isStyleLoaded() || !map.getLayer("complexes-circles")) return;
-    map.setPaintProperty("complexes-circles", "circle-color", ["get", colorMode === "score" ? "scoreColor" : "seismicColor"]);
-  }, [colorMode]);
 
   // Toggle air quality layers
   useEffect(() => {
@@ -527,19 +518,18 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
     <div className="relative w-full h-full">
       <div ref={mapContainer} className="w-full h-full" />
 
-      {/* Controls - repositioned for mobile (no sidebar overlap) */}
-      <div className="absolute top-2 left-2 sm:top-3 sm:left-3 bg-card/95 text-card-foreground border border-border backdrop-blur rounded-lg shadow-lg p-2 sm:p-3 space-y-1.5 sm:space-y-2 max-w-[160px] sm:max-w-[180px] z-10">
+      {/* Controls — слои карты */}
+      <div className="absolute top-2 left-2 sm:top-3 sm:left-3 bg-card/95 text-card-foreground border border-border backdrop-blur rounded-lg shadow-lg p-2 sm:p-3 space-y-1.5 max-w-[160px] sm:max-w-[180px] z-10">
         <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Слои</p>
         <label className="flex items-center gap-2 text-xs cursor-pointer">
-          <input type="checkbox" checked={showFaults} onChange={(e) => setShowFaults(e.target.checked)} className="rounded accent-red-500 w-3.5 h-3.5" />
+          <input
+            type="checkbox"
+            checked={showFaults}
+            onChange={(e) => setShowFaults(e.target.checked)}
+            className="rounded accent-red-500 w-3.5 h-3.5"
+          />
           Разломы
         </label>
-        {showFaults && (
-          <label className="flex items-center gap-2 text-xs cursor-pointer ml-4">
-            <input type="checkbox" checked={showRiskZones} onChange={(e) => setShowRiskZones(e.target.checked)} className="rounded accent-orange-500 w-3.5 h-3.5" />
-            Зоны риска
-          </label>
-        )}
         <label className="flex items-center gap-2 text-xs cursor-pointer">
           <input
             type="checkbox"
@@ -549,46 +539,18 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
           />
           🌫 Воздух (PM 2.5)
         </label>
-
-        <div className="border-t pt-2">
-          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">Цвет</p>
-          <div className="flex gap-1">
-            <button
-              onClick={() => setColorMode("score")}
-              className={`px-2 py-1 rounded text-[10px] font-medium transition ${colorMode === "score" ? "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300" : "bg-muted text-muted-foreground hover:bg-accent"}`}
-            >
-              Рейтинг
-            </button>
-            <button
-              onClick={() => setColorMode("seismic")}
-              className={`px-2 py-1 rounded text-[10px] font-medium transition ${colorMode === "seismic" ? "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-300" : "bg-muted text-muted-foreground hover:bg-accent"}`}
-            >
-              Сейсмика
-            </button>
-          </div>
-        </div>
       </div>
 
       {/* Compact legend */}
       <div className="absolute bottom-2 left-2 sm:bottom-3 sm:left-3 bg-card/95 text-card-foreground border border-border backdrop-blur rounded-lg shadow-lg p-2 sm:p-2.5 text-[9px] sm:text-[10px] space-y-0.5 sm:space-y-1 z-10">
-        {colorMode === "seismic" ? (
-          <>
-            <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-green-500" />Безопасно ({riskCounts.safe})</div>
-            <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-yellow-500" />Умеренный ({riskCounts.moderate})</div>
-            <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-orange-500" />Высокий ({riskCounts.high})</div>
-            <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-red-600" />Опасная ({riskCounts.critical})</div>
-          </>
-        ) : (
-          <>
-            <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-green-500" />85%+</div>
-            <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-yellow-500" />70-84%</div>
-            <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-orange-500" />&lt;70%</div>
-          </>
-        )}
+        <div className="font-medium text-[10px]">Сейсмический риск</div>
+        <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-green-500" />Безопасно ({riskCounts.safe})</div>
+        <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-yellow-500" />Умеренный ({riskCounts.moderate})</div>
+        <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-orange-500" />Высокий ({riskCounts.high})</div>
+        <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-red-600" />Опасная ({riskCounts.critical})</div>
         {showFaults && (
           <div className="border-t pt-1 mt-1 space-y-0.5">
-            <div className="flex items-center gap-1.5"><span className="w-3 h-px bg-red-600" />Разлом</div>
-            {showRiskZones && <div className="flex items-center gap-1.5"><span className="w-3 h-2 bg-red-200/60 rounded-sm" />Зоны</div>}
+            <div className="flex items-center gap-1.5"><span className="w-3 h-px bg-red-600" />Разлом + зоны риска</div>
           </div>
         )}
         {showAirQuality && (
