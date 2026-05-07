@@ -537,7 +537,7 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
             onChange={(e) => setShowAirQuality(e.target.checked)}
             className="rounded accent-emerald-500 w-3.5 h-3.5"
           />
-          🌫 Воздух (PM 2.5)
+          Воздух (PM 2.5)
         </label>
       </div>
 
