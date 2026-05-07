@@ -6,6 +6,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import type { MapData } from "@/hooks/useComplexes";
 import { formatPrice } from "@/lib/utils";
 import { useTheme } from "@/components/theme-provider";
+import { generateInterpolatedGrid } from "@/lib/airquality-interpolation";
 
 interface MapViewProps {
   data: MapData;
@@ -68,6 +69,18 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
     });
     return counts;
   }, [data.complexes]);
+
+  // Virtual grid of IDW-interpolated PM 2.5 points covering Almaty.
+  // Recomputed only when station readings change. ~30-50ms for 60×60 grid.
+  const airGrid = useMemo(() => {
+    if (!data.airStations || data.airStations.length === 0) return [];
+    return generateInterpolatedGrid(
+      data.airStations.map((s: any) => ({ lat: s.lat, lng: s.lng, pm25: s.pm25 })),
+      60,  // cols
+      60,  // rows
+      8,   // top-K nearest neighbors
+    );
+  }, [data.airStations]);
 
   const onComplexClickRef = useRef(onComplexClick);
   onComplexClickRef.current = onComplexClick;
@@ -207,8 +220,52 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
         }
       }
 
-      // === AIR QUALITY (PM 2.5) HEATMAP + STATION MARKERS ===
+      // === AIR QUALITY (PM 2.5) — IDW-INTERPOLATED FIELD + STATION MARKERS ===
       if (data.airStations && data.airStations.length > 0) {
+        // 1) IDW-interpolated grid (covers Almaty uniformly, no gaps).
+        //    Each grid cell is a virtual point colored by interpolated PM 2.5.
+        //    Rendered as blurred circles so adjacent cells blend smoothly.
+        const gridFeatures = airGrid.map((g) => ({
+          type: "Feature" as const,
+          geometry: { type: "Point" as const, coordinates: [g.lng, g.lat] },
+          properties: { pm25: g.pm25, color: g.color },
+        }));
+
+        map.addSource("air-grid", {
+          type: "geojson",
+          data: { type: "FeatureCollection", features: gridFeatures },
+        });
+
+        // Heatmap-like field via blurred circles.
+        // - radius scales with zoom so adjacent grid points overlap
+        // - circle-blur > 1 produces smooth gradient between cells
+        // - opacity is moderate so basemap stays readable
+        map.addLayer({
+          id: "air-heatmap",
+          type: "circle",
+          source: "air-grid",
+          layout: { visibility: "none" },
+          paint: {
+            "circle-radius": [
+              "interpolate", ["linear"], ["zoom"],
+              9, 22,
+              11, 28,
+              13, 38,
+              15, 60,
+              17, 90,
+            ],
+            "circle-color": ["get", "color"],
+            "circle-blur": 1.6,
+            "circle-opacity": [
+              "interpolate", ["linear"], ["zoom"],
+              9, 0.55,
+              13, 0.5,
+              16, 0.4,
+            ],
+          },
+        });
+
+        // 2) Real station markers — interactive layer with popup.
         const stationFeatures = data.airStations.map((s: any) => ({
           type: "Feature" as const,
           geometry: { type: "Point" as const, coordinates: [s.lng, s.lat] },
@@ -228,61 +285,6 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
         map.addSource("air-stations", {
           type: "geojson",
           data: { type: "FeatureCollection", features: stationFeatures },
-        });
-
-        // Heatmap — green→yellow→orange→red gradient by PM 2.5
-        // With ~380 stations across the city we want generous radius
-        // for smooth interpolation between neighboring sensors.
-        map.addLayer({
-          id: "air-heatmap",
-          type: "heatmap",
-          source: "air-stations",
-          layout: { visibility: "none" },
-          paint: {
-            // Weight: low PM 2.5 contributes weakly, high PM 2.5 dominates
-            "heatmap-weight": [
-              "interpolate", ["linear"], ["get", "pm25"],
-              0, 0.2,
-              12, 0.4,
-              35, 0.7,
-              55, 0.9,
-              100, 1,
-              200, 1,
-            ],
-            "heatmap-intensity": [
-              "interpolate", ["linear"], ["zoom"],
-              9, 0.6,
-              11, 1,
-              13, 1.4,
-              16, 2,
-            ],
-            // Density-based color ramp (transparent at edges, saturated at peaks)
-            "heatmap-color": [
-              "interpolate", ["linear"], ["heatmap-density"],
-              0, "rgba(34,197,94,0)",
-              0.1, "rgba(34,197,94,0.35)",
-              0.3, "rgba(132,204,22,0.5)",
-              0.5, "rgba(234,179,8,0.65)",
-              0.7, "rgba(249,115,22,0.75)",
-              0.85, "rgba(220,38,38,0.85)",
-              1, "rgba(127,29,29,0.95)",
-            ],
-            // Big radius so neighboring stations blend into smooth field
-            "heatmap-radius": [
-              "interpolate", ["linear"], ["zoom"],
-              9, 50,
-              11, 90,
-              13, 140,
-              15, 200,
-              17, 280,
-            ],
-            "heatmap-opacity": [
-              "interpolate", ["linear"], ["zoom"],
-              9, 0.75,
-              14, 0.65,
-              17, 0.4,
-            ],
-          },
         });
 
         // Station marker dots — only at higher zoom (otherwise too cluttered)
@@ -452,7 +454,7 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
     });
 
     return () => { map.remove(); mapRef.current = null; };
-  }, [data, isDark]);
+  }, [data, isDark, airGrid]);
 
   // Fly to selected complex
   useEffect(() => {
