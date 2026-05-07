@@ -8,10 +8,12 @@ import {
 } from "typeorm";
 
 /**
- * Pre-registration lead. A guest leaves their email and waits for the admin
- * to approve them. On approval the admin generates a token; the guest visits
- * /auth/register/:token and sets their password — at that point a real
+ * Pre-registration lead. A guest leaves their phone number and waits for the
+ * admin to approve them. On approval the admin generates a token; the guest
+ * visits /auth/register/:token and sets their password — at that point a real
  * UserEntity is created and the lead is marked completed.
+ *
+ * Phone is stored in normalized E.164 form (+77051234567).
  */
 @Entity("registration_leads")
 @Index("idx_leads_status", ["status"])
@@ -20,7 +22,7 @@ export class RegistrationLeadEntity {
   id: string;
 
   @Column({ unique: true })
-  email: string;
+  phone: string;
 
   @Column({ default: "pending" })
   status: string; // pending | approved | completed | rejected

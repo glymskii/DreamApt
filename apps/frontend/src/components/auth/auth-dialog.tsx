@@ -3,9 +3,10 @@
 import { createContext, useContext, useState, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { ApiUnauthorizedError } from "@/lib/api-client";
+import { formatKzPhone, toE164 } from "@/lib/phone";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { X, Lock, Mail, Building2, Loader2, CheckCircle2 } from "lucide-react";
+import { X, Lock, Phone, Building2, Loader2, CheckCircle2 } from "lucide-react";
 
 type Tab = "login" | "request";
 
@@ -72,7 +73,7 @@ function AuthDialog({
   const [loginLoading, setLoginLoading] = useState(false);
 
   // register state
-  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("+7 ");
   const [regError, setRegError] = useState("");
   const [regLoading, setRegLoading] = useState(false);
   const [regSuccess, setRegSuccess] = useState(false);
@@ -98,9 +99,14 @@ function AuthDialog({
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setRegError("");
+    const e164 = toE164(phone);
+    if (!e164) {
+      setRegError("Введите полный номер: +7 7** *** ** **");
+      return;
+    }
     setRegLoading(true);
     try {
-      await registerRequest(email);
+      await registerRequest(e164);
       setRegSuccess(true);
     } catch (err: any) {
       setRegError(err?.message || "Не удалось отправить заявку");
@@ -162,7 +168,7 @@ function AuthDialog({
           <form onSubmit={handleLogin} className="space-y-3">
             <div>
               <label className="text-xs font-medium block mb-1" htmlFor="username">
-                Логин
+                Телефон или логин
               </label>
               <Input
                 id="username"
@@ -170,6 +176,7 @@ function AuthDialog({
                 onChange={(e) => setUsername(e.target.value)}
                 required
                 autoComplete="username"
+                placeholder="+7 (777) 123-45-67"
               />
             </div>
             <div>
@@ -211,8 +218,8 @@ function AuthDialog({
             <div>
               <p className="font-semibold">Заявка отправлена!</p>
               <p className="text-xs text-muted-foreground mt-1 max-w-xs mx-auto">
-                Мы рассмотрим её и пришлём вам ссылку для завершения регистрации
-                на указанный email.
+                Мы рассмотрим её и свяжемся с вами по указанному номеру телефона
+                со ссылкой для завершения регистрации.
               </p>
             </div>
             <Button variant="outline" onClick={onClose} className="w-full">
@@ -222,24 +229,29 @@ function AuthDialog({
         ) : (
           <form onSubmit={handleRegister} className="space-y-3">
             <div className="text-xs text-muted-foreground mb-2">
-              Оставьте email — после одобрения вы получите ссылку для завершения
-              регистрации.
+              Оставьте номер телефона — после одобрения мы свяжемся с вами и
+              пришлём ссылку для завершения регистрации.
             </div>
             <div>
-              <label className="text-xs font-medium block mb-1" htmlFor="email">
-                Email
+              <label className="text-xs font-medium block mb-1" htmlFor="phone">
+                Номер телефона
               </label>
               <div className="relative">
-                <Mail className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Phone className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
-                  id="email"
-                  type="email"
-                  className="pl-8"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  id="phone"
+                  type="tel"
+                  inputMode="tel"
+                  className="pl-8 font-mono tracking-wide"
+                  value={phone}
+                  onChange={(e) => setPhone(formatKzPhone(e.target.value))}
+                  onFocus={() => {
+                    if (!phone) setPhone("+7 ");
+                  }}
                   required
-                  autoComplete="email"
-                  placeholder="you@example.com"
+                  autoComplete="tel"
+                  placeholder="+7 (___) ___-__-__"
+                  maxLength={18}
                 />
               </div>
             </div>

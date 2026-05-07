@@ -17,8 +17,9 @@ import {
   Loader2,
   AlertCircle,
   CheckCircle2,
-  Mail,
+  Phone,
 } from "lucide-react";
+import { formatStoredPhone } from "@/lib/phone";
 
 export default function RegisterCompletePage() {
   const params = useParams();
@@ -28,7 +29,7 @@ export default function RegisterCompletePage() {
 
   const [verifying, setVerifying] = useState(true);
   const [valid, setValid] = useState(false);
-  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState("");
@@ -41,7 +42,7 @@ export default function RegisterCompletePage() {
         const res = await checkRegisterToken(token);
         if (cancelled) return;
         setValid(res.valid);
-        setEmail(res.email);
+        setPhone(res.phone);
       } catch {
         if (!cancelled) setValid(false);
       } finally {
@@ -109,8 +110,8 @@ export default function RegisterCompletePage() {
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="flex items-center gap-2 p-3 rounded-md bg-muted text-sm">
-                <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
-                <span className="truncate">{email}</span>
+                <Phone className="h-4 w-4 text-muted-foreground shrink-0" />
+                <span className="truncate font-mono">{formatStoredPhone(phone)}</span>
                 <CheckCircle2 className="h-4 w-4 text-green-600 ml-auto shrink-0" />
               </div>
 

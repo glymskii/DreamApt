@@ -6,12 +6,13 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import { useAuthDialog } from "@/components/auth/auth-dialog";
 import { api, ApiUnauthorizedError } from "@/lib/api-client";
+import { formatStoredPhone } from "@/lib/phone";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   ArrowLeft,
-  Mail,
+  Phone,
   CheckCircle2,
   XCircle,
   Copy,
@@ -22,7 +23,7 @@ import {
 
 interface Lead {
   id: string;
-  email: string;
+  phone: string;
   status: "pending" | "approved" | "completed" | "rejected";
   token: string | null;
   tokenExpiresAt: string | null;
@@ -168,7 +169,7 @@ export default function AdminLeadsPage() {
           </div>
         ) : leads.length === 0 ? (
           <div className="text-center py-12 text-sm text-muted-foreground">
-            <Mail className="h-10 w-10 mx-auto mb-3 opacity-50" />
+            <Phone className="h-10 w-10 mx-auto mb-3 opacity-50" />
             Заявок пока нет
           </div>
         ) : (
@@ -182,9 +183,9 @@ export default function AdminLeadsPage() {
                 >
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
-                      <span className="font-medium text-sm truncate">
-                        {lead.email}
+                      <Phone className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <span className="font-medium text-sm truncate font-mono">
+                        {formatStoredPhone(lead.phone)}
                       </span>
                       <Badge
                         variant="outline"

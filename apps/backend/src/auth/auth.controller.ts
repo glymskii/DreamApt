@@ -6,7 +6,7 @@ import {
   Param,
   UseGuards,
 } from "@nestjs/common";
-import { IsString, IsEmail, MinLength } from "class-validator";
+import { IsString, MinLength } from "class-validator";
 import { AuthService } from "./auth.service";
 import { AdminGuard } from "./admin.guard";
 
@@ -19,8 +19,8 @@ class LoginDto {
 }
 
 class RegisterRequestDto {
-  @IsEmail()
-  email: string;
+  @IsString()
+  phone: string;
 }
 
 class RegisterCompleteDto {
@@ -46,7 +46,7 @@ export class AuthController {
 
   @Post("auth/register-request")
   async registerRequest(@Body() dto: RegisterRequestDto) {
-    return this.authService.createLead(dto.email);
+    return this.authService.createLead(dto.phone);
   }
 
   @Get("auth/register/:token")

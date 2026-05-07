@@ -23,6 +23,9 @@ export class UserEntity {
   @Column({ nullable: true })
   email: string;
 
+  @Column({ nullable: true })
+  phone: string;
+
   @Column({ name: "google_id", nullable: true })
   googleId: string;
 

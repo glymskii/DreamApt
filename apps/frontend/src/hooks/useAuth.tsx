@@ -1,13 +1,21 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+} from "react";
 import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api-client";
 
 export interface AuthUser {
   id: string;
   username: string;
   email?: string;
+  phone?: string;
   avatarUrl?: string;
   role: "admin" | "user";
 }
@@ -17,10 +25,38 @@ interface LoginResponse {
   user: AuthUser;
 }
 
-export function useAuth() {
+interface AuthContextValue {
+  user: AuthUser | null;
+  isLoading: boolean;
+  login: (
+    username: string,
+    password: string,
+    options?: { redirect?: string },
+  ) => Promise<AuthUser>;
+  logout: () => void;
+  registerRequest: (phone: string) => Promise<{ ok: boolean }>;
+  completeRegistration: (token: string, password: string) => Promise<AuthUser>;
+  checkRegisterToken: (
+    token: string,
+  ) => Promise<{ phone: string; valid: boolean }>;
+  isAuthenticated: boolean;
+  isAdmin: boolean;
+}
+
+const AuthContext = createContext<AuthContextValue | null>(null);
+
+/**
+ * Single source of truth for auth state. Wrap the app in <AuthProvider>
+ * (already done via <Providers/>) and use useAuth() everywhere.
+ *
+ * All consumers re-render on login/logout because they read from the same
+ * React context — no need for window.location reloads.
+ */
+export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const router = useRouter();
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     const token = api.getToken();
@@ -29,7 +65,6 @@ export function useAuth() {
       if (stored) {
         try {
           const u = JSON.parse(stored);
-          // Default role to "user" for old stored sessions that lack the field
           if (!u.role) u.role = "user";
           setUser(u);
         } catch {
@@ -53,23 +88,29 @@ export function useAuth() {
       api.setToken(data.accessToken);
       localStorage.setItem("user", JSON.stringify(data.user));
       setUser(data.user);
+      // Refresh all queries — guest-mode responses (e.g. shutov: locked)
+      // need to refetch with the new auth header to unlock data.
+      queryClient.invalidateQueries();
       if (options.redirect) router.push(options.redirect);
       return data.user;
     },
-    [router],
+    [router, queryClient],
   );
 
   const logout = useCallback(() => {
     api.clearToken();
     localStorage.removeItem("user");
     setUser(null);
-    // Stay on current page — site is publicly viewable.
-    // If the current route is admin-only, the page will re-render as guest.
-  }, []);
+    // Re-fetch everything as guest
+    queryClient.invalidateQueries();
+  }, [queryClient]);
 
-  const registerRequest = useCallback(async (email: string): Promise<{ ok: boolean }> => {
-    return api.post<{ ok: boolean }>("/auth/register-request", { email });
-  }, []);
+  const registerRequest = useCallback(
+    async (phone: string): Promise<{ ok: boolean }> => {
+      return api.post<{ ok: boolean }>("/auth/register-request", { phone });
+    },
+    [],
+  );
 
   const completeRegistration = useCallback(
     async (token: string, password: string): Promise<AuthUser> => {
@@ -80,19 +121,20 @@ export function useAuth() {
       api.setToken(data.accessToken);
       localStorage.setItem("user", JSON.stringify(data.user));
       setUser(data.user);
+      queryClient.invalidateQueries();
       return data.user;
     },
-    [],
+    [queryClient],
   );
 
   const checkRegisterToken = useCallback(
-    async (token: string): Promise<{ email: string; valid: boolean }> => {
+    async (token: string): Promise<{ phone: string; valid: boolean }> => {
       return api.get(`/auth/register/${encodeURIComponent(token)}`);
     },
     [],
   );
 
-  return {
+  const value: AuthContextValue = {
     user,
     isLoading,
     login,
@@ -103,4 +145,12 @@ export function useAuth() {
     isAuthenticated: !!user,
     isAdmin: user?.role === "admin",
   };
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+export function useAuth(): AuthContextValue {
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error("useAuth must be used inside AuthProvider");
+  return ctx;
 }

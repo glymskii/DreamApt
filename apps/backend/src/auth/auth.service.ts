@@ -71,10 +71,29 @@ export class AuthService implements OnModuleInit {
     }
   }
 
-  async validateUser(username: string, password: string): Promise<UserEntity> {
-    const user = await this.usersRepo.findOne({
-      where: { username },
-    });
+  /**
+   * Authenticate by either username or phone number.
+   * - Phone-like input (digits + optional +) is normalized and matched against
+   *   user.phone or user.username.
+   * - Otherwise treated as a plain username (e.g. admin).
+   */
+  async validateUser(identifier: string, password: string): Promise<UserEntity> {
+    const trimmed = (identifier || "").trim();
+    let user: UserEntity | null = null;
+
+    // Try phone match first if it looks like a number
+    if (/[\d+\s()-]{6,}/.test(trimmed) && !/^[a-z]/i.test(trimmed)) {
+      const normalized = this.normalizeKzPhone(trimmed);
+      if (normalized) {
+        user = await this.usersRepo.findOne({ where: { phone: normalized } });
+      }
+    }
+
+    // Fallback to username match
+    if (!user) {
+      user = await this.usersRepo.findOne({ where: { username: trimmed } });
+    }
+
     if (!user) {
       throw new UnauthorizedException("Invalid credentials");
     }
@@ -93,6 +112,7 @@ export class AuthService implements OnModuleInit {
         id: user.id,
         username: user.username,
         email: user.email,
+        phone: user.phone,
         avatarUrl: user.avatarUrl,
         role: user.role,
         createdAt: user.createdAt.toISOString(),
@@ -104,23 +124,51 @@ export class AuthService implements OnModuleInit {
   //  Registration leads
   // ─────────────────────────────────────────────────────────
 
-  /** Guest leaves email — creates lead in pending status */
-  async createLead(emailRaw: string): Promise<{ ok: true }> {
-    const email = (emailRaw || "").trim().toLowerCase();
-    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      throw new BadRequestException("Некорректный email");
+  /**
+   * Normalize a Kazakhstani phone number to E.164 form (+77XXXXXXXXX).
+   * Accepts "+7 707 123 45 67", "8 707 123 45 67", "+77071234567" etc.
+   * Returns null if the input doesn't look like a valid KZ mobile number.
+   */
+  private normalizeKzPhone(raw: string): string | null {
+    if (!raw) return null;
+    // Strip everything except digits
+    const digits = raw.replace(/\D+/g, "");
+    let normalized: string | null = null;
+
+    if (digits.length === 11 && digits.startsWith("7")) {
+      normalized = "+" + digits;
+    } else if (digits.length === 11 && digits.startsWith("8")) {
+      normalized = "+7" + digits.slice(1);
+    } else if (digits.length === 10 && digits.startsWith("7")) {
+      // user typed +7 then 10-digit body without country code? unlikely — skip
+      normalized = "+7" + digits;
+    } else {
+      return null;
     }
-    const existingUser = await this.usersRepo.findOne({ where: { email } });
+
+    // KZ mobile carrier prefixes — second digit after +7 is 7 (mobile),
+    // optional but enforces realistic numbers.
+    if (!/^\+77\d{9}$/.test(normalized)) return null;
+    return normalized;
+  }
+
+  /** Guest leaves phone — creates lead in pending status */
+  async createLead(phoneRaw: string): Promise<{ ok: true }> {
+    const phone = this.normalizeKzPhone(phoneRaw);
+    if (!phone) {
+      throw new BadRequestException("Некорректный номер телефона. Формат: +7 7** *** ** **");
+    }
+    const existingUser = await this.usersRepo.findOne({ where: { phone } });
     if (existingUser) {
-      throw new ConflictException("Пользователь с таким email уже существует");
+      throw new ConflictException("Пользователь с таким номером уже существует");
     }
-    const existingLead = await this.leadsRepo.findOne({ where: { email } });
+    const existingLead = await this.leadsRepo.findOne({ where: { phone } });
     if (existingLead) {
-      // idempotent — don't reveal status to guests, just return ok
+      // Idempotent — don't reveal status to guests
       return { ok: true };
     }
-    await this.leadsRepo.save({ email, status: "pending" });
-    this.logger.log(`Registration lead created: ${email}`);
+    await this.leadsRepo.save({ phone, status: "pending" });
+    this.logger.log(`Registration lead created: ${phone}`);
     return { ok: true };
   }
 
@@ -152,15 +200,15 @@ export class AuthService implements OnModuleInit {
   }
 
   /** Look up a lead by token (used on /auth/register/:token page) */
-  async getLeadByToken(token: string): Promise<{ email: string; valid: boolean }> {
-    if (!token || token.length < 32) return { email: "", valid: false };
+  async getLeadByToken(token: string): Promise<{ phone: string; valid: boolean }> {
+    if (!token || token.length < 32) return { phone: "", valid: false };
     const lead = await this.leadsRepo.findOne({ where: { token } });
-    if (!lead) return { email: "", valid: false };
-    if (lead.status !== "approved") return { email: lead.email, valid: false };
+    if (!lead) return { phone: "", valid: false };
+    if (lead.status !== "approved") return { phone: lead.phone, valid: false };
     if (lead.tokenExpiresAt && lead.tokenExpiresAt < new Date()) {
-      return { email: lead.email, valid: false };
+      return { phone: lead.phone, valid: false };
     }
-    return { email: lead.email, valid: true };
+    return { phone: lead.phone, valid: true };
   }
 
   /**
@@ -179,19 +227,19 @@ export class AuthService implements OnModuleInit {
       throw new UnauthorizedException("Срок действия ссылки истёк");
     }
 
-    // Build a username from email — simple, can be edited later
-    const baseUsername = lead.email.split("@")[0].replace(/[^a-z0-9_-]/gi, "");
-    let username = baseUsername;
+    // Username = phone in E.164 form (without "+" so it's URL-safe and
+    // easy to type on login). Guaranteed unique because phone is unique.
+    let username = lead.phone.replace(/^\+/, "");
     let suffix = 0;
     while (await this.usersRepo.findOne({ where: { username } })) {
       suffix++;
-      username = `${baseUsername}${suffix}`;
+      username = `${lead.phone.replace(/^\+/, "")}_${suffix}`;
     }
 
     const hash = await bcrypt.hash(password, BCRYPT_COST);
     const user = await this.usersRepo.save({
       username,
-      email: lead.email,
+      phone: lead.phone,
       passwordHash: hash,
       role: "user",
     });
