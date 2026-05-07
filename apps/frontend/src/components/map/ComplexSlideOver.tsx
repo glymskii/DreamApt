@@ -1,6 +1,6 @@
 "use client";
 
-import { useComplex, useComplexProperties, useComplexShutov, useComplexSeismic } from "@/hooks/useComplexes";
+import { useComplex, useComplexProperties, useComplexShutov, useComplexSeismic, useComplexAirQuality } from "@/hooks/useComplexes";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatPrice, formatArea } from "@/lib/utils";
@@ -35,6 +35,7 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
   const { data: properties } = useComplexProperties(complexId);
   const { data: shutov } = useComplexShutov(complexId);
   const { data: seismic } = useComplexSeismic(complexId);
+  const { data: airQuality } = useComplexAirQuality(complexId);
 
   const scoreColor = (complex?.scoreTotal ?? 0) >= 85
     ? "bg-green-500" : (complex?.scoreTotal ?? 0) >= 70
@@ -174,6 +175,39 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
                   <div>
                     <p className="text-xs font-semibold">{shutov.categoryLabel}</p>
                     <p className="text-xs text-muted-foreground">Тихон Шутов · {shutov.name}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Air quality (PM 2.5) */}
+              {airQuality?.found && (
+                <div
+                  className="flex items-center gap-3 p-3 rounded-lg border"
+                  style={{ borderLeftWidth: 4, borderLeftColor: airQuality.color }}
+                >
+                  <span className="text-2xl">🌫</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-baseline gap-2">
+                      <span
+                        className="text-lg font-bold"
+                        style={{ color: airQuality.color }}
+                      >
+                        {Number(airQuality.pm25).toFixed(1)}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground">µg/m³ PM 2.5</span>
+                    </div>
+                    <p
+                      className="text-xs font-semibold"
+                      style={{ color: airQuality.color }}
+                    >
+                      {airQuality.levelLabel}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground truncate">
+                      Станция AirKaz: {airQuality.station}
+                      {airQuality.distanceMeters
+                        ? ` · ${airQuality.distanceMeters < 1000 ? airQuality.distanceMeters + " м" : (airQuality.distanceMeters / 1000).toFixed(1) + " км"}`
+                        : ""}
+                    </p>
                   </div>
                 </div>
               )}

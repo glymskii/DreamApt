@@ -54,6 +54,7 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
   const [showRiskZones, setShowRiskZones] = useState(true);
   const [colorMode, setColorMode] = useState<"score" | "seismic">("score");
   const [show3D, setShow3D] = useState(false);
+  const [showAirQuality, setShowAirQuality] = useState(false);
 
   const riskCounts = useMemo(() => {
     const counts: Record<string, number> = { critical: 0, high: 0, moderate: 0, low: 0, safe: 0 };
@@ -200,6 +201,122 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
             `).addTo(map);
           });
         }
+      }
+
+      // === AIR QUALITY (PM 2.5) HEATMAP + STATION MARKERS ===
+      if (data.airStations && data.airStations.length > 0) {
+        const stationFeatures = data.airStations.map((s) => ({
+          type: "Feature" as const,
+          geometry: { type: "Point" as const, coordinates: [s.lng, s.lat] },
+          properties: {
+            id: s.id,
+            name: s.name,
+            pm25: s.pm25,
+            pm10: s.pm10,
+            aqi: s.aqi,
+            level: s.level,
+            levelLabel: s.levelLabel,
+            color: s.color,
+            updatedAt: s.updatedAt,
+          },
+        }));
+
+        map.addSource("air-stations", {
+          type: "geojson",
+          data: { type: "FeatureCollection", features: stationFeatures },
+        });
+
+        // Heatmap — green→yellow→orange→red gradient by PM 2.5
+        map.addLayer({
+          id: "air-heatmap",
+          type: "heatmap",
+          source: "air-stations",
+          layout: { visibility: "none" },
+          paint: {
+            "heatmap-weight": [
+              "interpolate", ["linear"], ["get", "pm25"],
+              0, 0,
+              12, 0.3,
+              35, 0.6,
+              55, 0.85,
+              150, 1,
+            ],
+            "heatmap-intensity": [
+              "interpolate", ["linear"], ["zoom"],
+              10, 1, 14, 2, 16, 3,
+            ],
+            "heatmap-color": [
+              "interpolate", ["linear"], ["heatmap-density"],
+              0, "rgba(34,197,94,0)",
+              0.2, "rgba(34,197,94,0.4)",
+              0.4, "rgba(234,179,8,0.6)",
+              0.6, "rgba(249,115,22,0.7)",
+              0.8, "rgba(220,38,38,0.8)",
+              1, "rgba(127,29,29,0.9)",
+            ],
+            "heatmap-radius": [
+              "interpolate", ["linear"], ["zoom"],
+              10, 30, 13, 60, 16, 120,
+            ],
+            "heatmap-opacity": 0.7,
+          },
+        });
+
+        // Station marker dots (visible at higher zoom)
+        map.addLayer({
+          id: "air-stations-circles",
+          type: "circle",
+          source: "air-stations",
+          layout: { visibility: "none" },
+          paint: {
+            "circle-radius": [
+              "interpolate", ["linear"], ["zoom"],
+              10, 4, 13, 7, 16, 10,
+            ],
+            "circle-color": ["get", "color"],
+            "circle-opacity": [
+              "interpolate", ["linear"], ["zoom"],
+              10, 0.6, 13, 0.85, 16, 1,
+            ],
+            "circle-stroke-width": 1.5,
+            "circle-stroke-color": "#fff",
+          },
+        });
+
+        // Station hover popup
+        const stationPopup = new maplibregl.Popup({
+          closeButton: false,
+          closeOnClick: false,
+          maxWidth: "240px",
+        });
+        map.on("mouseenter", "air-stations-circles", (e) => {
+          map.getCanvas().style.cursor = "help";
+          const f = e.features?.[0];
+          if (!f) return;
+          const p = f.properties;
+          const coords = (f.geometry as any).coordinates.slice();
+          const date = p.updatedAt ? new Date(p.updatedAt).toLocaleString("ru-RU", {
+            day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
+          }) : "";
+          stationPopup.setLngLat(coords).setHTML(`
+            <div style="font-family:system-ui;padding:4px;font-size:12px">
+              <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+                <span style="width:10px;height:10px;border-radius:50%;background:${p.color}"></span>
+                <strong>${p.name}</strong>
+              </div>
+              <div style="font-size:18px;font-weight:700;color:${p.color}">${p.pm25} <span style="font-size:11px;font-weight:400;color:#666">µg/m³</span></div>
+              <div style="color:${p.color};font-size:11px;font-weight:500">${p.levelLabel}</div>
+              <div style="color:#888;font-size:10px;margin-top:4px">
+                ${p.pm10 ? `PM10: ${p.pm10}` : ""}${p.aqi ? ` · AQI: ${p.aqi}` : ""}
+              </div>
+              ${date ? `<div style="color:#aaa;font-size:10px">${date}</div>` : ""}
+            </div>
+          `).addTo(map);
+        });
+        map.on("mouseleave", "air-stations-circles", () => {
+          map.getCanvas().style.cursor = "";
+          stationPopup.remove();
+        });
       }
 
       // === COMPLEX MARKERS ===
@@ -371,6 +488,17 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
     map.setPaintProperty("complexes-circles", "circle-color", ["get", colorMode === "score" ? "scoreColor" : "seismicColor"]);
   }, [colorMode]);
 
+  // Toggle air quality layers
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !map.isStyleLoaded()) return;
+    for (const id of ["air-heatmap", "air-stations-circles"]) {
+      if (map.getLayer(id)) {
+        map.setLayoutProperty(id, "visibility", showAirQuality ? "visible" : "none");
+      }
+    }
+  }, [showAirQuality]);
+
   return (
     <div className="relative w-full h-full">
       <div ref={mapContainer} className="w-full h-full" />
@@ -388,6 +516,15 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
             Зоны риска
           </label>
         )}
+        <label className="flex items-center gap-2 text-xs cursor-pointer">
+          <input
+            type="checkbox"
+            checked={showAirQuality}
+            onChange={(e) => setShowAirQuality(e.target.checked)}
+            className="rounded accent-emerald-500 w-3.5 h-3.5"
+          />
+          🌫 Воздух (PM 2.5)
+        </label>
 
         <div className="border-t pt-2">
           <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">Цвет</p>
@@ -428,6 +565,15 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
           <div className="border-t pt-1 mt-1 space-y-0.5">
             <div className="flex items-center gap-1.5"><span className="w-3 h-px bg-red-600" />Разлом</div>
             {showRiskZones && <div className="flex items-center gap-1.5"><span className="w-3 h-2 bg-red-200/60 rounded-sm" />Зоны</div>}
+          </div>
+        )}
+        {showAirQuality && (
+          <div className="border-t pt-1 mt-1 space-y-0.5">
+            <div className="font-medium text-[10px]">PM 2.5 (µg/m³)</div>
+            <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-green-500" />0–12 хорошее</div>
+            <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-yellow-500" />12–35 умеренное</div>
+            <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-orange-500" />35–55 чувств.</div>
+            <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-red-600" />55+ вредное</div>
           </div>
         )}
       </div>

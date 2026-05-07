@@ -4,6 +4,7 @@ import { Repository } from "typeorm";
 import { ResidentialComplexEntity } from "../database/entities/residential-complex.entity";
 import { PropertyEntity } from "../database/entities/property.entity";
 import { SearchProjectEntity } from "../database/entities/search-project.entity";
+import { AirKazService } from "../air-quality/airkaz.service";
 import { findShutovRating, findNearestFault, SHUTOV_CATEGORY_COLORS, SHUTOV_CATEGORY_LABELS } from "@dreamapt/shared";
 
 @Injectable()
@@ -15,6 +16,7 @@ export class ComplexService {
     private propertiesRepo: Repository<PropertyEntity>,
     @InjectRepository(SearchProjectEntity)
     private projectsRepo: Repository<SearchProjectEntity>,
+    private airKaz: AirKazService,
   ) {}
 
   /** Get all complexes globally, deduplicated by normalized name (best score wins) */
@@ -26,6 +28,7 @@ export class ComplexService {
         "commuteMinutes", "photoUrl", "district", "priceMin", "priceMax",
         "shutovCategory", "scoreInfrastructure", "scoreLifestyle",
         "scoreCommute", "scoreSeismic", "floorsMax", "floorSegment",
+        "airQualityPm25", "airQualityLevel", "airQualityStation",
       ],
     });
 
@@ -45,9 +48,59 @@ export class ComplexService {
 
     const { FAULT_LINES, FAULT_ZONES } = await import("@dreamapt/shared");
 
+    // Fetch live air quality stations (cached for 15 min in service)
+    let airStations: any[] = [];
+    try {
+      const stations = await this.airKaz.getStations();
+      airStations = stations
+        .filter((s) => s.pm25 !== null && s.status === "active")
+        .map((s) => {
+          const cls = this.airKaz.classifyPm25(s.pm25!);
+          return {
+            id: s.id,
+            name: s.name,
+            lat: s.lat,
+            lng: s.lng,
+            pm25: s.pm25,
+            pm10: s.pm10,
+            aqi: s.aqi,
+            level: cls.level,
+            levelLabel: cls.label,
+            color: cls.color,
+            updatedAt: s.date,
+          };
+        });
+    } catch {
+      // graceful degradation: return empty stations array if AirKaz fails
+    }
+
+    // Backfill missing air quality on complexes from nearest station (in-memory only,
+    // doesn't write to DB — keeps map-data fast and self-healing)
+    const complexes = Array.from(dedupMap.values());
+    if (airStations.length > 0) {
+      for (const c of complexes) {
+        if (c.airQualityPm25) continue; // already cached
+        const lat = Number(c.lat), lng = Number(c.lng);
+        let best: any = null, bestDist = Infinity;
+        for (const s of airStations) {
+          const d = Math.sqrt(
+            Math.pow((s.lat - lat) * 111000, 2) +
+            Math.pow((s.lng - lng) * 80000, 2),
+          );
+          if (d < bestDist) { bestDist = d; best = s; }
+        }
+        if (best) {
+          (c as any).airQualityPm25 = best.pm25;
+          (c as any).airQualityLevel = best.level;
+          (c as any).airQualityStation = best.name;
+        }
+      }
+    }
+
     return {
-      complexes: Array.from(dedupMap.values()),
+      complexes,
       faultLines: [...(FAULT_LINES || []), ...(FAULT_ZONES || [])],
+      airStations,
     };
   }
 

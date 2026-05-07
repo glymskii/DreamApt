@@ -104,6 +104,22 @@ export class ResidentialComplexEntity {
   @Column({ name: "seismic_distance_meters", nullable: true })
   seismicDistanceMeters: number;
 
+  // Air quality (PM 2.5 from AirKaz.org)
+  @Column({ name: "air_quality_pm25", type: "decimal", precision: 6, scale: 2, nullable: true })
+  airQualityPm25: number;
+
+  @Column({ name: "air_quality_level", nullable: true })
+  airQualityLevel: string; // good | moderate | sensitive | unhealthy | very_unhealthy | hazardous
+
+  @Column({ name: "air_quality_station", nullable: true })
+  airQualityStation: string;
+
+  @Column({ name: "air_quality_distance_meters", nullable: true })
+  airQualityDistanceMeters: number;
+
+  @Column({ name: "air_quality_updated_at", type: "timestamp", nullable: true })
+  airQualityUpdatedAt: Date;
+
   // Meta
   @Column({ name: "grouping_method", nullable: true })
   groupingMethod: string;

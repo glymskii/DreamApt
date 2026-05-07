@@ -10,6 +10,7 @@ import { CommuteModule } from "./commute/commute.module";
 import { ScoringModule } from "./scoring/scoring.module";
 import { CJMModule } from "./cjm/cjm.module";
 import { ComplexModule } from "./complex/complex.module";
+import { AirQualityModule } from "./air-quality/air-quality.module";
 import { HealthController } from "./health.controller";
 
 @Module({
@@ -25,6 +26,7 @@ import { HealthController } from "./health.controller";
     ScoringModule,
     CJMModule,
     ComplexModule,
+    AirQualityModule,
   ],
   controllers: [HealthController],
 })

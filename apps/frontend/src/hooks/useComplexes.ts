@@ -90,6 +90,29 @@ export function useComplexSeismic(complexId: string) {
   });
 }
 
+export function useComplexAirQuality(complexId: string) {
+  return useQuery({
+    queryKey: ["complex-air-quality", complexId],
+    queryFn: () => api.get<any>(`/complexes/${complexId}/air-quality`),
+    enabled: !!complexId,
+    staleTime: 15 * 60 * 1000, // match server cache
+  });
+}
+
+export interface AirStation {
+  id: string;
+  name: string;
+  lat: number;
+  lng: number;
+  pm25: number;
+  pm10: number | null;
+  aqi: number | null;
+  level: "good" | "moderate" | "sensitive" | "unhealthy" | "very_unhealthy" | "hazardous";
+  levelLabel: string;
+  color: string;
+  updatedAt: string;
+}
+
 export interface MapData {
   complexes: Array<{
     id: string;
@@ -109,7 +132,11 @@ export interface MapData {
     shutovCategory: number | null;
     floorsMax: number | null;
     floorSegment: string | null;
+    airQualityPm25: number | null;
+    airQualityLevel: string | null;
+    airQualityStation: string | null;
   }>;
+  airStations?: AirStation[];
   faultLines: Array<{
     name: string;
     level: string;

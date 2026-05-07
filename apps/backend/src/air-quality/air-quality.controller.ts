@@ -1,0 +1,62 @@
+import { Controller, Get, Param, UseGuards, NotFoundException } from "@nestjs/common";
+import { InjectRepository } from "@nestjs/typeorm";
+import { Repository } from "typeorm";
+import { AirKazService } from "./airkaz.service";
+import { ResidentialComplexEntity } from "../database/entities/residential-complex.entity";
+import { JwtAuthGuard } from "../auth/auth.guard";
+
+@Controller()
+export class AirQualityController {
+  constructor(
+    private airKaz: AirKazService,
+    @InjectRepository(ResidentialComplexEntity)
+    private complexesRepo: Repository<ResidentialComplexEntity>,
+  ) {}
+
+  /** All Almaty PM 2.5 stations with live readings. Used for heatmap/markers. */
+  @Get("air-quality/stations")
+  @UseGuards(JwtAuthGuard)
+  async getStations() {
+    const stations = await this.airKaz.getStations();
+    // Only return stations with live data + classify each
+    return {
+      stations: stations
+        .filter((s) => s.pm25 !== null && s.status === "active")
+        .map((s) => {
+          const cls = this.airKaz.classifyPm25(s.pm25!);
+          return {
+            id: s.id,
+            name: s.name,
+            lat: s.lat,
+            lng: s.lng,
+            pm25: s.pm25,
+            pm10: s.pm10,
+            aqi: s.aqi,
+            temp: s.temp,
+            humid: s.humid,
+            level: cls.level,
+            levelLabel: cls.label,
+            color: cls.color,
+            updatedAt: s.date,
+          };
+        }),
+    };
+  }
+
+  /** Get air quality for a specific complex (nearest active station) */
+  @Get("complexes/:id/air-quality")
+  @UseGuards(JwtAuthGuard)
+  async getComplexAirQuality(@Param("id") id: string) {
+    const complex = await this.complexesRepo.findOne({ where: { id } });
+    if (!complex) throw new NotFoundException("Complex not found");
+    if (!complex.lat || !complex.lng) {
+      return { found: false };
+    }
+    const result = await this.airKaz.getNearestAirQuality(
+      Number(complex.lat),
+      Number(complex.lng),
+    );
+    if (!result) return { found: false };
+    return { found: true, ...result };
+  }
+}
