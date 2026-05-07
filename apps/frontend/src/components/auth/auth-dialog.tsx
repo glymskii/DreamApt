@@ -6,7 +6,15 @@ import { ApiUnauthorizedError } from "@/lib/api-client";
 import { formatKzPhone, toE164 } from "@/lib/phone";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { X, Lock, Phone, Building2, Loader2, CheckCircle2 } from "lucide-react";
+import {
+  X,
+  Lock,
+  Phone,
+  Building2,
+  Loader2,
+  CheckCircle2,
+  MessageCircle,
+} from "lucide-react";
 
 type Tab = "login" | "request";
 
@@ -218,8 +226,8 @@ function AuthDialog({
             <div>
               <p className="font-semibold">Заявка отправлена!</p>
               <p className="text-xs text-muted-foreground mt-1 max-w-xs mx-auto">
-                Мы рассмотрим её и свяжемся с вами по указанному номеру телефона
-                со ссылкой для завершения регистрации.
+                После одобрения мы пришлём ссылку для завершения регистрации
+                в WhatsApp на указанный номер.
               </p>
             </div>
             <Button variant="outline" onClick={onClose} className="w-full">
@@ -253,6 +261,13 @@ function AuthDialog({
                   placeholder="+7 (___) ___-__-__"
                   maxLength={18}
                 />
+              </div>
+              <div className="mt-1.5 flex items-start gap-1.5 text-[11px] text-muted-foreground leading-snug">
+                <MessageCircle className="h-3 w-3 mt-0.5 shrink-0 text-green-600" />
+                <span>
+                  На этот номер должен быть зарегистрирован WhatsApp — после
+                  одобрения ссылку для входа вы получите туда.
+                </span>
               </div>
             </div>
             {regError && <p className="text-xs text-destructive">{regError}</p>}
