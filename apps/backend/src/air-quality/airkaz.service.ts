@@ -11,7 +11,9 @@ export interface AirKazStation {
   temp: number | null;
   humid: number | null;
   status: string;
-  date: string; // last reading timestamp
+  date: string;
+  district: string | null;
+  origin: string;
 }
 
 export interface AirQualityResult {
@@ -32,21 +34,22 @@ export type AirQualityLevel =
   | "very_unhealthy"
   | "hazardous";
 
-const AIRKAZ_URL = "https://airkaz.org";
-const CACHE_TTL_MS = 15 * 60 * 1000; // 15 min
+const AIR_API_URL = "https://api.air.org.kz/api/pm25/hourly/latest";
+const CACHE_TTL_MS = 15 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 10_000;
 
 /**
- * Parses live PM 2.5 sensor data from airkaz.org.
- * Data is embedded in the homepage HTML as `var sensors_data = [...]`.
- * No API key required — public sensor network for Almaty.
+ * Aggregates live PM 2.5 readings from api.air.org.kz (Almaty Air Initiative).
+ * This API merges multiple sensor networks: AirKaz, IQAir, AirGradient,
+ * Clarity, PurpleAir, sensor.community, Reference sites — ~384 stations
+ * across Almaty. No API key needed (public Almaty civic project).
  */
 @Injectable()
 export class AirKazService {
   private readonly logger = new Logger(AirKazService.name);
   private cache: { stations: AirKazStation[]; fetchedAt: number } | null = null;
 
-  /** Get all Almaty stations with live PM 2.5 readings */
+  /** Get all Almaty stations with live PM 2.5 readings, deduplicated by (lat,lng). */
   async getStations(): Promise<AirKazStation[]> {
     const now = Date.now();
     if (this.cache && now - this.cache.fetchedAt < CACHE_TTL_MS) {
@@ -55,29 +58,26 @@ export class AirKazService {
     try {
       const stations = await this.fetchStations();
       this.cache = { stations, fetchedAt: now };
-      this.logger.log(`Fetched ${stations.length} Almaty stations from airkaz.org`);
+      this.logger.log(`Fetched ${stations.length} stations from air.org.kz`);
       return stations;
     } catch (err) {
-      this.logger.error(`AirKaz fetch failed: ${err}`);
-      // Return stale cache on error if we have one
+      this.logger.error(`air.org.kz fetch failed: ${err}`);
       return this.cache?.stations || [];
     }
   }
 
-  /** Find nearest station with live PM 2.5 data and return AQ result */
+  /** Find nearest station with live PM 2.5 data for a given coordinate. */
   async getNearestAirQuality(
     lat: number,
     lng: number,
   ): Promise<AirQualityResult | null> {
     const stations = await this.getStations();
-    const candidates = stations.filter(
-      (s) => s.pm25 !== null && s.status === "active",
-    );
-    if (candidates.length === 0) return null;
+    if (stations.length === 0) return null;
 
     let nearest: AirKazStation | null = null;
     let nearestDist = Infinity;
-    for (const s of candidates) {
+    for (const s of stations) {
+      if (s.pm25 === null) continue;
       const d = this.haversineMeters(lat, lng, s.lat, s.lng);
       if (d < nearestDist) {
         nearestDist = d;
@@ -104,60 +104,78 @@ export class AirKazService {
     const ctrl = new AbortController();
     const timeout = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
     try {
-      const res = await fetch(AIRKAZ_URL, {
+      const res = await fetch(AIR_API_URL, {
         headers: {
           "User-Agent":
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-          Accept: "text/html,application/xhtml+xml",
+          Accept: "application/json",
         },
         signal: ctrl.signal,
       });
-      if (!res.ok) throw new Error(`AirKaz HTTP ${res.status}`);
-      const html = await res.text();
+      if (!res.ok) throw new Error(`air.org.kz HTTP ${res.status}`);
+      const raw = (await res.json()) as Array<{
+        id: string;
+        name: string;
+        lat: number;
+        lon: number;
+        pm25: number | null;
+        district?: string | null;
+        origin?: string;
+        datetime?: string;
+        created_at?: string;
+      }>;
 
-      const idx = html.indexOf("var sensors_data");
-      if (idx < 0) throw new Error("sensors_data block not found");
-      const start = html.indexOf("[", idx);
-      let depth = 0;
-      let end = start;
-      for (let i = start; i < html.length; i++) {
-        if (html[i] === "[") depth++;
-        if (html[i] === "]") {
-          depth--;
-          if (depth === 0) {
-            end = i + 1;
-            break;
-          }
+      // Map and filter to valid Almaty coords + has reading
+      const all = raw
+        .filter(
+          (s) =>
+            typeof s.lat === "number" &&
+            typeof s.lon === "number" &&
+            s.lat >= 43.0 &&
+            s.lat <= 43.5 &&
+            s.lon >= 76.4 &&
+            s.lon <= 77.5 &&
+            s.pm25 !== null &&
+            !isNaN(s.pm25 as number),
+        )
+        .map(
+          (s): AirKazStation => ({
+            id: String(s.id),
+            name: (s.name || "").trim(),
+            lat: s.lat,
+            lng: s.lon,
+            pm25: s.pm25,
+            pm10: null,
+            aqi: null,
+            temp: null,
+            humid: null,
+            status: "active",
+            date: s.datetime || s.created_at || "",
+            district: s.district || null,
+            origin: s.origin || "Unknown",
+          }),
+        );
+
+      // Deduplicate by rounded coordinate (multiple sensors at exact same spot
+      // produce overlapping markers in heatmap). Keep latest.
+      const seen = new Map<string, AirKazStation>();
+      for (const s of all) {
+        const key = `${s.lat.toFixed(4)},${s.lng.toFixed(4)}`;
+        const prev = seen.get(key);
+        if (!prev) {
+          seen.set(key, s);
+        } else {
+          // prefer entry with more recent date
+          if ((s.date || "") > (prev.date || "")) seen.set(key, s);
         }
       }
-      const jsonStr = html.slice(start, end);
-      const raw = JSON.parse(jsonStr) as Array<Record<string, any>>;
-
-      return raw
-        .filter((s) => s.city === "Алматы")
-        .map((s) => ({
-          id: String(s.id),
-          name: String(s.name || "").trim(),
-          lat: parseFloat(s.lat),
-          lng: parseFloat(s.lng),
-          pm25: s.pm25 != null ? parseFloat(s.pm25) : null,
-          pm10: s.pm10 != null ? parseFloat(s.pm10) : null,
-          aqi: s.AQI != null ? parseFloat(s.AQI) : null,
-          temp: s.temp != null ? parseFloat(s.temp) : null,
-          humid: s.humid != null ? parseFloat(s.humid) : null,
-          status: s.status || "unknown",
-          date: s.date || "",
-        }))
-        .filter((s) => !isNaN(s.lat) && !isNaN(s.lng));
+      return Array.from(seen.values());
     } finally {
       clearTimeout(timeout);
     }
   }
 
-  /**
-   * US EPA PM 2.5 categories (annual standards).
-   * In Almaty winter values regularly exceed 100 µg/m³.
-   */
+  /** US EPA PM 2.5 categories. Almaty winter values regularly exceed 100 µg/m³. */
   classifyPm25(pm25: number): {
     level: AirQualityLevel;
     label: string;

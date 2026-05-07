@@ -53,7 +53,7 @@ export class ComplexService {
     try {
       const stations = await this.airKaz.getStations();
       airStations = stations
-        .filter((s) => s.pm25 !== null && s.status === "active")
+        .filter((s) => s.pm25 !== null)
         .map((s) => {
           const cls = this.airKaz.classifyPm25(s.pm25!);
           return {
@@ -62,8 +62,8 @@ export class ComplexService {
             lat: s.lat,
             lng: s.lng,
             pm25: s.pm25,
-            pm10: s.pm10,
-            aqi: s.aqi,
+            origin: s.origin,
+            district: s.district,
             level: cls.level,
             levelLabel: cls.label,
             color: cls.color,

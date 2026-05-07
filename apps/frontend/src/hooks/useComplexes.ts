@@ -105,8 +105,8 @@ export interface AirStation {
   lat: number;
   lng: number;
   pm25: number;
-  pm10: number | null;
-  aqi: number | null;
+  origin: string | null;
+  district: string | null;
   level: "good" | "moderate" | "sensitive" | "unhealthy" | "very_unhealthy" | "hazardous";
   levelLabel: string;
   color: string;

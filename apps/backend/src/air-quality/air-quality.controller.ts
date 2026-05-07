@@ -18,10 +18,9 @@ export class AirQualityController {
   @UseGuards(JwtAuthGuard)
   async getStations() {
     const stations = await this.airKaz.getStations();
-    // Only return stations with live data + classify each
     return {
       stations: stations
-        .filter((s) => s.pm25 !== null && s.status === "active")
+        .filter((s) => s.pm25 !== null)
         .map((s) => {
           const cls = this.airKaz.classifyPm25(s.pm25!);
           return {
@@ -30,10 +29,8 @@ export class AirQualityController {
             lat: s.lat,
             lng: s.lng,
             pm25: s.pm25,
-            pm10: s.pm10,
-            aqi: s.aqi,
-            temp: s.temp,
-            humid: s.humid,
+            origin: s.origin,
+            district: s.district,
             level: cls.level,
             levelLabel: cls.label,
             color: cls.color,

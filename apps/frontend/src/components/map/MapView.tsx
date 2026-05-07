@@ -205,15 +205,15 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
 
       // === AIR QUALITY (PM 2.5) HEATMAP + STATION MARKERS ===
       if (data.airStations && data.airStations.length > 0) {
-        const stationFeatures = data.airStations.map((s) => ({
+        const stationFeatures = data.airStations.map((s: any) => ({
           type: "Feature" as const,
           geometry: { type: "Point" as const, coordinates: [s.lng, s.lat] },
           properties: {
             id: s.id,
             name: s.name,
             pm25: s.pm25,
-            pm10: s.pm10,
-            aqi: s.aqi,
+            origin: s.origin || "",
+            district: s.district || "",
             level: s.level,
             levelLabel: s.levelLabel,
             color: s.color,
@@ -227,58 +227,78 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
         });
 
         // Heatmap — green→yellow→orange→red gradient by PM 2.5
+        // With ~380 stations across the city we want generous radius
+        // for smooth interpolation between neighboring sensors.
         map.addLayer({
           id: "air-heatmap",
           type: "heatmap",
           source: "air-stations",
           layout: { visibility: "none" },
           paint: {
+            // Weight: low PM 2.5 contributes weakly, high PM 2.5 dominates
             "heatmap-weight": [
               "interpolate", ["linear"], ["get", "pm25"],
-              0, 0,
-              12, 0.3,
-              35, 0.6,
-              55, 0.85,
-              150, 1,
+              0, 0.2,
+              12, 0.4,
+              35, 0.7,
+              55, 0.9,
+              100, 1,
+              200, 1,
             ],
             "heatmap-intensity": [
               "interpolate", ["linear"], ["zoom"],
-              10, 1, 14, 2, 16, 3,
+              9, 0.6,
+              11, 1,
+              13, 1.4,
+              16, 2,
             ],
+            // Density-based color ramp (transparent at edges, saturated at peaks)
             "heatmap-color": [
               "interpolate", ["linear"], ["heatmap-density"],
               0, "rgba(34,197,94,0)",
-              0.2, "rgba(34,197,94,0.4)",
-              0.4, "rgba(234,179,8,0.6)",
-              0.6, "rgba(249,115,22,0.7)",
-              0.8, "rgba(220,38,38,0.8)",
-              1, "rgba(127,29,29,0.9)",
+              0.1, "rgba(34,197,94,0.35)",
+              0.3, "rgba(132,204,22,0.5)",
+              0.5, "rgba(234,179,8,0.65)",
+              0.7, "rgba(249,115,22,0.75)",
+              0.85, "rgba(220,38,38,0.85)",
+              1, "rgba(127,29,29,0.95)",
             ],
+            // Big radius so neighboring stations blend into smooth field
             "heatmap-radius": [
               "interpolate", ["linear"], ["zoom"],
-              10, 30, 13, 60, 16, 120,
+              9, 50,
+              11, 90,
+              13, 140,
+              15, 200,
+              17, 280,
             ],
-            "heatmap-opacity": 0.7,
+            "heatmap-opacity": [
+              "interpolate", ["linear"], ["zoom"],
+              9, 0.75,
+              14, 0.65,
+              17, 0.4,
+            ],
           },
         });
 
-        // Station marker dots (visible at higher zoom)
+        // Station marker dots — only at higher zoom (otherwise too cluttered)
         map.addLayer({
           id: "air-stations-circles",
           type: "circle",
           source: "air-stations",
           layout: { visibility: "none" },
+          minzoom: 12,
           paint: {
             "circle-radius": [
               "interpolate", ["linear"], ["zoom"],
-              10, 4, 13, 7, 16, 10,
+              12, 3, 14, 5, 17, 9,
             ],
             "circle-color": ["get", "color"],
             "circle-opacity": [
               "interpolate", ["linear"], ["zoom"],
-              10, 0.6, 13, 0.85, 16, 1,
+              12, 0.5, 14, 0.85, 17, 1,
             ],
-            "circle-stroke-width": 1.5,
+            "circle-stroke-width": 1,
             "circle-stroke-color": "#fff",
           },
         });
@@ -306,9 +326,7 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
               </div>
               <div style="font-size:18px;font-weight:700;color:${p.color}">${p.pm25} <span style="font-size:11px;font-weight:400;color:#666">µg/m³</span></div>
               <div style="color:${p.color};font-size:11px;font-weight:500">${p.levelLabel}</div>
-              <div style="color:#888;font-size:10px;margin-top:4px">
-                ${p.pm10 ? `PM10: ${p.pm10}` : ""}${p.aqi ? ` · AQI: ${p.aqi}` : ""}
-              </div>
+              ${p.origin ? `<div style="color:#888;font-size:10px;margin-top:4px">Источник: ${p.origin}${p.district ? " · " + p.district : ""}</div>` : ""}
               ${date ? `<div style="color:#aaa;font-size:10px">${date}</div>` : ""}
             </div>
           `).addTo(map);
@@ -569,7 +587,14 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
         )}
         {showAirQuality && (
           <div className="border-t pt-1 mt-1 space-y-0.5">
-            <div className="font-medium text-[10px]">PM 2.5 (µg/m³)</div>
+            <div className="font-medium text-[10px]">
+              PM 2.5 (µg/m³)
+              {data.airStations && (
+                <span className="text-muted-foreground font-normal ml-1">
+                  · {data.airStations.length} станций
+                </span>
+              )}
+            </div>
             <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-green-500" />0–12 хорошее</div>
             <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-yellow-500" />12–35 умеренное</div>
             <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-orange-500" />35–55 чувств.</div>
