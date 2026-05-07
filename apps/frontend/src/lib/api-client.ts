@@ -1,5 +1,12 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3003/api";
 
+export class ApiUnauthorizedError extends Error {
+  constructor() {
+    super("Unauthorized");
+    this.name = "ApiUnauthorizedError";
+  }
+}
+
 class ApiClient {
   private token: string | null = null;
 
@@ -41,11 +48,13 @@ class ApiClient {
     });
 
     if (res.status === 401) {
+      // Token invalid/expired — clear it but don't force redirect.
+      // Caller decides how to react (login modal, hide content, etc).
       this.clearToken();
-      if (typeof window !== "undefined") {
-        window.location.href = "/";
-      }
-      throw new Error("Unauthorized");
+      throw new ApiUnauthorizedError();
+    }
+    if (res.status === 403) {
+      throw new ApiUnauthorizedError();
     }
 
     if (!res.ok) {

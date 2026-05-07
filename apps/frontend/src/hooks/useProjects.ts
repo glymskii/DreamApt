@@ -13,11 +13,15 @@ interface Project {
   updatedAt: string;
 }
 
-export function useProjects() {
+export function useProjects(
+  _unused?: undefined,
+  options: { enabled?: boolean } = {},
+) {
   return useQuery({
     queryKey: ["projects"],
     queryFn: () => api.get<{ projects: Project[] }>("/projects"),
     select: (data) => data.projects,
+    enabled: options.enabled ?? true,
   });
 }
 

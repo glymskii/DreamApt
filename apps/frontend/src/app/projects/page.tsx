@@ -2,11 +2,13 @@
 
 import { useRouter } from "next/navigation";
 import { useProjects, useCreateProject } from "@/hooks/useProjects";
+import { useAuth } from "@/hooks/useAuth";
+import { useAuthDialog } from "@/components/auth/auth-dialog";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Search, Home, Clock, ArrowLeft } from "lucide-react";
+import { Plus, Search, Home, Clock, ArrowLeft, LogIn, Lock } from "lucide-react";
 
 const STATUS_LABELS: Record<string, { label: string; variant: "default" | "secondary" | "outline" }> = {
   draft: { label: "Черновик", variant: "secondary" },
@@ -19,13 +21,42 @@ const STATUS_LABELS: Record<string, { label: string; variant: "default" | "secon
 
 export default function ProjectsPage() {
   const router = useRouter();
-  const { data: projects, isLoading } = useProjects();
+  const { user, isLoading: authLoading } = useAuth();
+  const authDialog = useAuthDialog();
+  const { data: projects, isLoading } = useProjects(undefined, {
+    enabled: !!user,
+  });
   const createProject = useCreateProject();
 
   const handleCreate = async () => {
     const project = await createProject.mutateAsync("Новый поиск");
     router.push(`/projects/${project.id}/interview`);
   };
+
+  // Guest fallback
+  if (!authLoading && !user) {
+    return (
+      <div className="min-h-screen bg-surface">
+        <Header />
+        <main className="container mx-auto px-4 py-12 max-w-md text-center space-y-4">
+          <Lock className="h-10 w-10 mx-auto text-muted-foreground" />
+          <p className="font-medium">Раздел доступен после авторизации</p>
+          <p className="text-sm text-muted-foreground">
+            Здесь будут ваши персональные поиски и подбор квартир.
+          </p>
+          <div className="flex gap-2 justify-center">
+            <Button onClick={() => authDialog.open("login")}>
+              <LogIn className="h-4 w-4 mr-1" />
+              Войти
+            </Button>
+            <Button variant="outline" onClick={() => router.push("/dashboard")}>
+              На главную
+            </Button>
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   const handleClick = (project: { id: string; status: string }) => {
     if (project.status === "draft") {

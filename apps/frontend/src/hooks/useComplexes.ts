@@ -74,10 +74,20 @@ export function useComplexProperties(complexId: string, sort: string = "scoreTot
   });
 }
 
+export interface ShutovResponse {
+  found: boolean;
+  locked?: boolean;
+  name?: string;
+  category?: number;
+  categoryLabel?: string;
+  categoryColor?: string;
+  description?: string;
+}
+
 export function useComplexShutov(complexId: string) {
   return useQuery({
     queryKey: ["complex-shutov", complexId],
-    queryFn: () => api.get<any>(`/complexes/${complexId}/shutov`),
+    queryFn: () => api.get<ShutovResponse>(`/complexes/${complexId}/shutov`),
     enabled: !!complexId,
   });
 }

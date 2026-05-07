@@ -1,13 +1,15 @@
 "use client";
 
 import { useAuth } from "@/hooks/useAuth";
+import { useAuthDialog } from "@/components/auth/auth-dialog";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { Building2, LogOut } from "lucide-react";
+import { Building2, LogOut, LogIn, Shield } from "lucide-react";
 import Link from "next/link";
 
 export function Header() {
-  const { user, logout } = useAuth();
+  const { user, isAdmin, logout } = useAuth();
+  const authDialog = useAuthDialog();
 
   return (
     <header className="border-b bg-card">
@@ -17,16 +19,33 @@ export function Header() {
           DreamApt
         </Link>
         <div className="flex items-center gap-2">
+          {isAdmin && (
+            <Link href="/admin">
+              <Button variant="ghost" size="sm" className="h-8 text-xs">
+                <Shield className="h-3.5 w-3.5 mr-1" />
+                Админ
+              </Button>
+            </Link>
+          )}
           <ThemeToggle size="icon" />
-          {user && (
+          {user ? (
             <>
               <span className="text-sm text-muted-foreground hidden sm:inline">
                 {user.username}
               </span>
-              <Button variant="ghost" size="icon" onClick={logout}>
+              <Button variant="ghost" size="icon" onClick={logout} title="Выйти">
                 <LogOut className="h-4 w-4" />
               </Button>
             </>
+          ) : (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => authDialog.open("login")}
+            >
+              <LogIn className="h-3.5 w-3.5 mr-1" />
+              Войти
+            </Button>
           )}
         </div>
       </div>

@@ -1,12 +1,14 @@
 "use client";
 
 import { useComplex, useComplexProperties, useComplexShutov, useComplexSeismic, useComplexAirQuality } from "@/hooks/useComplexes";
+import { useAuth } from "@/hooks/useAuth";
+import { useAuthDialog } from "@/components/auth/auth-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatPrice, formatArea } from "@/lib/utils";
 import {
   X, MapPin, Clock, Star, Shield, AlertTriangle, Activity,
-  Building, ChevronRight, Home, ExternalLink, Ruler,
+  Building, ChevronRight, Home, ExternalLink, Ruler, Lock, LogIn,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -31,8 +33,13 @@ interface Props {
 }
 
 export function ComplexSlideOver({ complexId, onClose }: Props) {
+  const { isAuthenticated } = useAuth();
+  const authDialog = useAuthDialog();
   const { data: complex, isLoading } = useComplex(complexId);
-  const { data: properties } = useComplexProperties(complexId);
+  // Properties are gated server-side for guests; only fetch when authenticated.
+  const { data: properties } = useComplexProperties(
+    isAuthenticated ? complexId : "",
+  );
   const { data: shutov } = useComplexShutov(complexId);
   const { data: seismic } = useComplexSeismic(complexId);
   const { data: airQuality } = useComplexAirQuality(complexId);
@@ -163,9 +170,34 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
                 </div>
               )}
 
-              {/* Shutov rating */}
-              {shutov?.found && (
-                <div className="flex items-center gap-3 p-3 rounded-lg border" style={{ borderLeftWidth: 4, borderLeftColor: shutov.categoryColor }}>
+              {/* Shutov rating — locked for guests */}
+              {shutov?.found && shutov.locked ? (
+                <button
+                  onClick={() =>
+                    authDialog.open(
+                      "login",
+                      "Оценка эксперта Тихона Шутова доступна авторизованным пользователям.",
+                    )
+                  }
+                  className="flex items-center gap-3 p-3 rounded-lg border w-full text-left hover:bg-muted/50 transition-colors"
+                  style={{ borderLeftWidth: 4, borderLeftColor: "#94a3b8" }}
+                >
+                  <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-muted">
+                    <Lock className="h-4 w-4 text-muted-foreground" />
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold">Рейтинг эксперта</p>
+                    <p className="text-xs text-muted-foreground">
+                      Тихон Шутов оценил {shutov.name || "этот ЖК"}. Войдите чтобы увидеть.
+                    </p>
+                  </div>
+                  <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                </button>
+              ) : shutov?.found && !shutov.locked ? (
+                <div
+                  className="flex items-center gap-3 p-3 rounded-lg border"
+                  style={{ borderLeftWidth: 4, borderLeftColor: shutov.categoryColor }}
+                >
                   <span
                     className="inline-flex items-center justify-center w-8 h-8 rounded-full text-white font-bold text-sm"
                     style={{ backgroundColor: shutov.categoryColor }}
@@ -174,10 +206,12 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
                   </span>
                   <div>
                     <p className="text-xs font-semibold">{shutov.categoryLabel}</p>
-                    <p className="text-xs text-muted-foreground">Тихон Шутов · {shutov.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      Тихон Шутов · {shutov.name}
+                    </p>
                   </div>
                 </div>
-              )}
+              ) : null}
 
               {/* Air quality (PM 2.5) */}
               {airQuality?.found && (
@@ -212,8 +246,33 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
                 </div>
               )}
 
-              {/* Properties list */}
-              {properties && properties.length > 0 && (
+              {/* Properties list — locked for guests */}
+              {!isAuthenticated && (
+                <button
+                  onClick={() =>
+                    authDialog.open(
+                      "login",
+                      "Список квартир в ЖК доступен после авторизации. Войдите или запросите доступ.",
+                    )
+                  }
+                  className="w-full flex items-center gap-3 p-3 rounded-lg border border-dashed hover:bg-muted/50 transition-colors text-left"
+                >
+                  <span className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-muted shrink-0">
+                    <Home className="h-4 w-4 text-muted-foreground" />
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold flex items-center gap-1.5">
+                      Объявления о продаже
+                      <Lock className="h-3 w-3 text-muted-foreground" />
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Войдите чтобы увидеть квартиры в этом ЖК
+                    </p>
+                  </div>
+                  <LogIn className="h-4 w-4 text-muted-foreground shrink-0" />
+                </button>
+              )}
+              {isAuthenticated && properties && properties.length > 0 && (
                 <div>
                   <p className="text-xs font-medium text-muted-foreground mb-2">
                     Квартиры ({properties.length})
@@ -262,7 +321,7 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
       {/* Footer */}
       {complex && (
         <div className="border-t px-4 py-3 shrink-0">
-          {complex.projectId ? (
+          {isAuthenticated && complex.projectId ? (
             <Link href={`/projects/${complex.projectId}/complex/${complex.id}`}>
               <Button className="w-full" size="sm">
                 Подробнее о ЖК
@@ -276,6 +335,18 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
                 Открыть на Krisha.kz
               </Button>
             </a>
+          ) : !isAuthenticated ? (
+            <Button
+              className="w-full"
+              size="sm"
+              variant="outline"
+              onClick={() =>
+                authDialog.open("login", "Войдите для просмотра подробной страницы ЖК.")
+              }
+            >
+              <LogIn className="h-4 w-4 mr-1" />
+              Войти для подробностей
+            </Button>
           ) : null}
         </div>
       )}

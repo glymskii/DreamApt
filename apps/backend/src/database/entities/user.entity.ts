@@ -29,6 +29,9 @@ export class UserEntity {
   @Column({ name: "avatar_url", nullable: true })
   avatarUrl: string;
 
+  @Column({ default: "user" })
+  role: string; // "admin" | "user"
+
   @CreateDateColumn({ name: "created_at" })
   createdAt: Date;
 

@@ -4,12 +4,16 @@ import {
   Post,
   Param,
   Query,
+  Req,
+  UnauthorizedException,
   UseGuards,
 } from "@nestjs/common";
 import { ComplexService } from "./complex.service";
 import { KrishaComplexParserService } from "./krisha-complex-parser.service";
 import { SearchService } from "../search/search.service";
 import { JwtAuthGuard } from "../auth/auth.guard";
+import { OptionalJwtGuard } from "../auth/optional-jwt.guard";
+import { AdminGuard } from "../auth/admin.guard";
 
 @Controller()
 export class ComplexController {
@@ -19,16 +23,14 @@ export class ComplexController {
     private searchService: SearchService,
   ) {}
 
-  // ── Global endpoints (auth required but not project-scoped) ──
+  // ── PUBLIC endpoints (no auth required) ──
 
   @Get("complexes/map-data")
-  @UseGuards(JwtAuthGuard)
   async getGlobalMapData() {
     return this.complexService.findAllForMap();
   }
 
   @Get("complexes/all")
-  @UseGuards(JwtAuthGuard)
   async findAllGlobal(
     @Query("sort") sort: string = "scoreTotal",
     @Query("page") page: string = "1",
@@ -41,14 +43,42 @@ export class ComplexController {
     );
   }
 
-  // ── Single complex endpoints ──
-
   @Get("complexes/:id")
-  @UseGuards(JwtAuthGuard)
   async findOne(@Param("id") id: string) {
     return this.complexService.findOne(id);
   }
 
+  @Get("complexes/:id/seismic")
+  async getSeismic(@Param("id") id: string) {
+    return this.complexService.getSeismicRisk(id);
+  }
+
+  // ── Mixed: public but unlocks data when authenticated ──
+
+  /**
+   * Shutov rating: guests see only existence + locked teaser.
+   * Authenticated users get full data (category, label, color, description).
+   */
+  @Get("complexes/:id/shutov")
+  @UseGuards(OptionalJwtGuard)
+  async getShutov(@Param("id") id: string, @Req() req: any) {
+    const full = await this.complexService.getShutovRating(id);
+    if (!full.found) return { found: false };
+    if (!req.user) {
+      // Locked teaser for guests
+      return {
+        found: true,
+        locked: true,
+        name: full.name,
+      };
+    }
+    const { found: _f, ...rest } = full as any;
+    return { found: true, locked: false, ...rest };
+  }
+
+  // ── PRIVATE endpoints (login required) ──
+
+  /** Properties list — only for authenticated users */
   @Get("complexes/:id/properties")
   @UseGuards(JwtAuthGuard)
   async findProperties(
@@ -58,19 +88,7 @@ export class ComplexController {
     return { properties: await this.complexService.findProperties(id, sort) };
   }
 
-  @Get("complexes/:id/shutov")
-  @UseGuards(JwtAuthGuard)
-  async getShutov(@Param("id") id: string) {
-    return this.complexService.getShutovRating(id);
-  }
-
-  @Get("complexes/:id/seismic")
-  @UseGuards(JwtAuthGuard)
-  async getSeismic(@Param("id") id: string) {
-    return this.complexService.getSeismicRisk(id);
-  }
-
-  // ── Project-scoped endpoints ──
+  // ── Project-scoped (private) ──
 
   @Get("projects/:projectId/complexes")
   @UseGuards(JwtAuthGuard)
@@ -94,21 +112,25 @@ export class ComplexController {
     return this.complexService.getMapData(projectId);
   }
 
+  // ── Admin only (data ops) ──
+
   @Post("complexes/cleanup-non-almaty")
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(AdminGuard)
   async cleanupNonAlmaty() {
     const deleted = await this.complexService.deleteNonAlmaty();
     return { deleted };
   }
 
   @Post("complexes/parse-krisha")
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(AdminGuard)
   async parseAllFromKrisha() {
-    // Run in background — return immediately
     this.krishaComplexParser.parseAndSaveAll().catch((err) => {
       console.error("Krisha complex parsing failed:", err);
     });
-    return { started: true, message: "Parsing all Almaty complexes from Krisha.kz in background" };
+    return {
+      started: true,
+      message: "Parsing all Almaty complexes from Krisha.kz in background",
+    };
   }
 
   @Post("projects/:projectId/migrate-complexes")

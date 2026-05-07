@@ -1,9 +1,13 @@
-import { Controller, Get, Param, UseGuards, NotFoundException } from "@nestjs/common";
+import {
+  Controller,
+  Get,
+  Param,
+  NotFoundException,
+} from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { AirKazService } from "./airkaz.service";
 import { ResidentialComplexEntity } from "../database/entities/residential-complex.entity";
-import { JwtAuthGuard } from "../auth/auth.guard";
 
 @Controller()
 export class AirQualityController {
@@ -13,9 +17,8 @@ export class AirQualityController {
     private complexesRepo: Repository<ResidentialComplexEntity>,
   ) {}
 
-  /** All Almaty PM 2.5 stations with live readings. Used for heatmap/markers. */
+  /** All Almaty PM 2.5 stations with live readings. PUBLIC. */
   @Get("air-quality/stations")
-  @UseGuards(JwtAuthGuard)
   async getStations() {
     const stations = await this.airKaz.getStations();
     return {
@@ -40,9 +43,8 @@ export class AirQualityController {
     };
   }
 
-  /** Get air quality for a specific complex (nearest active station) */
+  /** Air quality for a specific complex (nearest active station). PUBLIC. */
   @Get("complexes/:id/air-quality")
-  @UseGuards(JwtAuthGuard)
   async getComplexAirQuality(@Param("id") id: string) {
     const complex = await this.complexesRepo.findOne({ where: { id } });
     if (!complex) throw new NotFoundException("Complex not found");
