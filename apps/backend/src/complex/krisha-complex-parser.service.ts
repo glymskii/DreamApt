@@ -390,6 +390,11 @@ export class KrishaComplexParserService {
     // values (or NULL if nothing parses, which is better than wrong data).
     const SUSPICIOUS_FLOORS_THRESHOLD = 50;
     const SUSPICIOUS_YEAR_MAX = new Date().getFullYear() + 5;
+    // Don't re-attempt the same ЖК within this window — pages that have no
+    // apartment cards (off-plan, recently delisted) won't suddenly start
+    // returning data, so we'd just spin in a loop.
+    const RETRY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+    const cutoff = new Date(Date.now() - RETRY_WINDOW_MS);
 
     const filter = `
       c.krishaUrl IS NOT NULL
@@ -400,8 +405,13 @@ export class KrishaComplexParserService {
         OR c.yearBuilt < 1950
         OR c.yearBuilt > :yrMax
       )
+      AND (c.enrichmentAttemptedAt IS NULL OR c.enrichmentAttemptedAt < :cutoff)
     `;
-    const filterParams = { flMax: SUSPICIOUS_FLOORS_THRESHOLD, yrMax: SUSPICIOUS_YEAR_MAX };
+    const filterParams = {
+      flMax: SUSPICIOUS_FLOORS_THRESHOLD,
+      yrMax: SUSPICIOUS_YEAR_MAX,
+      cutoff,
+    };
 
     const candidates = await this.complexesRepo
       .createQueryBuilder("c")
@@ -428,25 +438,44 @@ export class KrishaComplexParserService {
       try {
         await this.delay(1500); // same gentle Krisha pace as the full scraper
         const detail = await this.fetchComplexDetail(c.krishaUrl);
-        const patch: Record<string, unknown> = {};
+        // Always stamp the attempt — pages with no apartment cards return no
+        // data, so we mark them tried and move on. Without this stamp the
+        // filter picks them up again next iteration → infinite loop.
+        const patch: Record<string, unknown> = {
+          enrichmentAttemptedAt: new Date(),
+        };
 
-        // Year: write if currently empty OR currently junk; null out if
-        // the page has nothing valid either (better than keeping junk).
-        if (!c.yearBuilt || isJunkYear(c.yearBuilt)) {
-          patch.yearBuilt = detail.yearBuilt; // may be null — overwrites junk with NULL
+        // For yearBuilt: write the parsed value if we found one. If existing
+        // is junk and detail is null, null it out (better than keeping junk).
+        // If existing is null and detail is null, leave alone — no need to
+        // write null over null.
+        if (isJunkYear(c.yearBuilt) && detail.yearBuilt === null) {
+          patch.yearBuilt = null;
+        } else if (detail.yearBuilt !== null && (!c.yearBuilt || isJunkYear(c.yearBuilt))) {
+          patch.yearBuilt = detail.yearBuilt;
         }
-        if (!c.floorsMax || isJunkFloors(c.floorsMax)) {
+
+        if (isJunkFloors(c.floorsMax) && detail.floorsMax === null) {
+          patch.floorsMax = null;
+        } else if (detail.floorsMax !== null && (!c.floorsMax || isJunkFloors(c.floorsMax))) {
           patch.floorsMax = detail.floorsMax;
         }
 
-        if (Object.keys(patch).length > 0) {
-          await this.complexesRepo.update(c.id, patch);
+        await this.complexesRepo.update(c.id, patch);
+        // Count as "updated" only when we actually changed year or floors;
+        // pure timestamp bumps are skips from the user's perspective.
+        if ("yearBuilt" in patch || "floorsMax" in patch) {
           updated++;
         } else {
           skipped++;
         }
       } catch (err) {
         this.logger.warn(`enrichChunk: failed for ${c.id} (${c.krishaUrl}): ${err}`);
+        // Stamp the attempt anyway so a permanent fetch failure (404,
+        // gone, etc.) doesn't keep this row in the queue forever.
+        await this.complexesRepo
+          .update(c.id, { enrichmentAttemptedAt: new Date() })
+          .catch(() => {});
         skipped++;
       }
     }

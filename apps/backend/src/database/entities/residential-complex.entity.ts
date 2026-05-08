@@ -71,6 +71,13 @@ export class ResidentialComplexEntity {
   @Column({ name: "year_built", nullable: true })
   yearBuilt: number;
 
+  // Timestamp of the last Krisha-detail enrichment attempt for yearBuilt /
+  // floorsMax. Set on every attempt — successful or not — so the chunked
+  // backfill endpoint can skip ЖК it already tried recently and avoid
+  // looping forever on pages with no extractable floor/year data.
+  @Column({ name: "enrichment_attempted_at", type: "timestamp", nullable: true })
+  enrichmentAttemptedAt: Date;
+
   // Scores
   @Column({ name: "score_total", type: "decimal", precision: 5, scale: 2, nullable: true })
   scoreTotal: number;
