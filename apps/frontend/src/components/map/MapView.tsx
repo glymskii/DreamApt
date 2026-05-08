@@ -43,6 +43,20 @@ function getSeismicLabelKey(risk: string | null): string | null {
   return keys[risk || ""] || null;
 }
 
+/** Same idea for AirKaz level — map structured `level` to translation key
+ *  so the station popup localises instead of showing the RU `levelLabel`. */
+function getAirLabelKey(level: string | null | undefined): string | null {
+  const keys: Record<string, string> = {
+    good: "complex.airGood",
+    moderate: "complex.airModerate",
+    sensitive: "complex.airSensitive",
+    unhealthy: "complex.airUnhealthy",
+    very_unhealthy: "complex.airVeryUnhealthy",
+    hazardous: "complex.airHazardous",
+  };
+  return keys[level || ""] || null;
+}
+
 function getFaultColor(danger: number): string {
   if (danger >= 3) return "#dc2626";
   if (danger >= 2) return "#f97316";
@@ -419,7 +433,10 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
               }),
               el("div", {
                 css: `color:${safeColor};font-size:11px;font-weight:500`,
-                text: String(p.levelLabel || ""),
+                text: (() => {
+                  const key = getAirLabelKey(p.level);
+                  return key ? tRef.current(key) : String(p.levelLabel || "");
+                })(),
               }),
               p.origin
                 ? el("div", {

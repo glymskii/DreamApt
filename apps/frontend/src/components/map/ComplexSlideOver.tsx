@@ -23,6 +23,37 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
+/**
+ * Backend's `seismic.riskLabel` is hardcoded Russian (e.g. "Опасная зона")
+ * — derive a translation key from the risk level instead so the badge
+ * label localises cleanly. Reuses the keys defined under `map.*` for the
+ * map popups so we don't duplicate strings.
+ */
+function getSeismicLabelKey(risk: string | null | undefined): string | null {
+  const keys: Record<string, string> = {
+    critical: "map.seismicOnFault",
+    high: "map.seismicDanger",
+    moderate: "map.seismicWatch",
+    low: "map.seismicLow",
+    safe: "map.seismicSafe",
+  };
+  return keys[risk || ""] || null;
+}
+
+/** Same idea for the AirKaz `levelLabel` — backend ships RU, we translate
+ *  on the client by the structured `level` code. */
+function getAirLabelKey(level: string | null | undefined): string | null {
+  const keys: Record<string, string> = {
+    good: "complex.airGood",
+    moderate: "complex.airModerate",
+    sensitive: "complex.airSensitive",
+    unhealthy: "complex.airUnhealthy",
+    very_unhealthy: "complex.airVeryUnhealthy",
+    hazardous: "complex.airHazardous",
+  };
+  return keys[level || ""] || null;
+}
+
 function ScoreBar({ label, score }: { label: string; score: number }) {
   const color = score >= 85 ? "bg-green-500" : score >= 70 ? "bg-yellow-500" : "bg-orange-500";
   return (
@@ -363,14 +394,22 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
                     <p className={`text-xs font-semibold ${
                       isHighRisk ? "text-red-800 dark:text-red-200" : seismic.riskLevel === "moderate" ? "text-yellow-800 dark:text-yellow-200" : "text-green-800 dark:text-green-200"
                     }`}>
-                      {seismic.riskLabel}
+                      {(() => {
+                        // Derive label from riskLevel instead of using API's
+                        // riskLabel (which is hardcoded Russian on the backend).
+                        const key = getSeismicLabelKey(seismic.riskLevel);
+                        return key ? t(key) : seismic.riskLabel || "";
+                      })()}
                     </p>
                     <p className={`text-xs mt-0.5 ${
                       isHighRisk ? "text-red-700 dark:text-red-300" : "text-muted-foreground"
                     }`}>
-                      {seismic.distanceMeters < 1000
-                        ? `${seismic.distanceMeters} м`
-                        : `${(seismic.distanceMeters / 1000).toFixed(1)} км`} {t("complex.seismicTo")} {seismic.nearestFault?.label?.toLowerCase() || t("complex.seismicFault")}
+                      {t("complex.seismicDistance", {
+                        distance:
+                          seismic.distanceMeters < 1000
+                            ? `${seismic.distanceMeters} м`
+                            : `${(seismic.distanceMeters / 1000).toFixed(1)} км`,
+                      })}
                     </p>
                   </div>
                 </div>
@@ -448,7 +487,10 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
                       className="text-xs font-semibold"
                       style={{ color: airQuality.color }}
                     >
-                      {airQuality.levelLabel}
+                      {(() => {
+                        const key = getAirLabelKey(airQuality.level);
+                        return key ? t(key) : airQuality.levelLabel || "";
+                      })()}
                     </p>
                     <p className="text-[10px] text-muted-foreground truncate">
                       {t("complex.airStation", { name: airQuality.station })}
