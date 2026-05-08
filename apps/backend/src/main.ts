@@ -10,11 +10,11 @@ import { NestFactory } from "@nestjs/core";
 import { ValidationPipe } from "@nestjs/common";
 import { NestExpressApplication } from "@nestjs/platform-express";
 import helmet from "helmet";
+import * as bodyParser from "body-parser";
 import { AppModule } from "./app.module";
 
-// CommonJS interop: `compression` ships as a CJS module and ESM `import * as`
-// produces a namespace object that isn't directly callable. require() avoids
-// that and matches what the package expects.
+// CJS interop: compression's types don't expose a callable signature on the
+// namespace import. require() returns the function directly.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const compression = require("compression");
 
@@ -31,7 +31,6 @@ async function bootstrap() {
 
   // Cap request bodies at 256 KB. Largest legitimate POST is the interview
   // answers (~5 KB). Anything bigger is an attack or a bug.
-  const bodyParser = require("body-parser");
   app.use(bodyParser.json({ limit: "256kb" }));
   app.use(bodyParser.urlencoded({ limit: "256kb", extended: true }));
 
