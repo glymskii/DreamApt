@@ -76,8 +76,11 @@ function AuthDialog({
   const { t } = useTranslation();
   const { login, registerRequest } = useAuth();
 
-  // login state
-  const [username, setUsername] = useState("");
+  // login state — phone-only, formatted via the same KZ mask as registration.
+  // Backend's validateUser normalizes the input so we can ship the formatted
+  // string straight from the input; toE164 below is just a client-side sanity
+  // check that prevents a request when the user clearly hasn't finished typing.
+  const [loginPhone, setLoginPhone] = useState("+7 ");
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
@@ -91,9 +94,14 @@ function AuthDialog({
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError("");
+    const e164 = toE164(loginPhone);
+    if (!e164) {
+      setLoginError(t("auth.phoneInvalid"));
+      return;
+    }
     setLoginLoading(true);
     try {
-      await login(username, password);
+      await login(e164, password);
       onClose();
     } catch (err) {
       setLoginError(
@@ -177,17 +185,27 @@ function AuthDialog({
         {tab === "login" ? (
           <form onSubmit={handleLogin} className="space-y-3">
             <div>
-              <label className="text-xs font-medium block mb-1" htmlFor="username">
+              <label className="text-xs font-medium block mb-1" htmlFor="login-phone">
                 {t("auth.loginField")}
               </label>
-              <Input
-                id="username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                required
-                autoComplete="username"
-                placeholder="+7 (777) 123-45-67"
-              />
+              <div className="relative">
+                <Phone className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input
+                  id="login-phone"
+                  type="tel"
+                  inputMode="tel"
+                  className="pl-8 font-mono tracking-wide"
+                  value={loginPhone}
+                  onChange={(e) => setLoginPhone(formatKzPhone(e.target.value))}
+                  onFocus={() => {
+                    if (!loginPhone) setLoginPhone("+7 ");
+                  }}
+                  required
+                  autoComplete="tel"
+                  placeholder="+7 (___) ___-__-__"
+                  maxLength={18}
+                />
+              </div>
             </div>
             <div>
               <label className="text-xs font-medium block mb-1" htmlFor="password">

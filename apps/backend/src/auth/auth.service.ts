@@ -17,7 +17,9 @@ import { RegistrationLeadEntity } from "../database/entities/registration-lead.e
 
 const BCRYPT_COST = 12;
 const TOKEN_TTL_DAYS = 7;
-const ADMIN_USERNAME = "admin";
+// Legacy admin username — kept only for finding the existing row on first
+// boot after we switched to phone-based admin login.
+const LEGACY_ADMIN_USERNAME = "admin";
 
 @Injectable()
 export class AuthService implements OnModuleInit {
@@ -32,10 +34,19 @@ export class AuthService implements OnModuleInit {
   ) {}
 
   /**
-   * On startup ensure the admin user exists.
-   * Password sourced from ADMIN_PASSWORD env var. If env is set and differs from
-   * the stored hash, the password is rotated. Logs a clear warning when running
-   * with the unsafe default.
+   * On startup ensure the admin user exists with the right credentials.
+   *
+   * Identity resolution order:
+   *   1. ADMIN_PHONE env (e.g. "+77078388077") → admin's username AND phone
+   *      both become this number. This is the production path.
+   *   2. Fallback: legacy username="admin", no phone. Dev-only.
+   *
+   * Migration: if a legacy admin (username="admin") exists and ADMIN_PHONE
+   * is set, we *update* that same row instead of creating a duplicate. The
+   * id stays stable so existing JWTs/wishlist/projects keep their owner.
+   *
+   * Password rotates from ADMIN_PASSWORD env if set and different from
+   * what's stored. Without the env, dev fallback is "admin" (logs a warning).
    */
   async onModuleInit() {
     const envPassword = process.env.ADMIN_PASSWORD;
@@ -46,28 +57,66 @@ export class AuthService implements OnModuleInit {
     }
     const password = envPassword || "admin";
 
-    const existing = await this.usersRepo.findOne({
-      where: { username: ADMIN_USERNAME },
-    });
+    const envPhoneRaw = process.env.ADMIN_PHONE;
+    const adminPhone = envPhoneRaw ? this.normalizeKzPhone(envPhoneRaw) : null;
+    if (envPhoneRaw && !adminPhone) {
+      this.logger.warn(
+        `ADMIN_PHONE env "${envPhoneRaw}" is not a valid KZ mobile number; falling back to username-only admin`,
+      );
+    }
+    const adminIdentifier = adminPhone || LEGACY_ADMIN_USERNAME;
+
+    // Find existing admin by either the new phone-based identifier or the
+    // legacy "admin" username. Either matches a single row (admin should be
+    // unique), so we treat them interchangeably for migration purposes.
+    let existing = adminPhone
+      ? await this.usersRepo.findOne({ where: { phone: adminPhone } })
+      : null;
+    if (!existing) {
+      existing = await this.usersRepo.findOne({
+        where: { username: LEGACY_ADMIN_USERNAME },
+      });
+    }
+    if (!existing && adminPhone) {
+      // Edge case: phone differs from any existing user but username "admin"
+      // also doesn't exist. Search by current adminIdentifier to be safe.
+      existing = await this.usersRepo.findOne({
+        where: { username: adminIdentifier },
+      });
+    }
+
     const hash = await bcrypt.hash(password, BCRYPT_COST);
 
     if (!existing) {
-      await this.usersRepo.save({
-        username: ADMIN_USERNAME,
+      const newAdmin: Partial<UserEntity> = {
+        username: adminIdentifier,
         passwordHash: hash,
         role: "admin",
-      });
-      this.logger.log("Default admin user created");
-    } else {
-      // Rotate password if env value changed; ensure admin role
-      const matches = await bcrypt.compare(password, existing.passwordHash);
-      if (!matches || existing.role !== "admin") {
-        await this.usersRepo.update(existing.id, {
-          passwordHash: hash,
-          role: "admin",
-        });
-        this.logger.log("Admin password / role updated from env");
-      }
+      };
+      if (adminPhone) newAdmin.phone = adminPhone;
+      await this.usersRepo.save(newAdmin);
+      this.logger.log(`Admin user created with identifier: ${adminIdentifier}`);
+      return;
+    }
+
+    // Migrate the existing row: align username/phone to env, rotate password
+    // if it changed, ensure admin role. Single UPDATE keeps the id stable.
+    // Cast to any avoids TypeORM's QueryDeepPartialEntity choking on the
+    // optional relations (projects[]) declared on UserEntity.
+    const updates: Record<string, unknown> = {};
+    if (existing.username !== adminIdentifier) updates.username = adminIdentifier;
+    if (adminPhone && existing.phone !== adminPhone) updates.phone = adminPhone;
+    if (existing.role !== "admin") updates.role = "admin";
+
+    const passwordMatches = await bcrypt.compare(password, existing.passwordHash);
+    if (!passwordMatches) updates.passwordHash = hash;
+
+    if (Object.keys(updates).length > 0) {
+      await this.usersRepo.update(existing.id, updates);
+      const fields = Object.keys(updates).filter((k) => k !== "passwordHash");
+      this.logger.log(
+        `Admin row migrated: ${fields.join(", ") || "password only"} (id=${existing.id}, identifier=${adminIdentifier})`,
+      );
     }
   }
 

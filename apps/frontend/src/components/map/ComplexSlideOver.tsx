@@ -542,13 +542,6 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
                 <ChevronRight className="h-4 w-4 ml-1" />
               </Button>
             </Link>
-          ) : complex.krishaUrl ? (
-            <a href={complex.krishaUrl} target="_blank" rel="noopener noreferrer">
-              <Button className="w-full" size="sm" variant="outline">
-                <ExternalLink className="h-4 w-4 mr-1" />
-                {t("complex.openOnKrisha")}
-              </Button>
-            </a>
           ) : !isAuthenticated ? (
             <Button
               className="w-full"

@@ -124,7 +124,7 @@
     "title": "DreamApt",
     "tabLogin": "Вход",
     "tabRequest": "Запросить доступ",
-    "loginField": "Телефон или логин",
+    "loginField": "Телефон",
     "loginPassword": "Пароль",
     "loginSubmit": "Войти",
     "loginNoAccount": "Нет аккаунта?",
