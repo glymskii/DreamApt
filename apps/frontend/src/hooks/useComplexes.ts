@@ -100,6 +100,39 @@ export function useComplexSeismic(complexId: string) {
   });
 }
 
+export interface ReviewItem {
+  id: string;
+  rating: number;
+  text: string;
+  userName: string;
+  dateCreated: string;
+  likesCount: number;
+  photosCount: number;
+  photoUrls: string[];
+  officialAnswer?: { text: string; orgName: string } | null;
+}
+
+export interface ComplexReviewsResponse {
+  found: boolean;
+  totalReviews: number;
+  averageRating: number;
+  reviews: ReviewItem[];
+  twogisUrl: string | null;
+  buildingName?: string;
+  address?: string;
+}
+
+export function useComplexReviews(complexId: string) {
+  return useQuery({
+    queryKey: ["complex-reviews", complexId],
+    queryFn: () =>
+      api.get<ComplexReviewsResponse>(`/complexes/${complexId}/reviews`),
+    enabled: !!complexId,
+    // Reviews don't change minute-to-minute. Long cache to avoid re-hammering 2GIS.
+    staleTime: 60 * 60 * 1000, // 1 hour
+  });
+}
+
 export function useComplexAirQuality(complexId: string) {
   return useQuery({
     queryKey: ["complex-air-quality", complexId],
@@ -145,6 +178,8 @@ export interface MapData {
     airQualityPm25: number | null;
     airQualityLevel: string | null;
     airQualityStation: string | null;
+    twogisRating: number | null;
+    twogisReviewCount: number | null;
   }>;
   airStations?: AirStation[];
   faultLines: Array<{

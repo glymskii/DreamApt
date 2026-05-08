@@ -1,6 +1,15 @@
 "use client";
 
-import { useComplex, useComplexProperties, useComplexShutov, useComplexSeismic, useComplexAirQuality } from "@/hooks/useComplexes";
+import { useState } from "react";
+import {
+  useComplex,
+  useComplexProperties,
+  useComplexShutov,
+  useComplexSeismic,
+  useComplexAirQuality,
+  useComplexReviews,
+  type ReviewItem,
+} from "@/hooks/useComplexes";
 import { useAuth } from "@/hooks/useAuth";
 import { useAuthDialog } from "@/components/auth/auth-dialog";
 import { Badge } from "@/components/ui/badge";
@@ -9,6 +18,7 @@ import { formatPrice, formatArea } from "@/lib/utils";
 import {
   X, MapPin, Clock, Star, Shield, AlertTriangle, Activity,
   Building, ChevronRight, Home, ExternalLink, Ruler, Lock, LogIn,
+  MessageSquare, ThumbsUp, ChevronDown, Camera, MessageCircle,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -23,6 +33,183 @@ function ScoreBar({ label, score }: { label: string; score: number }) {
       <div className="h-1.5 bg-muted rounded-full overflow-hidden">
         <div className={`h-full ${color} rounded-full`} style={{ width: `${score}%` }} />
       </div>
+    </div>
+  );
+}
+
+function StarRow({ rating, size = "sm" }: { rating: number; size?: "sm" | "md" }) {
+  const cls = size === "md" ? "h-4 w-4" : "h-3 w-3";
+  const rounded = Math.round(rating);
+  return (
+    <div className="flex items-center gap-0.5">
+      {[1, 2, 3, 4, 5].map((s) => (
+        <Star
+          key={s}
+          className={`${cls} ${
+            s <= rounded ? "fill-yellow-400 text-yellow-400" : "text-muted-foreground/40"
+          }`}
+        />
+      ))}
+    </div>
+  );
+}
+
+function ReviewItemRow({ review }: { review: ReviewItem }) {
+  const ratingColor =
+    review.rating >= 4
+      ? "text-green-600 dark:text-green-400"
+      : review.rating >= 3
+      ? "text-yellow-600 dark:text-yellow-400"
+      : "text-red-600 dark:text-red-400";
+  const date = review.dateCreated
+    ? new Date(review.dateCreated).toLocaleDateString("ru-RU", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      })
+    : "";
+  const isLong = review.text.length > 180;
+  const text = isLong ? review.text.slice(0, 180) + "…" : review.text;
+
+  return (
+    <div className="border-b last:border-0 py-2.5 first:pt-0">
+      <div className="flex items-center justify-between mb-1">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <div className="w-6 h-6 rounded-full bg-muted text-[10px] font-semibold flex items-center justify-center shrink-0">
+            {review.userName.charAt(0).toUpperCase()}
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs font-medium truncate leading-tight">
+              {review.userName}
+            </p>
+            {date && <p className="text-[10px] text-muted-foreground">{date}</p>}
+          </div>
+        </div>
+        <div className={`flex items-center gap-0.5 shrink-0 ${ratingColor}`}>
+          <span className="text-xs font-bold">{review.rating}</span>
+          <Star className="h-3 w-3 fill-current" />
+        </div>
+      </div>
+      {text && (
+        <p className="text-[11px] leading-relaxed text-foreground/85 whitespace-pre-line">
+          {text}
+        </p>
+      )}
+      {(review.likesCount > 0 || review.photosCount > 0) && (
+        <div className="flex items-center gap-3 mt-1 text-[10px] text-muted-foreground">
+          {review.likesCount > 0 && (
+            <span className="flex items-center gap-0.5">
+              <ThumbsUp className="h-2.5 w-2.5" />
+              {review.likesCount}
+            </span>
+          )}
+          {review.photosCount > 0 && (
+            <span className="flex items-center gap-0.5">
+              <Camera className="h-2.5 w-2.5" />
+              {review.photosCount}
+            </span>
+          )}
+        </div>
+      )}
+      {review.officialAnswer?.text && (
+        <div className="mt-1.5 ml-3 pl-2 border-l-2 border-blue-300 dark:border-blue-700">
+          <div className="flex items-center gap-1 text-[10px] text-blue-700 dark:text-blue-400 font-medium">
+            <MessageCircle className="h-2.5 w-2.5" />
+            {review.officialAnswer.orgName || "Ответ застройщика"}
+          </div>
+          <p className="text-[11px] text-foreground/75 mt-0.5 line-clamp-2">
+            {review.officialAnswer.text}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ReviewsSection({
+  reviews,
+  totalReviews,
+  averageRating,
+  twogisUrl,
+}: {
+  reviews: ReviewItem[];
+  totalReviews: number;
+  averageRating: number;
+  twogisUrl: string | null;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const initialCount = 2;
+  const visible = expanded ? reviews : reviews.slice(0, initialCount);
+  const hasMore = reviews.length > initialCount;
+
+  const ratingColor =
+    averageRating >= 4
+      ? "text-green-600 dark:text-green-400"
+      : averageRating >= 3
+      ? "text-yellow-600 dark:text-yellow-400"
+      : "text-red-600 dark:text-red-400";
+
+  return (
+    <div className="rounded-lg border bg-muted/20 p-3 space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <MessageSquare className="h-4 w-4 text-muted-foreground" />
+          <span className="text-xs font-semibold">Отзывы 2GIS</span>
+          {totalReviews > 0 && (
+            <span className="text-[10px] text-muted-foreground">
+              · {totalReviews}
+            </span>
+          )}
+        </div>
+        {twogisUrl && (
+          <a
+            href={twogisUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-0.5"
+          >
+            Все на 2GIS
+            <ExternalLink className="h-2.5 w-2.5" />
+          </a>
+        )}
+      </div>
+
+      {averageRating > 0 && (
+        <div className="flex items-center gap-2 pb-1">
+          <span className={`text-2xl font-bold ${ratingColor}`}>
+            {averageRating.toFixed(1)}
+          </span>
+          <div>
+            <StarRow rating={averageRating} size="md" />
+            <p className="text-[10px] text-muted-foreground mt-0.5">
+              {totalReviews} {totalReviews === 1 ? "отзыв" : totalReviews < 5 ? "отзыва" : "отзывов"}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {reviews.length > 0 ? (
+        <div>
+          {visible.map((r) => (
+            <ReviewItemRow key={r.id} review={r} />
+          ))}
+          {hasMore && (
+            <button
+              onClick={() => setExpanded(!expanded)}
+              className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 mt-2 mx-auto"
+            >
+              {expanded ? "Свернуть" : `Показать ещё ${reviews.length - initialCount}`}
+              <ChevronDown
+                className={`h-3 w-3 transition-transform ${expanded ? "rotate-180" : ""}`}
+              />
+            </button>
+          )}
+        </div>
+      ) : (
+        <p className="text-[11px] text-muted-foreground">
+          Текст отзывов скрыт. Нажмите «Все на 2GIS» чтобы прочитать.
+        </p>
+      )}
     </div>
   );
 }
@@ -43,6 +230,7 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
   const { data: shutov } = useComplexShutov(complexId);
   const { data: seismic } = useComplexSeismic(complexId);
   const { data: airQuality } = useComplexAirQuality(complexId);
+  const { data: reviews, isLoading: reviewsLoading } = useComplexReviews(complexId);
 
   const scoreColor = (complex?.scoreTotal ?? 0) >= 85
     ? "bg-green-500" : (complex?.scoreTotal ?? 0) >= 70
@@ -245,6 +433,28 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
                   </div>
                 </div>
               )}
+
+              {/* 2GIS reviews — public, key value prop of the platform */}
+              {reviewsLoading ? (
+                <div className="rounded-lg border bg-muted/20 p-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <MessageSquare className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-xs font-semibold">Отзывы 2GIS</span>
+                  </div>
+                  <div className="animate-pulse space-y-2">
+                    <div className="h-6 bg-muted rounded w-1/3" />
+                    <div className="h-3 bg-muted rounded w-3/4" />
+                    <div className="h-3 bg-muted rounded w-1/2" />
+                  </div>
+                </div>
+              ) : reviews?.found ? (
+                <ReviewsSection
+                  reviews={reviews.reviews}
+                  totalReviews={reviews.totalReviews}
+                  averageRating={reviews.averageRating}
+                  twogisUrl={reviews.twogisUrl}
+                />
+              ) : null}
 
               {/* Properties list — locked for guests */}
               {!isAuthenticated && (

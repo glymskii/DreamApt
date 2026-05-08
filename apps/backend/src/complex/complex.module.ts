@@ -9,6 +9,7 @@ import { SearchProjectEntity } from "../database/entities/search-project.entity"
 import { AuthModule } from "../auth/auth.module";
 import { SearchModule } from "../search/search.module";
 import { AirQualityModule } from "../air-quality/air-quality.module";
+import { PropertiesModule } from "../properties/properties.module";
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { AirQualityModule } from "../air-quality/air-quality.module";
     AuthModule,
     forwardRef(() => SearchModule),
     AirQualityModule,
+    forwardRef(() => PropertiesModule),
   ],
   controllers: [ComplexController],
   providers: [ComplexService, KrishaComplexParserService],

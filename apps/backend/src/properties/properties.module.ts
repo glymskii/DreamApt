@@ -19,6 +19,6 @@ import { ScoringModule } from "../scoring/scoring.module";
   ],
   controllers: [PropertiesController],
   providers: [PropertiesService, TwoGisReviewsService],
-  exports: [PropertiesService],
+  exports: [PropertiesService, TwoGisReviewsService],
 })
 export class PropertiesModule {}

@@ -1,10 +1,11 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { Injectable, NotFoundException, Inject, forwardRef } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { ResidentialComplexEntity } from "../database/entities/residential-complex.entity";
 import { PropertyEntity } from "../database/entities/property.entity";
 import { SearchProjectEntity } from "../database/entities/search-project.entity";
 import { AirKazService } from "../air-quality/airkaz.service";
+import { TwoGisReviewsService } from "../properties/twogis-reviews.service";
 import { findShutovRating, findNearestFault, SHUTOV_CATEGORY_COLORS, SHUTOV_CATEGORY_LABELS } from "@dreamapt/shared";
 
 @Injectable()
@@ -17,6 +18,8 @@ export class ComplexService {
     @InjectRepository(SearchProjectEntity)
     private projectsRepo: Repository<SearchProjectEntity>,
     private airKaz: AirKazService,
+    @Inject(forwardRef(() => TwoGisReviewsService))
+    private twoGisReviews: TwoGisReviewsService,
   ) {}
 
   /** Get all complexes globally, deduplicated by normalized name (best score wins) */
@@ -29,6 +32,7 @@ export class ComplexService {
         "shutovCategory", "scoreInfrastructure", "scoreLifestyle",
         "scoreCommute", "scoreSeismic", "floorsMax", "floorSegment",
         "airQualityPm25", "airQualityLevel", "airQualityStation",
+        "twogisRating", "twogisReviewCount",
       ],
     });
 
@@ -203,6 +207,62 @@ export class ComplexService {
     if (!complex.lat || !complex.lng) return { found: false };
     const result = findNearestFault(complex.lat, complex.lng);
     return { found: true, ...result };
+  }
+
+  /**
+   * Public 2GIS reviews for a complex.
+   * Looks up reviews on 2GIS via the residential complex name (with lat/lng
+   * bias when available) and persists average rating + total count back to
+   * the entity so future map renders can show the badge instantly.
+   */
+  async getReviews(complexId: string) {
+    const complex = await this.findOne(complexId);
+    const name = complex.displayName || complex.name;
+    if (!name) {
+      return {
+        found: false,
+        totalReviews: 0,
+        averageRating: 0,
+        reviews: [],
+        twogisUrl: null,
+      };
+    }
+    const lat = complex.lat ? Number(complex.lat) : undefined;
+    const lng = complex.lng ? Number(complex.lng) : undefined;
+
+    const result = await this.twoGisReviews.getReviews(name, lat, lng);
+    if (!result) {
+      return {
+        found: false,
+        totalReviews: 0,
+        averageRating: 0,
+        reviews: [],
+        twogisUrl: null,
+      };
+    }
+
+    // Persist aggregate fields so they appear on the map without an extra fetch
+    if (result.totalReviews > 0) {
+      const newRating = Number(result.averageRating.toFixed(1));
+      const newCount = result.totalReviews;
+      const cachedRating = complex.twogisRating ? Number(complex.twogisRating) : null;
+      if (cachedRating !== newRating || complex.twogisReviewCount !== newCount) {
+        await this.complexesRepo.update(complex.id, {
+          twogisRating: newRating as any,
+          twogisReviewCount: newCount,
+        });
+      }
+    }
+
+    return {
+      found: result.totalReviews > 0 || result.reviews.length > 0,
+      totalReviews: result.totalReviews,
+      averageRating: result.averageRating,
+      reviews: result.reviews,
+      twogisUrl: result.twogisUrl,
+      buildingName: result.buildingName,
+      address: result.address,
+    };
   }
 
   async getMapData(projectId: string) {

@@ -53,6 +53,12 @@ export class ComplexController {
     return this.complexService.getSeismicRisk(id);
   }
 
+  /** 2GIS reviews — fully public, anchor of "open data" value prop */
+  @Get("complexes/:id/reviews")
+  async getReviews(@Param("id") id: string) {
+    return this.complexService.getReviews(id);
+  }
+
   // ── Mixed: public but unlocks data when authenticated ──
 
   /**
