@@ -323,6 +323,28 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
                 </div>
               </div>
 
+              {/* Building meta row — only renders when at least one value is
+                  available. Older complexes (parsed before yearBuilt was
+                  added) may have nulls; skip the whole block in that case. */}
+              {(complex.yearBuilt || complex.floorsMax) && (
+                <div className="grid grid-cols-2 gap-2 text-center">
+                  {complex.yearBuilt ? (
+                    <div className="p-2 bg-muted/50 rounded-lg">
+                      <p className="text-xs text-muted-foreground">{t("complex.yearBuilt")}</p>
+                      <p className="font-bold text-sm">{complex.yearBuilt}</p>
+                    </div>
+                  ) : null}
+                  {complex.floorsMax ? (
+                    <div className="p-2 bg-muted/50 rounded-lg">
+                      <p className="text-xs text-muted-foreground">{t("complex.floors")}</p>
+                      <p className="font-bold text-sm">
+                        {t("complex.floorsCount", { count: complex.floorsMax })}
+                      </p>
+                    </div>
+                  ) : null}
+                </div>
+              )}
+
               {/* Seismic info — always show when data available */}
               {seismic?.found && (
                 <div className={`flex items-start gap-2 p-3 rounded-lg border ${

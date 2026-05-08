@@ -55,6 +55,7 @@ export class ComplexService {
         "commuteMinutes", "photoUrl", "district", "priceMin", "priceMax",
         "shutovCategory", "scoreInfrastructure", "scoreLifestyle",
         "scoreCommute", "scoreSeismic", "floorsMax", "floorSegment",
+        "yearBuilt",
         "airQualityPm25", "airQualityLevel", "airQualityStation",
         "twogisRating", "twogisReviewCount",
       ],

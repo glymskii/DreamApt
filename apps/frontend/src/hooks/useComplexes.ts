@@ -32,6 +32,7 @@ export interface ResidentialComplex {
   seismicDistanceMeters: number | null;
   floorsMax: number | null;
   floorSegment: string | null;
+  yearBuilt: number | null;
   groupingMethod: string | null;
   scoringExplanation: string | null;
   photoUrl: string | null;
@@ -175,6 +176,7 @@ export interface MapData {
     shutovCategory: number | null;
     floorsMax: number | null;
     floorSegment: string | null;
+    yearBuilt: number | null;
     airQualityPm25: number | null;
     airQualityLevel: string | null;
     airQualityStation: string | null;

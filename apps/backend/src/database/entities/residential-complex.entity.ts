@@ -65,6 +65,12 @@ export class ResidentialComplexEntity {
   @Column({ name: "floor_segment", nullable: true })
   floorSegment: string;
 
+  // Year the building was completed. Aggregated from listings inside the
+  // same complex — usually all report the same year, so we pick the modal
+  // value. Nullable: not every Krisha listing exposes the year.
+  @Column({ name: "year_built", nullable: true })
+  yearBuilt: number;
+
   // Scores
   @Column({ name: "score_total", type: "decimal", precision: 5, scale: 2, nullable: true })
   scoreTotal: number;

@@ -670,6 +670,14 @@ export class SearchService {
         : "skyscraper"
       : null;
 
+    // Year built — pick the modal value across listings; some sellers omit
+    // it, so we filter NaN/0 first. Same complex usually reports identical
+    // year across listings, but mostCommon is robust to typos in a few rows.
+    const years = group
+      .map((p) => p.yearBuilt)
+      .filter((y): y is number => typeof y === "number" && y > 1900 && y < 2100);
+    const yearBuilt = years.length > 0 ? this.mostCommon(years) : null;
+
     // Best photo
     const photoUrl = group.find((p) => p.photos?.length > 0)?.photos[0] || null;
 
@@ -704,6 +712,7 @@ export class SearchService {
       listingsCount: group.length,
       floorsMax: floorsMax as any,
       floorSegment: floorSegment as any,
+      yearBuilt: yearBuilt as any,
       groupingMethod: method,
       photoUrl: photoUrl as any,
       seismicRiskLevel: seismicRiskLevel as any,
@@ -793,9 +802,9 @@ export class SearchService {
     this.logger.log(`Scored ${complexes.length} complexes for project ${projectId}`);
   }
 
-  /** Return the most common string in an array */
-  private mostCommon(arr: string[]): string {
-    const counts = new Map<string, number>();
+  /** Return the most common value in an array (modal value). Generic over T. */
+  private mostCommon<T>(arr: T[]): T {
+    const counts = new Map<T, number>();
     for (const s of arr) counts.set(s, (counts.get(s) || 0) + 1);
     let best = arr[0], bestCount = 0;
     for (const [s, c] of counts) { if (c > bestCount) { best = s; bestCount = c; } }
