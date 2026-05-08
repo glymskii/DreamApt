@@ -381,13 +381,31 @@ export class KrishaComplexParserService {
     remaining: number;
     nextOffset: number;
   }> {
-    // Find candidates: have a Krisha URL (so we know what to fetch) and are
-    // missing at least one of the new fields. Stable sort by id so caller
-    // can paginate predictably.
+    // Find candidates that need enrichment OR have suspicious values.
+    //   • yearBuilt out of [1950, currentYear+5] → almost certainly junk
+    //     (parser caught a price, area, or apartment count)
+    //   • floorsMax > 50 → no Almaty residential complex is that tall;
+    //     Esentai Tower at 37 is the actual top of the city
+    // Such rows get re-fetched and overwritten with fresh, regex-validated
+    // values (or NULL if nothing parses, which is better than wrong data).
+    const SUSPICIOUS_FLOORS_THRESHOLD = 50;
+    const SUSPICIOUS_YEAR_MAX = new Date().getFullYear() + 5;
+
+    const filter = `
+      c.krishaUrl IS NOT NULL
+      AND (
+        c.yearBuilt IS NULL
+        OR c.floorsMax IS NULL
+        OR c.floorsMax > :flMax
+        OR c.yearBuilt < 1950
+        OR c.yearBuilt > :yrMax
+      )
+    `;
+    const filterParams = { flMax: SUSPICIOUS_FLOORS_THRESHOLD, yrMax: SUSPICIOUS_YEAR_MAX };
+
     const candidates = await this.complexesRepo
       .createQueryBuilder("c")
-      .where("c.krishaUrl IS NOT NULL")
-      .andWhere("(c.yearBuilt IS NULL OR c.floorsMax IS NULL)")
+      .where(filter, filterParams)
       .orderBy("c.id", "ASC")
       .skip(offset)
       .take(limit)
@@ -395,20 +413,32 @@ export class KrishaComplexParserService {
 
     const totalRemaining = await this.complexesRepo
       .createQueryBuilder("c")
-      .where("c.krishaUrl IS NOT NULL")
-      .andWhere("(c.yearBuilt IS NULL OR c.floorsMax IS NULL)")
+      .where(filter, filterParams)
       .getCount();
 
     let updated = 0;
     let skipped = 0;
+
+    const isJunkFloors = (n: number | null) =>
+      n != null && (n < 1 || n > SUSPICIOUS_FLOORS_THRESHOLD);
+    const isJunkYear = (y: number | null) =>
+      y != null && (y < 1950 || y > SUSPICIOUS_YEAR_MAX);
 
     for (const c of candidates) {
       try {
         await this.delay(1500); // same gentle Krisha pace as the full scraper
         const detail = await this.fetchComplexDetail(c.krishaUrl);
         const patch: Record<string, unknown> = {};
-        if (!c.yearBuilt && detail.yearBuilt) patch.yearBuilt = detail.yearBuilt;
-        if (!c.floorsMax && detail.floorsMax) patch.floorsMax = detail.floorsMax;
+
+        // Year: write if currently empty OR currently junk; null out if
+        // the page has nothing valid either (better than keeping junk).
+        if (!c.yearBuilt || isJunkYear(c.yearBuilt)) {
+          patch.yearBuilt = detail.yearBuilt; // may be null — overwrites junk with NULL
+        }
+        if (!c.floorsMax || isJunkFloors(c.floorsMax)) {
+          patch.floorsMax = detail.floorsMax;
+        }
+
         if (Object.keys(patch).length > 0) {
           await this.complexesRepo.update(c.id, patch);
           updated++;
