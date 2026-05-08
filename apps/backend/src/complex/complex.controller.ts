@@ -7,6 +7,7 @@ import {
   Req,
   UnauthorizedException,
   UseGuards,
+  Header,
 } from "@nestjs/common";
 import { ComplexService } from "./complex.service";
 import { KrishaComplexParserService } from "./krisha-complex-parser.service";
@@ -25,12 +26,17 @@ export class ComplexController {
 
   // ── PUBLIC endpoints (no auth required) ──
 
+  // Public endpoints get a 60s edge cache; matches in-memory TTL so a CDN
+  // hit doesn't outlive the data version. `s-maxage` lets Vercel/Cloudflare
+  // cache while keeping `max-age=0` on the browser to avoid stale-on-back.
   @Get("complexes/map-data")
+  @Header("Cache-Control", "public, max-age=0, s-maxage=60, stale-while-revalidate=120")
   async getGlobalMapData() {
     return this.complexService.findAllForMap();
   }
 
   @Get("complexes/all")
+  @Header("Cache-Control", "public, max-age=0, s-maxage=60, stale-while-revalidate=120")
   async findAllGlobal(
     @Query("sort") sort: string = "scoreTotal",
     @Query("page") page: string = "1",
@@ -44,17 +50,21 @@ export class ComplexController {
   }
 
   @Get("complexes/:id")
+  @Header("Cache-Control", "public, max-age=0, s-maxage=60, stale-while-revalidate=120")
   async findOne(@Param("id") id: string) {
     return this.complexService.findOne(id);
   }
 
   @Get("complexes/:id/seismic")
+  @Header("Cache-Control", "public, max-age=300, s-maxage=600")
   async getSeismic(@Param("id") id: string) {
     return this.complexService.getSeismicRisk(id);
   }
 
-  /** 2GIS reviews — fully public, anchor of "open data" value prop */
+  /** 2GIS reviews — fully public, anchor of "open data" value prop.
+   * Service caches 24h in DB; we still hint downstream caches at 5min. */
   @Get("complexes/:id/reviews")
+  @Header("Cache-Control", "public, max-age=0, s-maxage=300, stale-while-revalidate=600")
   async getReviews(@Param("id") id: string) {
     return this.complexService.getReviews(id);
   }
@@ -100,10 +110,12 @@ export class ComplexController {
   @UseGuards(JwtAuthGuard)
   async findByProject(
     @Param("projectId") projectId: string,
+    @Req() req: any,
     @Query("sort") sort: string = "scoreTotal",
     @Query("page") page: string = "1",
     @Query("limit") limit: string = "20",
   ) {
+    await this.assertProjectAccess(projectId, req.user);
     return this.complexService.findByProject(
       projectId,
       sort,
@@ -114,8 +126,22 @@ export class ComplexController {
 
   @Get("projects/:projectId/map-data")
   @UseGuards(JwtAuthGuard)
-  async getMapData(@Param("projectId") projectId: string) {
+  async getMapData(@Param("projectId") projectId: string, @Req() req: any) {
+    await this.assertProjectAccess(projectId, req.user);
     return this.complexService.getMapData(projectId);
+  }
+
+  private async assertProjectAccess(
+    projectId: string,
+    user: { id: string; role?: string } | undefined,
+  ) {
+    if (!user) throw new UnauthorizedException();
+    const project = await this.complexService.getProjectForScoring(projectId);
+    if (!project) throw new UnauthorizedException("Project not found");
+    if (user.role !== "admin" && project.userId !== user.id) {
+      // Don't reveal which project IDs exist — same NotFound semantics as ownership-fail
+      throw new UnauthorizedException("Project not found");
+    }
   }
 
   // ── Admin only (data ops) ──
@@ -141,7 +167,8 @@ export class ComplexController {
 
   @Post("projects/:projectId/migrate-complexes")
   @UseGuards(JwtAuthGuard)
-  async migrateComplexes(@Param("projectId") projectId: string) {
+  async migrateComplexes(@Param("projectId") projectId: string, @Req() req: any) {
+    await this.assertProjectAccess(projectId, req.user);
     await this.searchService.groupPropertiesIntoComplexes(projectId);
     const project = await this.complexService.getProjectForScoring(projectId);
     if (project?.interviewAnswers) {

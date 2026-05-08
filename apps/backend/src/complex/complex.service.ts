@@ -8,8 +8,21 @@ import { AirKazService } from "../air-quality/airkaz.service";
 import { TwoGisReviewsService } from "../properties/twogis-reviews.service";
 import { findShutovRating, findNearestFault, SHUTOV_CATEGORY_COLORS, SHUTOV_CATEGORY_LABELS } from "@dreamapt/shared";
 
+// In-memory cache for the public map-data response. Built every request before
+// caching: ~500 row scan + dedup + AirKaz fetch + O(N×M) station backfill +
+// JSON serialization (~430 KB). Single warm-up costs ~200ms; cached hits are
+// near-zero. TTL 60s — fresh enough for "live air quality" feel, slow enough
+// to absorb a viral spike.
+const MAP_DATA_TTL_MS = 60_000;
+const GLOBAL_LIST_TTL_MS = 60_000;
+
 @Injectable()
 export class ComplexService {
+  // Single-process caches. Render runs one Node instance, so this is fine.
+  // If we ever scale horizontally, swap for Redis with the same TTLs.
+  private mapDataCache: { value: any; expiresAt: number } | null = null;
+  private globalListCache = new Map<string, { value: any; expiresAt: number }>();
+
   constructor(
     @InjectRepository(ResidentialComplexEntity)
     private complexesRepo: Repository<ResidentialComplexEntity>,
@@ -24,6 +37,17 @@ export class ComplexService {
 
   /** Get all complexes globally, deduplicated by normalized name (best score wins) */
   async findAllForMap() {
+    // Cache hit — by far the hottest endpoint on the site.
+    const now = Date.now();
+    if (this.mapDataCache && this.mapDataCache.expiresAt > now) {
+      return this.mapDataCache.value;
+    }
+    const value = await this.buildMapData();
+    this.mapDataCache = { value, expiresAt: now + MAP_DATA_TTL_MS };
+    return value;
+  }
+
+  private async buildMapData() {
     const all = await this.complexesRepo.find({
       select: [
         "id", "name", "displayName", "lat", "lng", "scoreTotal", "priceAvg",
@@ -118,6 +142,14 @@ export class ComplexService {
     };
     const order = orderMap[sort] || orderMap.scoreTotal;
 
+    // Cache key includes sort+page+limit; bots iterating through pages still
+    // get cached responses. TTL 60s matches map-data so the dataset stays
+    // consistent between the two views.
+    const cacheKey = `${sort}:${page}:${limit}`;
+    const now = Date.now();
+    const hit = this.globalListCache.get(cacheKey);
+    if (hit && hit.expiresAt > now) return hit.value;
+
     const all = await this.complexesRepo.find({
       order: { [order.field]: order.dir },
     });
@@ -143,7 +175,20 @@ export class ComplexService {
     const total = deduped.length;
     const paged = deduped.slice((page - 1) * limit, page * limit);
 
-    return { complexes: paged, total, page, totalPages: Math.ceil(total / limit) };
+    const result = { complexes: paged, total, page, totalPages: Math.ceil(total / limit) };
+    this.globalListCache.set(cacheKey, { value: result, expiresAt: now + GLOBAL_LIST_TTL_MS });
+    // Cap cache size to prevent memory leak on attacker-iterated keys
+    if (this.globalListCache.size > 100) {
+      const firstKey = this.globalListCache.keys().next().value;
+      if (firstKey !== undefined) this.globalListCache.delete(firstKey);
+    }
+    return result;
+  }
+
+  /** Invalidate caches — call when complexes are mutated (parsing, scoring, etc) */
+  invalidateMapCache() {
+    this.mapDataCache = null;
+    this.globalListCache.clear();
   }
 
   async findByProject(
@@ -212,49 +257,45 @@ export class ComplexService {
   /**
    * Public 2GIS reviews for a complex.
    * Looks up reviews on 2GIS via the residential complex name (with lat/lng
-   * bias when available) and persists average rating + total count back to
-   * the entity so future map renders can show the badge instantly.
+   * bias when available). Persists the full reviews payload for 24h so we
+   * don't hammer the public demo key during traffic spikes — this is the
+   * difference between "ban in 1 hour at viral traffic" vs "essentially
+   * unlimited reads".
    */
   async getReviews(complexId: string) {
     const complex = await this.findOne(complexId);
     const name = complex.displayName || complex.name;
     if (!name) {
-      return {
-        found: false,
-        totalReviews: 0,
-        averageRating: 0,
-        reviews: [],
-        twogisUrl: null,
-      };
+      return this.emptyReviewsResult();
     }
+
+    // Serve from DB cache if fetched within last 24h. "Empty" result is also
+    // cached (we record fetched_at even on miss) to avoid retrying complexes
+    // that 2GIS doesn't know about.
+    const FRESH_MS = 24 * 60 * 60 * 1000;
+    if (
+      complex.twogisFetchedAt &&
+      Date.now() - new Date(complex.twogisFetchedAt).getTime() < FRESH_MS
+    ) {
+      const cached = complex.twogisReviewsJson;
+      if (cached) return cached;
+      return this.emptyReviewsResult();
+    }
+
     const lat = complex.lat ? Number(complex.lat) : undefined;
     const lng = complex.lng ? Number(complex.lng) : undefined;
 
     const result = await this.twoGisReviews.getReviews(name, lat, lng);
     if (!result) {
-      return {
-        found: false,
-        totalReviews: 0,
-        averageRating: 0,
-        reviews: [],
-        twogisUrl: null,
-      };
+      // Persist the negative result to avoid re-fetching for 24h
+      await this.complexesRepo.update(complex.id, {
+        twogisFetchedAt: new Date(),
+        twogisReviewsJson: null as any,
+      });
+      return this.emptyReviewsResult();
     }
 
-    // Persist aggregate fields so they appear on the map without an extra fetch
-    if (result.totalReviews > 0) {
-      const newRating = Number(result.averageRating.toFixed(1));
-      const newCount = result.totalReviews;
-      const cachedRating = complex.twogisRating ? Number(complex.twogisRating) : null;
-      if (cachedRating !== newRating || complex.twogisReviewCount !== newCount) {
-        await this.complexesRepo.update(complex.id, {
-          twogisRating: newRating as any,
-          twogisReviewCount: newCount,
-        });
-      }
-    }
-
-    return {
+    const payload = {
       found: result.totalReviews > 0 || result.reviews.length > 0,
       totalReviews: result.totalReviews,
       averageRating: result.averageRating,
@@ -262,6 +303,29 @@ export class ComplexService {
       twogisUrl: result.twogisUrl,
       buildingName: result.buildingName,
       address: result.address,
+    };
+
+    // Persist full payload + aggregates. One DB write per 24h per complex,
+    // regardless of how many users click it.
+    const newRating = Number(result.averageRating.toFixed(1));
+    const newCount = result.totalReviews;
+    await this.complexesRepo.update(complex.id, {
+      twogisRating: (newCount > 0 ? newRating : null) as any,
+      twogisReviewCount: newCount,
+      twogisReviewsJson: payload as any,
+      twogisFetchedAt: new Date(),
+    });
+
+    return payload;
+  }
+
+  private emptyReviewsResult() {
+    return {
+      found: false,
+      totalReviews: 0,
+      averageRating: 0,
+      reviews: [],
+      twogisUrl: null,
     };
   }
 

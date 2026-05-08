@@ -1,4 +1,6 @@
 import { Module } from "@nestjs/common";
+import { APP_GUARD } from "@nestjs/core";
+import { ThrottlerModule, ThrottlerGuard } from "@nestjs/throttler";
 import { DatabaseModule } from "./database/database.module";
 import { AuthModule } from "./auth/auth.module";
 import { ProjectsModule } from "./projects/projects.module";
@@ -15,6 +17,19 @@ import { HealthController } from "./health.controller";
 
 @Module({
   imports: [
+    // Global rate limiting — the multi-tier config protects different
+    // surfaces with different aggressiveness:
+    //   - "short": absorbs single-user click spam (10/sec)
+    //   - "medium": stops scrapers iterating /complexes/all (100/min)
+    //   - "long":   smoothes longer-form abuse like brute-force from
+    //              a residential IP (1000/15min)
+    // Per-route stricter overrides live next to the controller (see
+    // AuthController @Throttle on login + register-request).
+    ThrottlerModule.forRoot([
+      { name: "short", ttl: 1_000, limit: 10 },
+      { name: "medium", ttl: 60_000, limit: 100 },
+      { name: "long", ttl: 15 * 60_000, limit: 1000 },
+    ]),
     DatabaseModule,
     AuthModule,
     ProjectsModule,
@@ -29,5 +44,8 @@ import { HealthController } from "./health.controller";
     AirQualityModule,
   ],
   controllers: [HealthController],
+  providers: [
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+  ],
 })
 export class AppModule {}

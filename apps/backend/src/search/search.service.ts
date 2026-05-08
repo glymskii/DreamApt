@@ -1,4 +1,10 @@
-import { Injectable, Logger } from "@nestjs/common";
+import {
+  Injectable,
+  Logger,
+  HttpException,
+  HttpStatus,
+  NotFoundException,
+} from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { SearchProjectEntity } from "../database/entities/search-project.entity";
@@ -10,6 +16,17 @@ import { KrishaParserService, KrishaPropertyDetail } from "./krisha-parser.servi
 import { ALMATY_DEVELOPERS, findShutovRating, findNearestFault } from "@dreamapt/shared";
 
 const MAX_RESULTS = parseInt(process.env.PARSER_MAX_RESULTS || "100");
+
+// In-process semaphore for concurrent search pipelines. Each pipeline does
+// up to ~120 sequential Krisha fetches at 1.5s rate limit = several minutes
+// wall time. Bottleneck inside the parser already serializes the actual
+// HTTP calls, but unbounded fan-out blows up memory (each pipeline holds
+// hundreds of parsed properties + AI scoring batches in RAM) and blocks
+// the event loop on JSON parsing. Cap: 2 simultaneous pipelines per box.
+// Render Starter has 512 MB RAM; one search uses ~50-100 MB peak, so 2 is
+// safe with headroom.
+const MAX_CONCURRENT_SEARCHES = parseInt(process.env.MAX_CONCURRENT_SEARCHES || "2");
+const activeSearches = new Set<string>();
 
 @Injectable()
 export class SearchService {
@@ -27,11 +44,51 @@ export class SearchService {
     private krishaParser: KrishaParserService,
   ) {}
 
-  async startSearch(projectId: string): Promise<{ jobId: string; status: string }> {
-    const project = await this.projectsRepo.findOne({ where: { id: projectId } });
-    if (!project || !project.interviewAnswers) {
-      throw new Error("Project not found or interview not complete");
+  async startSearch(
+    projectId: string,
+    userId?: string,
+  ): Promise<{ jobId: string; status: string }> {
+    // Ownership check — controller passes the authenticated user's id so
+    // anyone holding a JWT can only start searches for projects they own.
+    // Without this, the pre-IDOR-fix attacker could trigger our paid OpenAI
+    // pipeline on every project UUID.
+    const where = userId
+      ? { id: projectId, userId }
+      : { id: projectId };
+    const project = await this.projectsRepo.findOne({ where });
+    if (!project) {
+      throw new NotFoundException("Project not found");
     }
+    if (!project.interviewAnswers) {
+      throw new HttpException("Interview not complete", HttpStatus.BAD_REQUEST);
+    }
+
+    // Idempotency: already running for this project?
+    if (activeSearches.has(projectId)) {
+      throw new HttpException(
+        { message: "Поиск уже выполняется для этого проекта", code: "ALREADY_RUNNING" },
+        HttpStatus.CONFLICT,
+      );
+    }
+
+    // Capacity check — stop new pipelines when the box is saturated. Returns
+    // 429 so the frontend can show "we're busy, retry in a minute" instead
+    // of accepting the request and silently never finishing it.
+    if (activeSearches.size >= MAX_CONCURRENT_SEARCHES) {
+      throw new HttpException(
+        {
+          message: "Сервис временно занят. Попробуйте через минуту.",
+          code: "BUSY",
+          activeSearches: activeSearches.size,
+          maxConcurrent: MAX_CONCURRENT_SEARCHES,
+        },
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    // Reserve a slot now, before any await — prevents the small race where
+    // two near-simultaneous starts both pass the capacity check.
+    activeSearches.add(projectId);
 
     // Update status
     await this.projectsRepo.update(projectId, { status: "searching" });
@@ -51,10 +108,17 @@ export class SearchService {
       this.logger.error("AI expansion failed:", err);
     }
 
-    // Run the pipeline in the background
-    this.runSearchPipeline(projectId, project.interviewAnswers).catch((err) =>
-      this.logger.error("Search pipeline failed:", err),
-    );
+    // Run the pipeline in the background. The finally clause is critical —
+    // without it a thrown error in the pipeline would leave the slot
+    // permanently reserved and eventually wedge the queue.
+    this.runSearchPipeline(projectId, project.interviewAnswers)
+      .catch((err) => this.logger.error("Search pipeline failed:", err))
+      .finally(() => {
+        activeSearches.delete(projectId);
+        this.logger.log(
+          `Search slot released for ${projectId} (${activeSearches.size}/${MAX_CONCURRENT_SEARCHES} active)`,
+        );
+      });
 
     return { jobId: projectId, status: "searching" };
   }

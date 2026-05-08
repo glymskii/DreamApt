@@ -4,8 +4,11 @@ import {
   Post,
   Param,
   Query,
+  Req,
   UseGuards,
   Logger,
+  ForbiddenException,
+  NotFoundException,
 } from "@nestjs/common";
 import { PropertiesService } from "./properties.service";
 import { CJMService } from "../cjm/cjm.service";
@@ -34,13 +37,49 @@ export class PropertiesController {
     private projectsRepo: Repository<SearchProjectEntity>,
   ) {}
 
+  /**
+   * Verify the current user owns the project. Admins bypass the check so
+   * the admin dashboard can inspect any project. NotFound for the unauth-
+   * orised case so we don't leak which UUIDs exist.
+   */
+  private async assertProjectOwnership(
+    projectId: string,
+    user: { id: string; role?: string },
+  ): Promise<SearchProjectEntity> {
+    if (!user) throw new ForbiddenException();
+    const project = await this.projectsRepo.findOne({
+      where: user.role === "admin" ? { id: projectId } : { id: projectId, userId: user.id },
+    });
+    if (!project) throw new NotFoundException("Project not found");
+    return project;
+  }
+
+  /** Same idea but starting from a property — looks up its project first. */
+  private async assertPropertyOwnership(
+    propertyId: string,
+    user: { id: string; role?: string },
+  ): Promise<PropertyEntity> {
+    if (!user) throw new ForbiddenException();
+    const property = await this.propertiesRepo.findOne({ where: { id: propertyId } });
+    if (!property) throw new NotFoundException("Property not found");
+    if (user.role !== "admin") {
+      const project = await this.projectsRepo.findOne({
+        where: { id: property.projectId, userId: user.id },
+      });
+      if (!project) throw new NotFoundException("Property not found");
+    }
+    return property;
+  }
+
   @Get("projects/:projectId/properties")
   async findByProject(
     @Param("projectId") projectId: string,
+    @Req() req: any,
     @Query("sort") sort?: string,
     @Query("page") page?: string,
     @Query("limit") limit?: string,
   ) {
+    await this.assertProjectOwnership(projectId, req.user);
     return this.propertiesService.findByProject(projectId, {
       sort,
       page: page ? parseInt(page) : undefined,
@@ -49,15 +88,16 @@ export class PropertiesController {
   }
 
   @Get("properties/:id")
-  async findOne(@Param("id") id: string) {
-    const property = await this.propertiesService.findOne(id);
+  async findOne(@Param("id") id: string, @Req() req: any) {
+    const property = await this.assertPropertyOwnership(id, req.user);
+    const full = await this.propertiesService.findOne(id);
 
     // Auto-rescore if AI comment is missing or contains mock text
     if (
-      !property.scoringExplanation ||
-      property.scoringExplanation.includes("Mock") ||
-      property.scoringExplanation.includes("API ключ не установлен") ||
-      property.scoringExplanation === ""
+      !full.scoringExplanation ||
+      full.scoringExplanation.includes("Mock") ||
+      full.scoringExplanation.includes("API ключ не установлен") ||
+      full.scoringExplanation === ""
     ) {
       // Run re-scoring in background (don't block the response)
       this.rescoreProperty(property.id, property.projectId).catch((err) =>
@@ -65,23 +105,19 @@ export class PropertiesController {
       );
     }
 
-    return property;
+    return full;
   }
 
   @Get("properties/:id/duplicates")
-  async findDuplicates(@Param("id") id: string) {
+  async findDuplicates(@Param("id") id: string, @Req() req: any) {
+    await this.assertPropertyOwnership(id, req.user);
     return this.propertiesService.findDuplicates(id);
   }
 
   @Get("properties/:id/cjm")
-  async getCJM(@Param("id") id: string) {
+  async getCJM(@Param("id") id: string, @Req() req: any) {
+    const property = await this.assertPropertyOwnership(id, req.user);
     const cjm = await this.cjmService.getOrGenerate(id);
-
-    // Get the current property to find its project and score
-    const property = await this.propertiesRepo.findOne({ where: { id } });
-    if (!property) {
-      return { ...cjm, recommendedProperties: [] };
-    }
 
     // Find other properties in the same project with higher score
     const betterProperties = await this.propertiesRepo
@@ -117,7 +153,8 @@ export class PropertiesController {
   }
 
   @Get("properties/:id/reviews")
-  async getReviews(@Param("id") id: string) {
+  async getReviews(@Param("id") id: string, @Req() req: any) {
+    await this.assertPropertyOwnership(id, req.user);
     const property = await this.propertiesService.findOne(id);
     if (!property.complexName) {
       return { reviews: [], totalReviews: 0, averageRating: 0, twogisUrl: null };
@@ -131,7 +168,8 @@ export class PropertiesController {
   }
 
   @Get("properties/:id/shutov-rating")
-  async getShutovRating(@Param("id") id: string) {
+  async getShutovRating(@Param("id") id: string, @Req() req: any) {
+    await this.assertPropertyOwnership(id, req.user);
     const property = await this.propertiesService.findOne(id);
     const rating = findShutovRating(property.complexName || "");
     if (!rating) {
@@ -148,7 +186,8 @@ export class PropertiesController {
   }
 
   @Get("properties/:id/seismic-risk")
-  async getSeismicRisk(@Param("id") id: string) {
+  async getSeismicRisk(@Param("id") id: string, @Req() req: any) {
+    await this.assertPropertyOwnership(id, req.user);
     const property = await this.propertiesService.findOne(id);
     if (!property.lat || !property.lng) {
       return { found: false, message: "No coordinates" };
@@ -158,11 +197,8 @@ export class PropertiesController {
   }
 
   @Post("properties/:id/rescore")
-  async rescore(@Param("id") id: string) {
-    const property = await this.propertiesRepo.findOne({ where: { id } });
-    if (!property) {
-      return { success: false, message: "Property not found" };
-    }
+  async rescore(@Param("id") id: string, @Req() req: any) {
+    const property = await this.assertPropertyOwnership(id, req.user);
     await this.rescoreProperty(property.id, property.projectId);
     const updated = await this.propertiesRepo.findOne({ where: { id } });
     return {
@@ -173,11 +209,10 @@ export class PropertiesController {
   }
 
   @Post("projects/:projectId/rescore-all")
-  async rescoreAll(@Param("projectId") projectId: string) {
-    const project = await this.projectsRepo.findOne({ where: { id: projectId } });
-    if (!project) {
-      return { success: false, message: "Project not found" };
-    }
+  async rescoreAll(@Param("projectId") projectId: string, @Req() req: any) {
+    // Without ownership check this endpoint lets any logged-in user trigger
+    // OpenAI rescoring against any project ID — straight bill drain.
+    const project = await this.assertProjectOwnership(projectId, req.user);
     const interviewAnswers = (project.interviewAnswers || {}) as Record<string, unknown>;
 
     // Run full re-scoring in background
@@ -192,7 +227,9 @@ export class PropertiesController {
   async getDrilldown(
     @Param("scenarioId") scenarioId: string,
     @Query("projectId") projectId: string,
+    @Req() req: any,
   ) {
+    await this.assertProjectOwnership(projectId, req.user);
     return this.propertiesService.getDrilldown(scenarioId, projectId);
   }
 

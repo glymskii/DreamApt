@@ -6,6 +6,7 @@ import {
   Param,
   UseGuards,
 } from "@nestjs/common";
+import { Throttle } from "@nestjs/throttler";
 import { IsString, MinLength } from "class-validator";
 import { AuthService } from "./auth.service";
 import { AdminGuard } from "./admin.guard";
@@ -38,13 +39,19 @@ export class AuthController {
 
   // ── Public ──
 
+  // Aggressive limits on auth endpoints. Login: 5/min stops online password
+  // brute-force; the global limits would still allow ~100/min. Registration
+  // requests: 3/hour per IP — admin's leads dashboard stays usable even
+  // under spam.
   @Post("auth/login")
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
   async login(@Body() dto: LoginDto) {
     const user = await this.authService.validateUser(dto.username, dto.password);
     return this.authService.login(user);
   }
 
   @Post("auth/register-request")
+  @Throttle({ default: { ttl: 60 * 60_000, limit: 3 } })
   async registerRequest(@Body() dto: RegisterRequestDto) {
     return this.authService.createLead(dto.phone);
   }
@@ -55,6 +62,7 @@ export class AuthController {
   }
 
   @Post("auth/register-complete")
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
   async registerComplete(@Body() dto: RegisterCompleteDto) {
     return this.authService.completeRegistration(dto.token, dto.password);
   }

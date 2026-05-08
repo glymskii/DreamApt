@@ -94,6 +94,16 @@ export class ResidentialComplexEntity {
   @Column({ name: "twogis_review_count", nullable: true })
   twogisReviewCount: number;
 
+  // Full 2GIS reviews payload — persisted for 24h to avoid hammering the
+  // public demo key (`rubnkm7490`). Without this, every guest click on a ЖК
+  // fires up to 7 catalog+reviews calls — at viral traffic the key gets
+  // banned in minutes and breaks 2GIS for everyone.
+  @Column({ name: "twogis_reviews_json", type: "jsonb", nullable: true })
+  twogisReviewsJson: any;
+
+  @Column({ name: "twogis_fetched_at", type: "timestamp", nullable: true })
+  twogisFetchedAt: Date;
+
   @Column({ name: "shutov_category", nullable: true })
   shutovCategory: number;
 
