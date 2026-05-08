@@ -153,6 +153,15 @@ export class ComplexController {
     return { deleted };
   }
 
+  /** Backfill yearBuilt/floorsMax/price aggregates from property records.
+   *  Cheap (DB-only, no upstream calls). Run after a schema bump that adds
+   *  new aggregate columns to populate historical rows. */
+  @Post("complexes/recompute-aggregates")
+  @UseGuards(AdminGuard)
+  async recomputeAggregates() {
+    return this.complexService.recomputeAggregatesFromProperties();
+  }
+
   @Post("complexes/parse-krisha")
   @UseGuards(AdminGuard)
   async parseAllFromKrisha() {

@@ -27,6 +27,12 @@ interface ComplexDetail {
   address: string | null;
   district: string | null;
   developer: string | null;
+  // Floors max and year of completion. Extracted from the ЖК info table on
+  // the Krisha detail page (https://krisha.kz/complex/show/almaty/...).
+  // Both are nullable since the page format varies and old listings often
+  // just don't expose them.
+  floorsMax: number | null;
+  yearBuilt: number | null;
 }
 
 @Injectable()
@@ -141,16 +147,74 @@ export class KrishaComplexParserService {
       // Extract developer
       const developer = $(".complex-info__developer, .developer-name, [class*=developer] a").first().text().trim();
 
+      // Extract floors + year built. Krisha renders these in a few different
+      // shapes depending on template version; we read all into a flat
+      // label→value map and look for known keys, then fall back to a regex
+      // sweep over the whole page text. Conservative: only accept values
+      // in plausible ranges.
+      const fields: Record<string, string> = {};
+      $("dl.complex-about-info dt, dl.complex-about__info dt").each((_i, dt) => {
+        const key = $(dt).text().trim().replace(/\s+/g, " ");
+        const value = $(dt).next("dd").text().trim().replace(/\s+/g, " ");
+        if (key && value) fields[key] = value;
+      });
+      // Newer templates use .complex-info__row with title + value spans
+      $(".complex-info__row, .complex-about__row").each((_i, row) => {
+        const key = $(row).find(".complex-info__title, .complex-about__label").first().text().trim();
+        const value = $(row).find(".complex-info__value, .complex-about__value").first().text().trim();
+        if (key && value) fields[key] = value;
+      });
+
+      const pickField = (...names: string[]): string | null => {
+        for (const n of names) {
+          for (const k of Object.keys(fields)) {
+            if (k.toLowerCase().includes(n.toLowerCase())) return fields[k];
+          }
+        }
+        return null;
+      };
+
+      // Floors: "16 этажей" / "до 25 этажей" / "5-9 этажей" — take the max digit.
+      let floorsMax: number | null = null;
+      const floorsText =
+        pickField("Этажност", "этаж") ||
+        (allText.match(/этажност[ьи][:\s]*([^.,\n]+)/i)?.[1] ?? null) ||
+        (html.match(/Этажност[ьи][^<]*?(\d+(?:\s*[-–—]\s*\d+)?)/i)?.[1] ?? null);
+      if (floorsText) {
+        const nums = (floorsText.match(/\d+/g) || []).map(Number).filter((n) => n > 0 && n < 200);
+        if (nums.length > 0) floorsMax = Math.max(...nums);
+      }
+
+      // Year: "Сдача 2023" / "Сдан в 2022 г." / "Год сдачи: IV кв 2024".
+      // We accept the explicit year if present; quarter-only deferred plans
+      // are skipped — they're not "built" yet.
+      let yearBuilt: number | null = null;
+      const yearText =
+        pickField("Сдача", "Сдан", "Год", "Срок") ||
+        (html.match(/(?:Сдача дома|Сдан в|Год сдачи|Год постройки)[^<]*?(\d{4})/i)?.[1] ?? null);
+      if (yearText) {
+        const m = yearText.match(/(20\d{2}|19\d{2})/);
+        if (m) {
+          const year = parseInt(m[1], 10);
+          if (year >= 1950 && year <= new Date().getFullYear() + 1) yearBuilt = year;
+        }
+      }
+
       return {
         lat: latMatch ? parseFloat(latMatch[1]) : null,
         lng: lngMatch ? parseFloat(lngMatch[1]) : null,
         address: addressParts[0] || null,
         district: districtMatch ? `${districtMatch[1]} р-н` : null,
         developer: developer || null,
+        floorsMax,
+        yearBuilt,
       };
     } catch (err) {
       this.logger.warn(`Failed to fetch detail for ${krishaUrl}: ${err}`);
-      return { lat: null, lng: null, address: null, district: null, developer: null };
+      return {
+        lat: null, lng: null, address: null, district: null, developer: null,
+        floorsMax: null, yearBuilt: null,
+      };
     }
   }
 
@@ -192,16 +256,34 @@ export class KrishaComplexParserService {
       }
 
       if (existing && existing.lat && existing.lng) {
-        // Already enriched — skip detail fetch, just update krisha fields
-        if (!existing.krishaComplexId) {
+        // Already has coords — only fetch the detail page when we still
+        // need data from it (floors/year were added in a later schema bump,
+        // so older rows have NULL even though everything else is enriched).
+        const needsDetail = !existing.floorsMax || !existing.yearBuilt;
+        if (!needsDetail && !existing.krishaComplexId) {
+          // Just stamp the krisha id/url without scraping
           existing.krishaComplexId = pc.krishaComplexId;
           existing.krishaUrl = pc.krishaUrl;
           if (pc.photoUrl && !existing.photoUrl) existing.photoUrl = pc.photoUrl;
           await this.complexesRepo.save(existing);
           updated++;
-        } else {
-          skipped++;
+          continue;
         }
+        if (!needsDetail) {
+          skipped++;
+          continue;
+        }
+        // Fall through into the detail-fetch block below to backfill
+        // floors/year. Skip seismic/shutov/lat/lng — already populated.
+        await this.delay(1500);
+        const detail = await this.fetchComplexDetail(pc.krishaUrl);
+        if (!existing.krishaComplexId) existing.krishaComplexId = pc.krishaComplexId;
+        if (!existing.krishaUrl) existing.krishaUrl = pc.krishaUrl;
+        if (!existing.floorsMax && detail.floorsMax) existing.floorsMax = detail.floorsMax;
+        if (!existing.yearBuilt && detail.yearBuilt) existing.yearBuilt = detail.yearBuilt;
+        if (!existing.photoUrl && pc.photoUrl) existing.photoUrl = pc.photoUrl;
+        await this.complexesRepo.save(existing);
+        updated++;
         continue;
       }
 
@@ -233,7 +315,8 @@ export class KrishaComplexParserService {
       if (shutov) shutovCategory = shutov.category;
 
       if (existing) {
-        // Update existing
+        // Update existing — only set fields that we have new values for, so
+        // we don't overwrite floors/year previously aggregated from listings.
         existing.krishaComplexId = pc.krishaComplexId;
         existing.krishaUrl = pc.krishaUrl;
         if (detail.lat) existing.lat = detail.lat as any;
@@ -244,6 +327,16 @@ export class KrishaComplexParserService {
         if (seismicRiskLevel) existing.seismicRiskLevel = seismicRiskLevel;
         if (seismicDistanceMeters) existing.seismicDistanceMeters = seismicDistanceMeters;
         if (shutovCategory !== null) existing.shutovCategory = shutovCategory;
+        // Only fill in floors/year if they're missing — search-aggregated
+        // values from real listings are more trustworthy than the static
+        // ЖК page (which sometimes shows planned floors that differ from
+        // what was actually built).
+        if (!existing.floorsMax && detail.floorsMax) {
+          existing.floorsMax = detail.floorsMax;
+        }
+        if (!existing.yearBuilt && detail.yearBuilt) {
+          existing.yearBuilt = detail.yearBuilt;
+        }
         await this.complexesRepo.save(existing);
         updated++;
       } else {
@@ -262,6 +355,8 @@ export class KrishaComplexParserService {
           seismicRiskLevel: seismicRiskLevel as any,
           seismicDistanceMeters: seismicDistanceMeters as any,
           shutovCategory: shutovCategory as any,
+          floorsMax: detail.floorsMax as any,
+          yearBuilt: detail.yearBuilt as any,
           listingsCount: 0,
           groupingMethod: "krisha_catalog",
         });

@@ -349,6 +349,92 @@ export class ComplexService {
     };
   }
 
+  /**
+   * Recompute aggregate fields (yearBuilt, floorsMax, priceMin/Max/Avg,
+   * listingsCount) for all complexes from their associated properties.
+   * Useful after a schema bump that adds new aggregate columns — backfills
+   * the historical rows in one pass without re-scraping anything.
+   *
+   * Returns counts of how many complexes were inspected vs. actually
+   * mutated. ЖК with zero properties (global Krisha-scraped catalog
+   * entries) are left untouched — those need a Krisha re-scrape instead.
+   */
+  async recomputeAggregatesFromProperties(): Promise<{
+    inspected: number;
+    updated: number;
+    skipped: number;
+  }> {
+    const all = await this.complexesRepo.find();
+    let inspected = 0;
+    let updated = 0;
+    let skipped = 0;
+
+    for (const c of all) {
+      inspected++;
+      const properties = await this.propertiesRepo.find({
+        where: { complexId: c.id },
+        select: ["price", "floorTotal", "yearBuilt"],
+      });
+      if (properties.length === 0) {
+        skipped++;
+        continue;
+      }
+
+      // Floors max — single-pass max over property.floorTotal.
+      const floors = properties
+        .map((p) => Number(p.floorTotal))
+        .filter((n) => Number.isFinite(n) && n > 0 && n < 200);
+      const newFloorsMax = floors.length > 0 ? Math.max(...floors) : null;
+
+      // Year built — modal value (most common). Same robustness as the
+      // search pipeline aggregator.
+      const years = properties
+        .map((p) => p.yearBuilt)
+        .filter((y): y is number => typeof y === "number" && y > 1950 && y < 2100);
+      const newYearBuilt = years.length > 0 ? this.modal(years) : null;
+
+      // Price aggregates — also useful to keep in sync.
+      const prices = properties
+        .map((p) => Number(p.price))
+        .filter((n) => Number.isFinite(n) && n > 0);
+      const newPriceMin = prices.length > 0 ? Math.min(...prices) : null;
+      const newPriceMax = prices.length > 0 ? Math.max(...prices) : null;
+      const newPriceAvg = prices.length > 0
+        ? Math.round(prices.reduce((a, b) => a + b, 0) / prices.length)
+        : null;
+
+      // Build update patch — only include keys whose value actually changed,
+      // so we skip the UPDATE entirely when everything is already aligned.
+      const patch: Record<string, unknown> = {};
+      if (newFloorsMax !== null && c.floorsMax !== newFloorsMax) patch.floorsMax = newFloorsMax;
+      if (newYearBuilt !== null && c.yearBuilt !== newYearBuilt) patch.yearBuilt = newYearBuilt;
+      if (newPriceMin !== null && Number(c.priceMin) !== newPriceMin) patch.priceMin = newPriceMin;
+      if (newPriceMax !== null && Number(c.priceMax) !== newPriceMax) patch.priceMax = newPriceMax;
+      if (newPriceAvg !== null && Number(c.priceAvg) !== newPriceAvg) patch.priceAvg = newPriceAvg;
+      if (c.listingsCount !== properties.length) patch.listingsCount = properties.length;
+
+      if (Object.keys(patch).length > 0) {
+        await this.complexesRepo.update(c.id, patch);
+        updated++;
+      }
+    }
+
+    // Refresh map-data cache so users see new floors/year immediately.
+    this.invalidateMapCache();
+
+    return { inspected, updated, skipped };
+  }
+
+  /** Modal (most-common) helper. Used for yearBuilt where listings usually
+   *  agree but a few stragglers may report a different (older/test) year. */
+  private modal<T>(arr: T[]): T {
+    const counts = new Map<T, number>();
+    for (const v of arr) counts.set(v, (counts.get(v) || 0) + 1);
+    let best = arr[0], bestCount = 0;
+    for (const [v, c] of counts) { if (c > bestCount) { best = v; bestCount = c; } }
+    return best;
+  }
+
   /** Delete complexes outside Almaty bounds */
   async deleteNonAlmaty(): Promise<number> {
     const all = await this.complexesRepo.find();
