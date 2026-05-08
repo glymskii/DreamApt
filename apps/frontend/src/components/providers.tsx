@@ -5,6 +5,8 @@ import { useState } from "react";
 import { ThemeProvider } from "./theme-provider";
 import { AuthDialogProvider } from "./auth/auth-dialog";
 import { AuthProvider } from "@/hooks/useAuth";
+import { I18nProvider } from "./i18n-provider";
+import { OnboardingProvider } from "./onboarding/onboarding-dialog";
 
 export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(
@@ -25,11 +27,15 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
   return (
     <ThemeProvider>
-      <QueryClientProvider client={queryClient}>
-        <AuthProvider>
-          <AuthDialogProvider>{children}</AuthDialogProvider>
-        </AuthProvider>
-      </QueryClientProvider>
+      <I18nProvider>
+        <QueryClientProvider client={queryClient}>
+          <AuthProvider>
+            <AuthDialogProvider>
+              <OnboardingProvider>{children}</OnboardingProvider>
+            </AuthDialogProvider>
+          </AuthProvider>
+        </QueryClientProvider>
+      </I18nProvider>
     </ThemeProvider>
   );
 }

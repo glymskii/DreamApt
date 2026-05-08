@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { MapData } from "@/hooks/useComplexes";
@@ -31,12 +32,15 @@ function getSeismicColor(risk: string | null): string {
   return colors[risk] || "#999";
 }
 
-function getSeismicLabel(risk: string | null): string {
-  const labels: Record<string, string> = {
-    critical: "На разломе", high: "Опасная зона", moderate: "Зона внимания",
-    low: "Умеренный риск", safe: "Безопасно",
+function getSeismicLabelKey(risk: string | null): string | null {
+  const keys: Record<string, string> = {
+    critical: "map.seismicOnFault",
+    high: "map.seismicDanger",
+    moderate: "map.seismicWatch",
+    low: "map.seismicLow",
+    safe: "map.seismicSafe",
   };
-  return labels[risk || ""] || "";
+  return keys[risk || ""] || null;
 }
 
 function getFaultColor(danger: number): string {
@@ -51,6 +55,11 @@ const MAP_STYLE_LIGHT = "https://basemaps.cartocdn.com/gl/positron-gl-style/styl
 const MAP_STYLE_DARK = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
 
 export default function MapView({ data, onComplexClick, hoveredComplexId, selectedComplexId }: MapViewProps) {
+  const { t, i18n } = useTranslation();
+  const tRef = useRef(t);
+  tRef.current = t;
+  const langRef = useRef(i18n.language);
+  langRef.current = i18n.language;
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   // Layer visibility — все включены по умолчанию.
@@ -184,10 +193,10 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
             if (!props) return;
 
             const dangerLabel = props.danger >= 3
-              ? '<span style="color:#dc2626;font-weight:bold">Подтверждённый</span>'
+              ? `<span style="color:#dc2626;font-weight:bold">${tRef.current("map.faultConfirmed")}</span>`
               : props.danger >= 2
-              ? '<span style="color:#f97316;font-weight:bold">Малоизученный</span>'
-              : '<span style="color:#9ca3af;font-weight:bold">Спорный</span>';
+              ? `<span style="color:#f97316;font-weight:bold">${tRef.current("map.faultStudied")}</span>`
+              : `<span style="color:#9ca3af;font-weight:bold">${tRef.current("map.faultDisputed")}</span>`;
 
             const nearby = data.complexes
               .filter((c) => {
@@ -199,7 +208,7 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
 
             const nearbyHtml = nearby.length > 0
               ? `<div style="margin-top:8px;border-top:1px solid #eee;padding-top:6px">
-                  <p style="font-size:11px;color:#666;margin-bottom:4px">Ближайшие ЖК:</p>
+                  <p style="font-size:11px;color:#666;margin-bottom:4px">${tRef.current("map.nearbyComplexes")}</p>
                   ${nearby.map((c) => {
                     const dist = c.seismicDistanceMeters ? (c.seismicDistanceMeters < 1000 ? `${c.seismicDistanceMeters} м` : `${(c.seismicDistanceMeters / 1000).toFixed(1)} км`) : "—";
                     return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px;font-size:12px">
@@ -245,7 +254,8 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
           id: "air-heatmap",
           type: "circle",
           source: "air-grid",
-          layout: { visibility: "none" },
+          // Default visible — matches showAirQuality state default (true).
+          // Toggling is handled by the showAirQuality useEffect below.
           paint: {
             "circle-radius": [
               "interpolate", ["linear"], ["zoom"],
@@ -293,7 +303,6 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
           id: "air-stations-circles",
           type: "circle",
           source: "air-stations",
-          layout: { visibility: "none" },
           minzoom: 12,
           paint: {
             "circle-radius": [
@@ -322,7 +331,8 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
           if (!f) return;
           const p = f.properties;
           const coords = (f.geometry as any).coordinates.slice();
-          const date = p.updatedAt ? new Date(p.updatedAt).toLocaleString("ru-RU", {
+          const dateLocale = langRef.current?.startsWith("kk") ? "kk-KZ" : "ru-RU";
+          const date = p.updatedAt ? new Date(p.updatedAt).toLocaleString(dateLocale, {
             day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
           }) : "";
           stationPopup.setLngLat(coords).setHTML(`
@@ -333,7 +343,7 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
               </div>
               <div style="font-size:18px;font-weight:700;color:${p.color}">${p.pm25} <span style="font-size:11px;font-weight:400;color:#666">µg/m³</span></div>
               <div style="color:${p.color};font-size:11px;font-weight:500">${p.levelLabel}</div>
-              ${p.origin ? `<div style="color:#888;font-size:10px;margin-top:4px">Источник: ${p.origin}${p.district ? " · " + p.district : ""}</div>` : ""}
+              ${p.origin ? `<div style="color:#888;font-size:10px;margin-top:4px">${tRef.current("map.popupSource", { name: p.origin })}${p.district ? " · " + p.district : ""}</div>` : ""}
               ${date ? `<div style="color:#aaa;font-size:10px">${date}</div>` : ""}
             </div>
           `).addTo(map);
@@ -414,6 +424,8 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
         const seismicDistStr = seismicDist ? (seismicDist < 1000 ? `${seismicDist} м` : `${(seismicDist / 1000).toFixed(1)} км`) : "";
         const seismicRisk = props.seismic || "safe";
         const seismicBg = (seismicRisk === "critical" || seismicRisk === "high") ? "#fef2f2" : seismicRisk === "moderate" ? "#fffbeb" : "#f0fdf4";
+        const seismicLabelKey = getSeismicLabelKey(seismicRisk);
+        const seismicLabel = seismicLabelKey ? tRef.current(seismicLabelKey) : "";
 
         popup.setLngLat(coords).setHTML(`
           <div style="font-family:system-ui;padding:4px">
@@ -423,13 +435,13 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
             </div>
             ${props.priceMin && props.priceMax ? `<div style="font-weight:600;margin-top:4px">${formatPrice(props.priceMin)} — ${formatPrice(props.priceMax)}</div>` : ""}
             <div style="display:flex;gap:12px;margin-top:4px;color:#666;font-size:12px">
-              <span>🏠 ${props.listings} объявл.</span>
-              ${props.commute ? `<span>🚗 ${props.commute} мин</span>` : ""}
+              <span>🏠 ${tRef.current("map.popupListings", { count: props.listings })}</span>
+              ${props.commute ? `<span>🚗 ${tRef.current("map.popupCommute", { count: props.commute })}</span>` : ""}
             </div>
             ${seismicDist ? `<div style="display:flex;align-items:center;gap:6px;margin-top:6px;padding:4px 6px;border-radius:6px;font-size:11px;background:${seismicBg}">
               <span style="width:8px;height:8px;border-radius:50%;background:${getSeismicColor(seismicRisk)};flex-shrink:0"></span>
-              <span>${getSeismicLabel(seismicRisk)}</span>
-              <span style="color:#888;margin-left:auto">${seismicDistStr} до разлома</span>
+              <span>${seismicLabel}</span>
+              <span style="color:#888;margin-left:auto">${seismicDistStr} ${tRef.current("map.toFault")}</span>
             </div>` : ""}
           </div>
         `).addTo(map);
@@ -490,37 +502,49 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
   }, [hoveredComplexId]);
 
   // Toggle fault lines + their risk zones together.
+  // Wraps the apply in a style-load guard: if the map style hasn't finished
+  // loading yet (common on first mount), retry once on the next "idle" event.
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
+    if (!map) return;
     const visibility = showFaults ? "visible" : "none";
-    for (const danger of [1, 2, 3]) {
-      const layerId = `faults-lines-${danger}`;
-      if (map.getLayer(layerId)) map.setLayoutProperty(layerId, "visibility", visibility);
-    }
-    for (const id of ["risk-zone-low", "risk-zone-moderate", "risk-zone-high"]) {
-      if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", visibility);
-    }
+    const apply = () => {
+      for (const danger of [1, 2, 3]) {
+        const layerId = `faults-lines-${danger}`;
+        if (map.getLayer(layerId))
+          map.setLayoutProperty(layerId, "visibility", visibility);
+      }
+      for (const id of ["risk-zone-low", "risk-zone-moderate", "risk-zone-high"]) {
+        if (map.getLayer(id))
+          map.setLayoutProperty(id, "visibility", visibility);
+      }
+    };
+    if (map.isStyleLoaded()) apply();
+    else map.once("idle", apply);
   }, [showFaults]);
 
-  // Toggle air quality layers
+  // Toggle air quality layers (heatmap + station markers)
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !map.isStyleLoaded()) return;
-    for (const id of ["air-heatmap", "air-stations-circles"]) {
-      if (map.getLayer(id)) {
-        map.setLayoutProperty(id, "visibility", showAirQuality ? "visible" : "none");
+    if (!map) return;
+    const visibility = showAirQuality ? "visible" : "none";
+    const apply = () => {
+      for (const id of ["air-heatmap", "air-stations-circles"]) {
+        if (map.getLayer(id))
+          map.setLayoutProperty(id, "visibility", visibility);
       }
-    }
+    };
+    if (map.isStyleLoaded()) apply();
+    else map.once("idle", apply);
   }, [showAirQuality]);
 
   return (
     <div className="relative w-full h-full">
       <div ref={mapContainer} className="w-full h-full" />
 
-      {/* Controls — слои карты */}
+      {/* Controls — layer toggles */}
       <div className="absolute top-2 left-2 sm:top-3 sm:left-3 bg-card/95 text-card-foreground border border-border backdrop-blur rounded-lg shadow-lg p-2 sm:p-3 space-y-1.5 max-w-[160px] sm:max-w-[180px] z-10">
-        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Слои</p>
+        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">{t("map.layers")}</p>
         <label className="flex items-center gap-2 text-xs cursor-pointer">
           <input
             type="checkbox"
@@ -528,7 +552,7 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
             onChange={(e) => setShowFaults(e.target.checked)}
             className="rounded accent-red-500 w-3.5 h-3.5"
           />
-          Разломы
+          {t("map.faultLines")}
         </label>
         <label className="flex items-center gap-2 text-xs cursor-pointer">
           <input
@@ -537,36 +561,36 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
             onChange={(e) => setShowAirQuality(e.target.checked)}
             className="rounded accent-emerald-500 w-3.5 h-3.5"
           />
-          Воздух (PM 2.5)
+          {t("map.airQuality")}
         </label>
       </div>
 
       {/* Compact legend */}
       <div className="absolute bottom-2 left-2 sm:bottom-3 sm:left-3 bg-card/95 text-card-foreground border border-border backdrop-blur rounded-lg shadow-lg p-2 sm:p-2.5 text-[9px] sm:text-[10px] space-y-0.5 sm:space-y-1 z-10">
-        <div className="font-medium text-[10px]">Сейсмический риск</div>
-        <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-green-500" />Безопасно ({riskCounts.safe})</div>
-        <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-yellow-500" />Умеренный ({riskCounts.moderate})</div>
-        <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-orange-500" />Высокий ({riskCounts.high})</div>
-        <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-red-600" />Опасная ({riskCounts.critical})</div>
+        <div className="font-medium text-[10px]">{t("map.legend")}</div>
+        <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-green-500" />{t("map.legendSafe")} ({riskCounts.safe})</div>
+        <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-yellow-500" />{t("map.legendModerate")} ({riskCounts.moderate})</div>
+        <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-orange-500" />{t("map.legendHigh")} ({riskCounts.high})</div>
+        <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-red-600" />{t("map.legendCritical")} ({riskCounts.critical})</div>
         {showFaults && (
           <div className="border-t pt-1 mt-1 space-y-0.5">
-            <div className="flex items-center gap-1.5"><span className="w-3 h-px bg-red-600" />Разлом + зоны риска</div>
+            <div className="flex items-center gap-1.5"><span className="w-3 h-px bg-red-600" />{t("map.faultLabel")}</div>
           </div>
         )}
         {showAirQuality && (
           <div className="border-t pt-1 mt-1 space-y-0.5">
             <div className="font-medium text-[10px]">
-              PM 2.5 (µg/m³)
+              {t("map.pmTitle")}
               {data.airStations && (
                 <span className="text-muted-foreground font-normal ml-1">
-                  · {data.airStations.length} станций
+                  · {t("map.pmStations", { count: data.airStations.length })}
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-green-500" />0–12 хорошее</div>
-            <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-yellow-500" />12–35 умеренное</div>
-            <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-orange-500" />35–55 чувств.</div>
-            <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-red-600" />55+ вредное</div>
+            <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-green-500" />{t("map.pmGood")}</div>
+            <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-yellow-500" />{t("map.pmModerate")}</div>
+            <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-orange-500" />{t("map.pmSensitive")}</div>
+            <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-red-600" />{t("map.pmUnhealthy")}</div>
           </div>
         )}
       </div>

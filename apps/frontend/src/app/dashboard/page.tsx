@@ -3,6 +3,7 @@
 import { useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
+import { useTranslation } from "react-i18next";
 import { useAuth } from "@/hooks/useAuth";
 import { useCreateProject } from "@/hooks/useProjects";
 import { useGlobalMapData } from "@/hooks/useGlobalComplexes";
@@ -10,6 +11,7 @@ import { MapSidebar } from "@/components/map/MapSidebar";
 import { ComplexSlideOver } from "@/components/map/ComplexSlideOver";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { LangToggle } from "@/components/lang-toggle";
 import { useAuthDialog } from "@/components/auth/auth-dialog";
 import {
   Building2, Plus, LogOut, Loader2, List, Search, X, LogIn, Shield,
@@ -20,16 +22,14 @@ const MapView = dynamic(() => import("@/components/map/MapView"), {
   ssr: false,
   loading: () => (
     <div className="w-full h-full flex items-center justify-center bg-muted">
-      <div className="text-center space-y-3">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground mx-auto" />
-        <p className="text-sm text-muted-foreground">Загрузка карты...</p>
-      </div>
+      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
     </div>
   ),
 });
 
 export default function DashboardPage() {
   const router = useRouter();
+  const { t } = useTranslation();
   const { user, isAdmin, logout } = useAuth();
   const authDialog = useAuthDialog();
   const createProject = useCreateProject();
@@ -41,13 +41,10 @@ export default function DashboardPage() {
 
   const handleNewSearch = async () => {
     if (!user) {
-      authDialog.open(
-        "login",
-        "Чтобы запустить персональный поиск квартир — войдите или запросите доступ.",
-      );
+      authDialog.open("login", t("auth.newSearchGate"));
       return;
     }
-    const project = await createProject.mutateAsync("Новый поиск");
+    const project = await createProject.mutateAsync(t("header.newSearch"));
     router.push(`/projects/${project.id}/interview`);
   };
 
@@ -67,7 +64,9 @@ export default function DashboardPage() {
               <span className="hidden sm:inline">DreamApt</span>
             </Link>
             <span className="text-[10px] sm:text-xs text-muted-foreground">
-              {mapData ? `${mapData.complexes.length} ЖК` : ""}
+              {mapData
+                ? t("map.complexesCount", { count: mapData.complexes.length })
+                : ""}
             </span>
           </div>
 
@@ -89,13 +88,13 @@ export default function DashboardPage() {
               className="h-8 text-xs px-2 sm:px-3"
             >
               <Plus className="h-3.5 w-3.5 sm:mr-1" />
-              <span className="hidden sm:inline">Новый поиск</span>
+              <span className="hidden sm:inline">{t("header.newSearch")}</span>
             </Button>
             {user && (
               <Link href="/projects">
                 <Button variant="ghost" size="sm" className="h-8 text-xs hidden sm:flex">
                   <List className="h-3.5 w-3.5 mr-1" />
-                  Мои поиски
+                  {t("header.mySearches")}
                 </Button>
               </Link>
             )}
@@ -103,10 +102,11 @@ export default function DashboardPage() {
               <Link href="/admin">
                 <Button variant="ghost" size="sm" className="h-8 text-xs hidden sm:flex">
                   <Shield className="h-3.5 w-3.5 mr-1" />
-                  Админ
+                  {t("header.admin")}
                 </Button>
               </Link>
             )}
+            <LangToggle />
             <ThemeToggle size="icon" />
             {user ? (
               <Button
@@ -114,7 +114,7 @@ export default function DashboardPage() {
                 size="icon"
                 className="h-8 w-8"
                 onClick={logout}
-                title="Выйти"
+                title={t("header.logout")}
               >
                 <LogOut className="h-3.5 w-3.5" />
               </Button>
@@ -126,7 +126,7 @@ export default function DashboardPage() {
                 onClick={() => authDialog.open("login")}
               >
                 <LogIn className="h-3.5 w-3.5 sm:mr-1" />
-                <span className="hidden sm:inline">Войти</span>
+                <span className="hidden sm:inline">{t("header.login")}</span>
               </Button>
             )}
           </div>

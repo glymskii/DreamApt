@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useState, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 import { useAuth } from "@/hooks/useAuth";
 import { ApiUnauthorizedError } from "@/lib/api-client";
 import { formatKzPhone, toE164 } from "@/lib/phone";
@@ -72,6 +73,7 @@ function AuthDialog({
   onClose: () => void;
   message: string | null;
 }) {
+  const { t } = useTranslation();
   const { login, registerRequest } = useAuth();
 
   // login state
@@ -96,8 +98,8 @@ function AuthDialog({
     } catch (err) {
       setLoginError(
         err instanceof ApiUnauthorizedError
-          ? "Неверный логин или пароль"
-          : "Не удалось войти",
+          ? t("auth.loginInvalid")
+          : t("auth.loginFailed"),
       );
     } finally {
       setLoginLoading(false);
@@ -109,7 +111,7 @@ function AuthDialog({
     setRegError("");
     const e164 = toE164(phone);
     if (!e164) {
-      setRegError("Введите полный номер: +7 7** *** ** **");
+      setRegError(t("auth.phoneInvalid"));
       return;
     }
     setRegLoading(true);
@@ -117,7 +119,7 @@ function AuthDialog({
       await registerRequest(e164);
       setRegSuccess(true);
     } catch (err: any) {
-      setRegError(err?.message || "Не удалось отправить заявку");
+      setRegError(err?.message || t("auth.requestFailed"));
     } finally {
       setRegLoading(false);
     }
@@ -129,7 +131,7 @@ function AuthDialog({
         <button
           onClick={onClose}
           className="absolute top-3 right-3 p-1 rounded-md hover:bg-muted transition-colors"
-          aria-label="Закрыть"
+          aria-label={t("common.close")}
         >
           <X className="h-4 w-4" />
         </button>
@@ -138,7 +140,7 @@ function AuthDialog({
           <div className="h-9 w-9 rounded-lg bg-primary text-primary-foreground flex items-center justify-center">
             <Building2 className="h-4 w-4" />
           </div>
-          <span className="font-semibold">DreamApt</span>
+          <span className="font-semibold">{t("auth.title")}</span>
         </div>
 
         {message && (
@@ -158,7 +160,7 @@ function AuthDialog({
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            Вход
+            {t("auth.tabLogin")}
           </button>
           <button
             onClick={() => setTab("request")}
@@ -168,7 +170,7 @@ function AuthDialog({
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            Запросить доступ
+            {t("auth.tabRequest")}
           </button>
         </div>
 
@@ -176,7 +178,7 @@ function AuthDialog({
           <form onSubmit={handleLogin} className="space-y-3">
             <div>
               <label className="text-xs font-medium block mb-1" htmlFor="username">
-                Телефон или логин
+                {t("auth.loginField")}
               </label>
               <Input
                 id="username"
@@ -189,7 +191,7 @@ function AuthDialog({
             </div>
             <div>
               <label className="text-xs font-medium block mb-1" htmlFor="password">
-                Пароль
+                {t("auth.loginPassword")}
               </label>
               <Input
                 id="password"
@@ -207,16 +209,16 @@ function AuthDialog({
               {loginLoading ? (
                 <Loader2 className="h-4 w-4 mr-1 animate-spin" />
               ) : null}
-              Войти
+              {t("auth.loginSubmit")}
             </Button>
             <p className="text-[11px] text-muted-foreground text-center">
-              Нет аккаунта?{" "}
+              {t("auth.loginNoAccount")}{" "}
               <button
                 type="button"
                 onClick={() => setTab("request")}
                 className="text-primary hover:underline"
               >
-                Запросите доступ
+                {t("auth.loginRequestLink")}
               </button>
             </p>
           </form>
@@ -224,25 +226,23 @@ function AuthDialog({
           <div className="text-center py-4 space-y-3">
             <CheckCircle2 className="h-10 w-10 mx-auto text-green-600" />
             <div>
-              <p className="font-semibold">Заявка отправлена!</p>
+              <p className="font-semibold">{t("auth.requestSuccessTitle")}</p>
               <p className="text-xs text-muted-foreground mt-1 max-w-xs mx-auto">
-                После одобрения мы пришлём ссылку для завершения регистрации
-                в WhatsApp на указанный номер.
+                {t("auth.requestSuccessSub")}
               </p>
             </div>
             <Button variant="outline" onClick={onClose} className="w-full">
-              Понятно
+              {t("auth.ok")}
             </Button>
           </div>
         ) : (
           <form onSubmit={handleRegister} className="space-y-3">
             <div className="text-xs text-muted-foreground mb-2">
-              Оставьте номер телефона — после одобрения мы свяжемся с вами и
-              пришлём ссылку для завершения регистрации.
+              {t("auth.requestIntro")}
             </div>
             <div>
               <label className="text-xs font-medium block mb-1" htmlFor="phone">
-                Номер телефона
+                {t("auth.phoneField")}
               </label>
               <div className="relative">
                 <Phone className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -264,10 +264,7 @@ function AuthDialog({
               </div>
               <div className="mt-1.5 flex items-start gap-1.5 text-[11px] text-muted-foreground leading-snug">
                 <MessageCircle className="h-3 w-3 mt-0.5 shrink-0 text-green-600" />
-                <span>
-                  На этот номер должен быть зарегистрирован WhatsApp — после
-                  одобрения ссылку для входа вы получите туда.
-                </span>
+                <span>{t("auth.phoneHint")}</span>
               </div>
             </div>
             {regError && <p className="text-xs text-destructive">{regError}</p>}
@@ -275,7 +272,7 @@ function AuthDialog({
               {regLoading ? (
                 <Loader2 className="h-4 w-4 mr-1 animate-spin" />
               ) : null}
-              Отправить заявку
+              {t("auth.requestSubmit")}
             </Button>
           </form>
         )}

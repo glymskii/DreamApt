@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   useComplex,
   useComplexProperties,
@@ -55,14 +56,16 @@ function StarRow({ rating, size = "sm" }: { rating: number; size?: "sm" | "md" }
 }
 
 function ReviewItemRow({ review }: { review: ReviewItem }) {
+  const { t, i18n } = useTranslation();
   const ratingColor =
     review.rating >= 4
       ? "text-green-600 dark:text-green-400"
       : review.rating >= 3
       ? "text-yellow-600 dark:text-yellow-400"
       : "text-red-600 dark:text-red-400";
+  const dateLocale = i18n.language?.startsWith("kk") ? "kk-KZ" : "ru-RU";
   const date = review.dateCreated
-    ? new Date(review.dateCreated).toLocaleDateString("ru-RU", {
+    ? new Date(review.dateCreated).toLocaleDateString(dateLocale, {
         day: "numeric",
         month: "short",
         year: "numeric",
@@ -115,7 +118,7 @@ function ReviewItemRow({ review }: { review: ReviewItem }) {
         <div className="mt-1.5 ml-3 pl-2 border-l-2 border-blue-300 dark:border-blue-700">
           <div className="flex items-center gap-1 text-[10px] text-blue-700 dark:text-blue-400 font-medium">
             <MessageCircle className="h-2.5 w-2.5" />
-            {review.officialAnswer.orgName || "Ответ застройщика"}
+            {review.officialAnswer.orgName || t("complex.officialAnswer")}
           </div>
           <p className="text-[11px] text-foreground/75 mt-0.5 line-clamp-2">
             {review.officialAnswer.text}
@@ -137,6 +140,7 @@ function ReviewsSection({
   averageRating: number;
   twogisUrl: string | null;
 }) {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const initialCount = 2;
   const visible = expanded ? reviews : reviews.slice(0, initialCount);
@@ -154,7 +158,7 @@ function ReviewsSection({
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <MessageSquare className="h-4 w-4 text-muted-foreground" />
-          <span className="text-xs font-semibold">Отзывы 2GIS</span>
+          <span className="text-xs font-semibold">{t("complex.reviewsTitle")}</span>
           {totalReviews > 0 && (
             <span className="text-[10px] text-muted-foreground">
               · {totalReviews}
@@ -168,7 +172,7 @@ function ReviewsSection({
             rel="noopener noreferrer"
             className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-0.5"
           >
-            Все на 2GIS
+            {t("complex.reviewsAll")}
             <ExternalLink className="h-2.5 w-2.5" />
           </a>
         )}
@@ -182,7 +186,7 @@ function ReviewsSection({
           <div>
             <StarRow rating={averageRating} size="md" />
             <p className="text-[10px] text-muted-foreground mt-0.5">
-              {totalReviews} {totalReviews === 1 ? "отзыв" : totalReviews < 5 ? "отзыва" : "отзывов"}
+              {t("complex.reviewsCount", { count: totalReviews })}
             </p>
           </div>
         </div>
@@ -198,7 +202,9 @@ function ReviewsSection({
               onClick={() => setExpanded(!expanded)}
               className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 mt-2 mx-auto"
             >
-              {expanded ? "Свернуть" : `Показать ещё ${reviews.length - initialCount}`}
+              {expanded
+                ? t("common.collapse")
+                : t("complex.reviewShowMore", { count: reviews.length - initialCount })}
               <ChevronDown
                 className={`h-3 w-3 transition-transform ${expanded ? "rotate-180" : ""}`}
               />
@@ -207,7 +213,7 @@ function ReviewsSection({
         </div>
       ) : (
         <p className="text-[11px] text-muted-foreground">
-          Текст отзывов скрыт. Нажмите «Все на 2GIS» чтобы прочитать.
+          {t("complex.reviewsHidden")}
         </p>
       )}
     </div>
@@ -220,6 +226,7 @@ interface Props {
 }
 
 export function ComplexSlideOver({ complexId, onClose }: Props) {
+  const { t } = useTranslation();
   const { isAuthenticated } = useAuth();
   const authDialog = useAuthDialog();
   const { data: complex, isLoading } = useComplex(complexId);
@@ -253,7 +260,7 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-2 sm:py-3 border-b shrink-0">
         <h2 className="font-semibold text-sm truncate">
-          {complex?.displayName || "Загрузка..."}
+          {complex?.displayName || t("common.loading")}
         </h2>
         <button onClick={onClose} className="p-1 hover:bg-muted rounded-md">
           <X className="h-5 w-5" />
@@ -299,19 +306,19 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
               {/* Stats row */}
               <div className="grid grid-cols-3 gap-2 text-center">
                 <div className="p-2 bg-muted/50 rounded-lg">
-                  <p className="text-xs text-muted-foreground">Цена от</p>
+                  <p className="text-xs text-muted-foreground">{t("complex.priceFrom")}</p>
                   <p className="font-bold text-sm">
                     {complex.priceMin ? `${Math.round(Number(complex.priceMin) / 1000000)} млн` : "—"}
                   </p>
                 </div>
                 <div className="p-2 bg-muted/50 rounded-lg">
-                  <p className="text-xs text-muted-foreground">Объявлений</p>
+                  <p className="text-xs text-muted-foreground">{t("complex.listings")}</p>
                   <p className="font-bold text-sm">{complex.listingsCount}</p>
                 </div>
                 <div className="p-2 bg-muted/50 rounded-lg">
-                  <p className="text-xs text-muted-foreground">До работы</p>
+                  <p className="text-xs text-muted-foreground">{t("complex.commute")}</p>
                   <p className="font-bold text-sm">
-                    {complex.commuteMinutes ? `${complex.commuteMinutes} мин` : "—"}
+                    {complex.commuteMinutes ? `${complex.commuteMinutes} ${t("complex.minutes")}` : "—"}
                   </p>
                 </div>
               </div>
@@ -341,7 +348,7 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
                     }`}>
                       {seismic.distanceMeters < 1000
                         ? `${seismic.distanceMeters} м`
-                        : `${(seismic.distanceMeters / 1000).toFixed(1)} км`} до {seismic.nearestFault?.label?.toLowerCase() || "разлома"}
+                        : `${(seismic.distanceMeters / 1000).toFixed(1)} км`} {t("complex.seismicTo")} {seismic.nearestFault?.label?.toLowerCase() || t("complex.seismicFault")}
                     </p>
                   </div>
                 </div>
@@ -350,23 +357,18 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
               {/* Score breakdown */}
               {complex.scoreTotal != null && complex.scoreTotal > 0 && (
                 <div className="space-y-2">
-                  <p className="text-xs font-medium text-muted-foreground">Оценка ЖК</p>
-                  <ScoreBar label="Инфраструктура" score={Number(complex.scoreInfrastructure) || 0} />
-                  <ScoreBar label="Образ жизни" score={Number(complex.scoreLifestyle) || 0} />
-                  <ScoreBar label="Дорога" score={Number(complex.scoreCommute) || 0} />
-                  <ScoreBar label="Сейсмика" score={Number(complex.scoreSeismic) || 0} />
+                  <p className="text-xs font-medium text-muted-foreground">{t("complex.ratingTitle")}</p>
+                  <ScoreBar label={t("complex.scoreInfra")} score={Number(complex.scoreInfrastructure) || 0} />
+                  <ScoreBar label={t("complex.scoreLifestyle")} score={Number(complex.scoreLifestyle) || 0} />
+                  <ScoreBar label={t("complex.scoreCommute")} score={Number(complex.scoreCommute) || 0} />
+                  <ScoreBar label={t("complex.scoreSeismic")} score={Number(complex.scoreSeismic) || 0} />
                 </div>
               )}
 
               {/* Shutov rating — locked for guests */}
               {shutov?.found && shutov.locked ? (
                 <button
-                  onClick={() =>
-                    authDialog.open(
-                      "login",
-                      "Оценка эксперта Тихона Шутова доступна авторизованным пользователям.",
-                    )
-                  }
+                  onClick={() => authDialog.open("login", t("auth.shutovGate"))}
                   className="flex items-center gap-3 p-3 rounded-lg border w-full text-left hover:bg-muted/50 transition-colors"
                   style={{ borderLeftWidth: 4, borderLeftColor: "#94a3b8" }}
                 >
@@ -374,9 +376,11 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
                     <Lock className="h-4 w-4 text-muted-foreground" />
                   </span>
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold">Рейтинг эксперта</p>
+                    <p className="text-xs font-semibold">{t("complex.shutovExpertTitle")}</p>
                     <p className="text-xs text-muted-foreground">
-                      Тихон Шутов оценил {shutov.name || "этот ЖК"}. Войдите чтобы увидеть.
+                      {shutov.name
+                        ? t("complex.shutovLockedHint", { name: shutov.name })
+                        : t("complex.shutovEvaluatedHint")}
                     </p>
                   </div>
                   <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
@@ -395,7 +399,7 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
                   <div>
                     <p className="text-xs font-semibold">{shutov.categoryLabel}</p>
                     <p className="text-xs text-muted-foreground">
-                      Тихон Шутов · {shutov.name}
+                      {t("complex.shutovBy", { name: shutov.name })}
                     </p>
                   </div>
                 </div>
@@ -425,7 +429,7 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
                       {airQuality.levelLabel}
                     </p>
                     <p className="text-[10px] text-muted-foreground truncate">
-                      Станция AirKaz: {airQuality.station}
+                      {t("complex.airStation", { name: airQuality.station })}
                       {airQuality.distanceMeters
                         ? ` · ${airQuality.distanceMeters < 1000 ? airQuality.distanceMeters + " м" : (airQuality.distanceMeters / 1000).toFixed(1) + " км"}`
                         : ""}
@@ -439,7 +443,7 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
                 <div className="rounded-lg border bg-muted/20 p-3">
                   <div className="flex items-center gap-2 mb-2">
                     <MessageSquare className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-xs font-semibold">Отзывы 2GIS</span>
+                    <span className="text-xs font-semibold">{t("complex.reviewsTitle")}</span>
                   </div>
                   <div className="animate-pulse space-y-2">
                     <div className="h-6 bg-muted rounded w-1/3" />
@@ -459,12 +463,7 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
               {/* Properties list — locked for guests */}
               {!isAuthenticated && (
                 <button
-                  onClick={() =>
-                    authDialog.open(
-                      "login",
-                      "Список квартир в ЖК доступен после авторизации. Войдите или запросите доступ.",
-                    )
-                  }
+                  onClick={() => authDialog.open("login", t("auth.propsGate"))}
                   className="w-full flex items-center gap-3 p-3 rounded-lg border border-dashed hover:bg-muted/50 transition-colors text-left"
                 >
                   <span className="inline-flex items-center justify-center w-9 h-9 rounded-full bg-muted shrink-0">
@@ -472,11 +471,11 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
                   </span>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-semibold flex items-center gap-1.5">
-                      Объявления о продаже
+                      {t("complex.propsLockedTitle")}
                       <Lock className="h-3 w-3 text-muted-foreground" />
                     </p>
                     <p className="text-[11px] text-muted-foreground">
-                      Войдите чтобы увидеть квартиры в этом ЖК
+                      {t("complex.propsLockedSub")}
                     </p>
                   </div>
                   <LogIn className="h-4 w-4 text-muted-foreground shrink-0" />
@@ -485,7 +484,7 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
               {isAuthenticated && properties && properties.length > 0 && (
                 <div>
                   <p className="text-xs font-medium text-muted-foreground mb-2">
-                    Квартиры ({properties.length})
+                    {t("complex.apartmentsTitle", { count: properties.length })}
                   </p>
                   <div className="space-y-1.5">
                     {properties.slice(0, 5).map((prop: any) => (
@@ -502,7 +501,12 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
                         <div className="flex-1 min-w-0">
                           <p className="text-xs font-medium">{formatPrice(prop.price)}</p>
                           <p className="text-[10px] text-muted-foreground truncate">
-                            {prop.rooms}-комн., {formatArea(prop.areaTotal)} · {prop.floor}/{prop.floorTotal} эт.
+                            {t("complex.propertySummary", {
+                              rooms: prop.rooms,
+                              area: formatArea(prop.areaTotal),
+                              floor: prop.floor,
+                              total: prop.floorTotal,
+                            })}
                           </p>
                         </div>
                         {prop.scoreTotal > 0 && (
@@ -517,7 +521,7 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
                     ))}
                     {properties.length > 5 && (
                       <p className="text-xs text-center text-muted-foreground pt-1">
-                        +{properties.length - 5} ещё
+                        {t("complex.moreCount", { count: properties.length - 5 })}
                       </p>
                     )}
                   </div>
@@ -534,7 +538,7 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
           {isAuthenticated && complex.projectId ? (
             <Link href={`/projects/${complex.projectId}/complex/${complex.id}`}>
               <Button className="w-full" size="sm">
-                Подробнее о ЖК
+                {t("complex.moreDetails")}
                 <ChevronRight className="h-4 w-4 ml-1" />
               </Button>
             </Link>
@@ -542,7 +546,7 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
             <a href={complex.krishaUrl} target="_blank" rel="noopener noreferrer">
               <Button className="w-full" size="sm" variant="outline">
                 <ExternalLink className="h-4 w-4 mr-1" />
-                Открыть на Krisha.kz
+                {t("complex.openOnKrisha")}
               </Button>
             </a>
           ) : !isAuthenticated ? (
@@ -550,12 +554,10 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
               className="w-full"
               size="sm"
               variant="outline"
-              onClick={() =>
-                authDialog.open("login", "Войдите для просмотра подробной страницы ЖК.")
-              }
+              onClick={() => authDialog.open("login", t("auth.complexDetailsGate"))}
             >
               <LogIn className="h-4 w-4 mr-1" />
-              Войти для подробностей
+              {t("complex.loginForDetails")}
             </Button>
           ) : null}
         </div>

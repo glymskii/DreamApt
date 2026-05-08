@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { useTranslation } from "react-i18next";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { MapPin, Clock, Search, Activity, Building, Star, AlertTriangle } from "lucide-react";
@@ -16,6 +17,7 @@ interface MapSidebarProps {
   isMobile?: boolean;
 }
 
+// District values are stored in Russian by the data layer; keep raw strings.
 const DISTRICTS = [
   "Алмалинский р-н",
   "Ауэзовский р-н",
@@ -28,18 +30,18 @@ const DISTRICTS = [
 ];
 
 const FLOOR_FILTERS = [
-  { value: "low_rise", label: "🏠 1-5 эт." },
-  { value: "mid_rise", label: "🏢 6-12 эт." },
-  { value: "high_rise", label: "🏙️ 13-25 эт." },
-  { value: "skyscraper", label: "🏗️ 25+ эт." },
+  { value: "low_rise", labelKey: "sidebar.floorLow" },
+  { value: "mid_rise", labelKey: "sidebar.floorMid" },
+  { value: "high_rise", labelKey: "sidebar.floorHigh" },
+  { value: "skyscraper", labelKey: "sidebar.floorSky" },
 ];
 
 const RISK_FILTERS = [
-  { value: "critical", label: "Опасная зона", color: "bg-red-500" },
-  { value: "high", label: "Высокий", color: "bg-orange-500" },
-  { value: "moderate", label: "Умеренный", color: "bg-yellow-500" },
-  { value: "low", label: "Низкий", color: "bg-lime-500" },
-  { value: "safe", label: "Безопасно", color: "bg-green-500" },
+  { value: "critical", labelKey: "sidebar.riskCritical", color: "bg-red-500" },
+  { value: "high", labelKey: "sidebar.riskHigh", color: "bg-orange-500" },
+  { value: "moderate", labelKey: "sidebar.riskModerate", color: "bg-yellow-500" },
+  { value: "low", labelKey: "sidebar.riskLow", color: "bg-lime-500" },
+  { value: "safe", labelKey: "sidebar.riskSafe", color: "bg-green-500" },
 ];
 
 function getSeismicColor(risk: string | null): string {
@@ -53,18 +55,19 @@ function getSeismicColor(risk: string | null): string {
   return colors[risk || ""] || "text-gray-400";
 }
 
-function getSeismicLabel(risk: string | null): string {
-  const labels: Record<string, string> = {
-    critical: "На разломе",
-    high: "Высокий риск",
-    moderate: "Умеренный",
-    low: "Низкий",
-    safe: "Безопасно",
+function getSeismicLabelKey(risk: string | null): string | null {
+  const keys: Record<string, string> = {
+    critical: "sidebar.labelOnFault",
+    high: "sidebar.labelHighRisk",
+    moderate: "sidebar.labelModerate",
+    low: "sidebar.labelLow",
+    safe: "sidebar.labelSafe",
   };
-  return labels[risk || ""] || "";
+  return keys[risk || ""] || null;
 }
 
 export function MapSidebar({ data, selectedId, onSelect, onHover, isMobile }: MapSidebarProps) {
+  const { t } = useTranslation();
   const [search, setSearch] = useState("");
   const [districtFilter, setDistrictFilter] = useState("");
   const [riskFilter, setRiskFilter] = useState<string[]>([]);
@@ -116,7 +119,7 @@ export function MapSidebar({ data, selectedId, onSelect, onHover, isMobile }: Ma
         <div className="relative">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Поиск ЖК..."
+            placeholder={t("sidebar.searchPlaceholder")}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-8 h-9 text-sm"
@@ -127,7 +130,7 @@ export function MapSidebar({ data, selectedId, onSelect, onHover, isMobile }: Ma
           onClick={() => setShowFilters(!showFilters)}
           className="text-xs text-muted-foreground hover:text-foreground transition-colors"
         >
-          {showFilters ? "Скрыть фильтры" : "Фильтры"}
+          {showFilters ? t("sidebar.filtersHide") : t("sidebar.filtersShow")}
           {(districtFilter || riskFilter.length > 0 || floorFilter.length > 0) && (
             <span className="ml-1 text-primary">
               ({(districtFilter ? 1 : 0) + riskFilter.length + floorFilter.length})
@@ -142,14 +145,14 @@ export function MapSidebar({ data, selectedId, onSelect, onHover, isMobile }: Ma
               onChange={(e) => setDistrictFilter(e.target.value)}
               className="w-full text-xs border rounded-md px-2 py-1.5"
             >
-              <option value="">Все районы</option>
+              <option value="">{t("sidebar.districts")}</option>
               {DISTRICTS.map((d) => (
                 <option key={d} value={d}>{d}</option>
               ))}
             </select>
 
             <div>
-              <p className="text-[10px] text-muted-foreground mb-1">Сейсмический риск</p>
+              <p className="text-[10px] text-muted-foreground mb-1">{t("sidebar.seismicRisk")}</p>
               <div className="flex flex-wrap gap-1">
                 {RISK_FILTERS.map((rf) => (
                   <button
@@ -161,14 +164,14 @@ export function MapSidebar({ data, selectedId, onSelect, onHover, isMobile }: Ma
                         : "border-border hover:border-primary/50"
                     }`}
                   >
-                    {rf.label}
+                    {t(rf.labelKey)}
                   </button>
                 ))}
               </div>
             </div>
 
             <div>
-              <p className="text-[10px] text-muted-foreground mb-1">Этажность</p>
+              <p className="text-[10px] text-muted-foreground mb-1">{t("sidebar.floors")}</p>
               <div className="flex flex-wrap gap-1">
                 {FLOOR_FILTERS.map((ff) => (
                   <button
@@ -180,7 +183,7 @@ export function MapSidebar({ data, selectedId, onSelect, onHover, isMobile }: Ma
                         : "border-border hover:border-primary/50"
                     }`}
                   >
-                    {ff.label}
+                    {t(ff.labelKey)}
                   </button>
                 ))}
               </div>
@@ -189,7 +192,8 @@ export function MapSidebar({ data, selectedId, onSelect, onHover, isMobile }: Ma
         )}
 
         <p className="text-[10px] text-muted-foreground">
-          {filtered.length} ЖК {search || districtFilter || riskFilter.length > 0 || floorFilter.length > 0 ? "(отфильтровано)" : ""}
+          {t("sidebar.complexesCount", { count: filtered.length })}
+          {(search || districtFilter || riskFilter.length > 0 || floorFilter.length > 0) && ` ${t("sidebar.filtered")}`}
         </p>
       </div>
 
@@ -249,16 +253,19 @@ export function MapSidebar({ data, selectedId, onSelect, onHover, isMobile }: Ma
                 </p>
 
                 <div className="flex items-center gap-2 mt-0.5">
-                  {complex.seismicRiskLevel && (
-                    <span className={`text-[10px] flex items-center gap-0.5 ${getSeismicColor(complex.seismicRiskLevel)}`}>
-                      <Activity className="h-3 w-3" />
-                      {getSeismicLabel(complex.seismicRiskLevel)}
-                    </span>
-                  )}
+                  {complex.seismicRiskLevel && (() => {
+                    const labelKey = getSeismicLabelKey(complex.seismicRiskLevel);
+                    return labelKey ? (
+                      <span className={`text-[10px] flex items-center gap-0.5 ${getSeismicColor(complex.seismicRiskLevel)}`}>
+                        <Activity className="h-3 w-3" />
+                        {t(labelKey)}
+                      </span>
+                    ) : null;
+                  })()}
                   {complex.commuteMinutes != null && complex.commuteMinutes > 0 && (
                     <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
                       <Clock className="h-3 w-3" />
-                      {complex.commuteMinutes} мин
+                      {complex.commuteMinutes} {t("complex.minutes")}
                     </span>
                   )}
                 </div>
@@ -269,7 +276,7 @@ export function MapSidebar({ data, selectedId, onSelect, onHover, isMobile }: Ma
 
         {filtered.length === 0 && (
           <div className="p-8 text-center text-sm text-muted-foreground">
-            ЖК не найдены
+            {t("sidebar.noResults")}
           </div>
         )}
       </div>
