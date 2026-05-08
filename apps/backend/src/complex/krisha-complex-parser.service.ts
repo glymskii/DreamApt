@@ -147,58 +147,40 @@ export class KrishaComplexParserService {
       // Extract developer
       const developer = $(".complex-info__developer, .developer-name, [class*=developer] a").first().text().trim();
 
-      // Extract floors + year built. Krisha renders these in a few different
-      // shapes depending on template version; we read all into a flat
-      // label→value map and look for known keys, then fall back to a regex
-      // sweep over the whole page text. Conservative: only accept values
-      // in plausible ranges.
-      const fields: Record<string, string> = {};
-      $("dl.complex-about-info dt, dl.complex-about__info dt").each((_i, dt) => {
-        const key = $(dt).text().trim().replace(/\s+/g, " ");
-        const value = $(dt).next("dd").text().trim().replace(/\s+/g, " ");
-        if (key && value) fields[key] = value;
-      });
-      // Newer templates use .complex-info__row with title + value spans
-      $(".complex-info__row, .complex-about__row").each((_i, row) => {
-        const key = $(row).find(".complex-info__title, .complex-about__label").first().text().trim();
-        const value = $(row).find(".complex-info__value, .complex-about__value").first().text().trim();
-        if (key && value) fields[key] = value;
-      });
+      // Extract floors + year built. Krisha's current ЖК page format embeds
+      // building meta inline in apartment listing descriptions, not in any
+      // structured `complex-info__*` block. We use two robust patterns:
+      //
+      //   • Year: "<digits> г.п." (год постройки) e.g. "2028 г.п." appears
+      //     in every apartment card's description on a given complex page.
+      //     Also support legacy "Сдача дома: ...", "Год постройки: ...".
+      //   • Floors: "<digits>/<digits> этаж" e.g. "4/9 этаж" — second number
+      //     is the building's total floors. Take max across all matches on
+      //     the page so a 25-floor tower with low-apt listings still reports
+      //     correctly.
 
-      const pickField = (...names: string[]): string | null => {
-        for (const n of names) {
-          for (const k of Object.keys(fields)) {
-            if (k.toLowerCase().includes(n.toLowerCase())) return fields[k];
-          }
-        }
-        return null;
-      };
+      const ALMATY_YEAR_MIN = 1950;
+      const ALMATY_YEAR_MAX = new Date().getFullYear() + 5; // off-plan completion years
 
-      // Floors: "16 этажей" / "до 25 этажей" / "5-9 этажей" — take the max digit.
-      let floorsMax: number | null = null;
-      const floorsText =
-        pickField("Этажност", "этаж") ||
-        (allText.match(/этажност[ьи][:\s]*([^.,\n]+)/i)?.[1] ?? null) ||
-        (html.match(/Этажност[ьи][^<]*?(\d+(?:\s*[-–—]\s*\d+)?)/i)?.[1] ?? null);
-      if (floorsText) {
-        const nums = (floorsText.match(/\d+/g) || []).map(Number).filter((n) => n > 0 && n < 200);
-        if (nums.length > 0) floorsMax = Math.max(...nums);
-      }
-
-      // Year: "Сдача 2023" / "Сдан в 2022 г." / "Год сдачи: IV кв 2024".
-      // We accept the explicit year if present; quarter-only deferred plans
-      // are skipped — they're not "built" yet.
-      let yearBuilt: number | null = null;
-      const yearText =
-        pickField("Сдача", "Сдан", "Год", "Срок") ||
-        (html.match(/(?:Сдача дома|Сдан в|Год сдачи|Год постройки)[^<]*?(\d{4})/i)?.[1] ?? null);
-      if (yearText) {
-        const m = yearText.match(/(20\d{2}|19\d{2})/);
-        if (m) {
-          const year = parseInt(m[1], 10);
-          if (year >= 1950 && year <= new Date().getFullYear() + 1) yearBuilt = year;
+      // Year: scan all "<year> г.п." occurrences, take the modal one.
+      const yearMatches = Array.from(html.matchAll(/(\d{4})\s*г\.\s*п\./g))
+        .map((m) => parseInt(m[1], 10))
+        .filter((y) => y >= ALMATY_YEAR_MIN && y <= ALMATY_YEAR_MAX);
+      // Fallback: structured "Сдача дома 2024", "Год постройки 2018" — older templates.
+      if (yearMatches.length === 0) {
+        const fallback = html.match(/(?:Сдача дома|Сдан в|Год сдачи|Год постройки)[^<]*?(\d{4})/i);
+        if (fallback) {
+          const y = parseInt(fallback[1], 10);
+          if (y >= ALMATY_YEAR_MIN && y <= ALMATY_YEAR_MAX) yearMatches.push(y);
         }
       }
+      const yearBuilt = yearMatches.length > 0 ? this.modal(yearMatches) : null;
+
+      // Floors: scan all "X/Y этаж" patterns, take max Y.
+      const floorTotals = Array.from(html.matchAll(/\d+\s*\/\s*(\d+)\s*этаж/g))
+        .map((m) => parseInt(m[1], 10))
+        .filter((n) => n > 0 && n < 200);
+      const floorsMax = floorTotals.length > 0 ? Math.max(...floorTotals) : null;
 
       return {
         lat: latMatch ? parseFloat(latMatch[1]) : null,
@@ -216,6 +198,16 @@ export class KrishaComplexParserService {
         floorsMax: null, yearBuilt: null,
       };
     }
+  }
+
+  /** Modal value (most-common). Used for yearBuilt where listings agree
+   *  on "г.п." but a few stragglers report a different year. */
+  private modal<T>(arr: T[]): T {
+    const counts = new Map<T, number>();
+    for (const v of arr) counts.set(v, (counts.get(v) || 0) + 1);
+    let best = arr[0], bestCount = 0;
+    for (const [v, c] of counts) { if (c > bestCount) { best = v; bestCount = c; } }
+    return best;
   }
 
   /** Normalize complex name for deduplication */
