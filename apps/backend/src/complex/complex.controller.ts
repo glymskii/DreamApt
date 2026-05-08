@@ -174,6 +174,24 @@ export class ComplexController {
     };
   }
 
+  /**
+   * Synchronous batch enrichment driven by the admin client. Each call
+   * processes up to `limit` (default 8, max 20) ЖК with a Krisha URL but
+   * missing yearBuilt/floorsMax. Returns enough state for a curl loop to
+   * resume. Render's background-task killer doesn't apply here — this is
+   * a regular HTTP request that completes synchronously.
+   */
+  @Post("complexes/enrich-batch")
+  @UseGuards(AdminGuard)
+  async enrichBatch(
+    @Query("limit") limit: string = "8",
+    @Query("offset") offset: string = "0",
+  ) {
+    const lim = Math.min(20, Math.max(1, parseInt(limit) || 8));
+    const off = Math.max(0, parseInt(offset) || 0);
+    return this.krishaComplexParser.enrichChunk(lim, off);
+  }
+
   @Post("projects/:projectId/migrate-complexes")
   @UseGuards(JwtAuthGuard)
   async migrateComplexes(@Param("projectId") projectId: string, @Req() req: any) {

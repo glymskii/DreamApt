@@ -360,4 +360,73 @@ export class KrishaComplexParserService {
     this.logger.log(`Parse complete: created=${created}, updated=${updated}, skipped=${skipped}`);
     return { created, updated, skipped };
   }
+
+  /**
+   * Synchronous chunked enrichment for ЖК that already have a krishaUrl in
+   * the DB. Caller drives a loop: pass `offset`, get back N updates, repeat
+   * until `processed === 0`. This bypasses Render's background-task
+   * unreliability — the work happens inside one HTTP request and completes
+   * (or doesn't) within the request's lifetime.
+   *
+   * Targets ЖК that are missing yearBuilt OR floorsMax. Each batch fetches
+   * a few detail pages with our usual rate limit and updates the rows.
+   */
+  async enrichChunk(
+    limit: number,
+    offset: number,
+  ): Promise<{
+    processed: number;
+    updated: number;
+    skipped: number;
+    remaining: number;
+    nextOffset: number;
+  }> {
+    // Find candidates: have a Krisha URL (so we know what to fetch) and are
+    // missing at least one of the new fields. Stable sort by id so caller
+    // can paginate predictably.
+    const candidates = await this.complexesRepo
+      .createQueryBuilder("c")
+      .where("c.krishaUrl IS NOT NULL")
+      .andWhere("(c.yearBuilt IS NULL OR c.floorsMax IS NULL)")
+      .orderBy("c.id", "ASC")
+      .skip(offset)
+      .take(limit)
+      .getMany();
+
+    const totalRemaining = await this.complexesRepo
+      .createQueryBuilder("c")
+      .where("c.krishaUrl IS NOT NULL")
+      .andWhere("(c.yearBuilt IS NULL OR c.floorsMax IS NULL)")
+      .getCount();
+
+    let updated = 0;
+    let skipped = 0;
+
+    for (const c of candidates) {
+      try {
+        await this.delay(1500); // same gentle Krisha pace as the full scraper
+        const detail = await this.fetchComplexDetail(c.krishaUrl);
+        const patch: Record<string, unknown> = {};
+        if (!c.yearBuilt && detail.yearBuilt) patch.yearBuilt = detail.yearBuilt;
+        if (!c.floorsMax && detail.floorsMax) patch.floorsMax = detail.floorsMax;
+        if (Object.keys(patch).length > 0) {
+          await this.complexesRepo.update(c.id, patch);
+          updated++;
+        } else {
+          skipped++;
+        }
+      } catch (err) {
+        this.logger.warn(`enrichChunk: failed for ${c.id} (${c.krishaUrl}): ${err}`);
+        skipped++;
+      }
+    }
+
+    return {
+      processed: candidates.length,
+      updated,
+      skipped,
+      remaining: Math.max(0, totalRemaining - candidates.length),
+      nextOffset: offset + candidates.length,
+    };
+  }
 }
