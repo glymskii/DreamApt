@@ -415,6 +415,20 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
                 </div>
               )}
 
+              {/* Seismic disclaimer — only shown when seismic data is present.
+                  Distance to a fault by itself doesn't tell you whether a
+                  building is safe; modern seismic codes (СНИП) compensate.
+                  This block disclaims our service from making any safety
+                  judgement and points users at the right paper trail to
+                  request from the developer. Mainly defensive against
+                  defamation claims (ст. 143 ГК РК) — the data is open and
+                  we explicitly don't draw conclusions from it. */}
+              {seismic?.found && (
+                <p className="text-[10px] leading-snug text-muted-foreground/80 px-1">
+                  {t("complex.seismicDisclaimer")}
+                </p>
+              )}
+
               {/* Score breakdown */}
               {complex.scoreTotal != null && complex.scoreTotal > 0 && (
                 <div className="space-y-2">
