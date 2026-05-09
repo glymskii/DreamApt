@@ -89,18 +89,25 @@ function distanceToSegment(
  * This ensures a confirmed fault (danger=3) at 900m is considered more dangerous
  * than a disputed fault (danger=1) at 700m.
  *
- * Risk thresholds (on effective distance) — calibrated to the California
- * Alquist-Priolo Earthquake Fault Zoning Act (the international gold
- * standard) and softened slightly for residential context. The labels are
- * deliberately neutral: we report measured proximity, not a safety verdict.
- * Whether a building is actually safe depends on engineering compliance
- * with ҚНжЕ РК 2.03-30, which is beyond what this dataset can know.
+ * Risk thresholds — calibrated to the California Alquist-Priolo Earthquake
+ * Fault Zoning Act (the international gold standard) and softened for
+ * residential context. The labels are deliberately neutral: we report
+ * measured proximity, not a safety verdict. Whether a building is actually
+ * safe depends on engineering compliance with ҚНжЕ РК 2.03-30, which is
+ * beyond what this dataset can know.
  *
- *   <50m   = critical (literally on the fault line — Alquist-Priolo "no build")
- *   <200m  = high     (Alquist-Priolo "study zone" — extra investigation needed)
- *   <600m  = moderate (close enough that local geology matters)
- *   <1500m = low      (the typical baseline for Almaty residential zones)
- *   ≥1500m = safe     (no special seismic-proximity considerations)
+ * Hybrid scale: `critical` is decided on RAW distance (literally on the
+ * fault line — applies regardless of fault type), the other levels use
+ * EFFECTIVE distance (raw / danger), so a confirmed fault projects further
+ * than a disputed one. Trade-off: confirmed faults may not show "critical"
+ * at 60m raw (they're "high" instead) — but that matches the user-facing
+ * intuition: "На линии" should mean exactly that.
+ *
+ *   raw   <  50m  = critical (Alquist-Priolo "no build", any fault type)
+ *   eff   <  200m = high     (Alquist-Priolo "study zone")
+ *   eff   <  400m = moderate (close enough that local geology matters)
+ *   eff   < 1000m = low      (typical baseline for Almaty residential zones)
+ *   eff   ≥ 1000m = safe     (no special seismic-proximity considerations)
  */
 export function findNearestFault(
   lat: number,
@@ -142,16 +149,18 @@ export function findNearestFault(
 
   const distanceMeters = Math.round(bestRawDistance);
 
-  // Thresholds aligned with California's Alquist-Priolo Earthquake Fault
-  // Zoning Act (50ft "no build" / 660ft "study zone"), softened for Almaty
-  // residential buildings since they're already designed to ҚНжЕ РК 2.03-30.
-  // Labels are intentionally neutral — they describe proximity, not danger.
-  // The slide-over carries a disclaimer making this explicit.
+  // Hybrid scale: `critical` is decided on raw distance (50m "literally on
+  // the fault line", applies to ANY fault type — disputed or confirmed,
+  // 50m is 50m). Everything else uses effective distance so confirmed
+  // faults project further than disputed ones — geologically correct.
+  // Softened from the original Alquist-Priolo direct port: 600 → 400m
+  // moderate, 1500 → 1000m low/safe, since Almaty residential buildings
+  // are designed to ҚНжЕ РК 2.03-30. Labels describe proximity, not danger.
   let riskLevel: FaultProximityResult["riskLevel"];
   let riskLabel: string;
   let riskColor: string;
 
-  if (bestEffectiveDistance < 50) {
+  if (bestRawDistance < 50) {
     riskLevel = "critical";
     riskLabel = "На линии разлома";
     riskColor = "#dc2626"; // red
@@ -159,11 +168,11 @@ export function findNearestFault(
     riskLevel = "high";
     riskLabel = "Близко к разлому";
     riskColor = "#f97316"; // orange
-  } else if (bestEffectiveDistance < 600) {
+  } else if (bestEffectiveDistance < 400) {
     riskLevel = "moderate";
     riskLabel = "Умеренная близость";
     riskColor = "#eab308"; // yellow
-  } else if (bestEffectiveDistance < 1500) {
+  } else if (bestEffectiveDistance < 1000) {
     riskLevel = "low";
     riskLabel = "Стандартный риск города";
     riskColor = "#84cc16"; // lime
