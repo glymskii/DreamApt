@@ -478,45 +478,53 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
                 </div>
               )}
 
-              {/* Per-fault-type breakdown. Resolves a UX trap: the headline
-                  uses the smallest *effective* distance (raw / danger), so
-                  a 334m disputed-fault classification ends up "low risk"
-                  while still showing 334m next to it — looks contradictory.
-                  Listing all three lets the reader see "ah, the 334m is to
-                  the disputed fault; the confirmed one is 1.2km away".
-                  Each row appears only when there's data for that type. */}
-              {complex && (
-                (complex.seismicConfirmedM != null) ||
-                (complex.seismicStudiedM != null) ||
-                (complex.seismicDisputedM != null)
-              ) ? (
-                <div className="space-y-1.5">
-                  <p className="text-xs font-medium text-muted-foreground">
-                    {t("complex.seismicBreakdown")}
-                  </p>
-                  {complex.seismicConfirmedM != null && (
-                    <FaultDistanceRow
-                      color="#dc2626"
-                      label={t("complex.faultConfirmedShort")}
-                      meters={complex.seismicConfirmedM}
-                    />
-                  )}
-                  {complex.seismicStudiedM != null && (
-                    <FaultDistanceRow
-                      color="#f97316"
-                      label={t("complex.faultStudiedShort")}
-                      meters={complex.seismicStudiedM}
-                    />
-                  )}
-                  {complex.seismicDisputedM != null && (
-                    <FaultDistanceRow
-                      color="#9ca3af"
-                      label={t("complex.faultDisputedShort")}
-                      meters={complex.seismicDisputedM}
-                    />
-                  )}
-                </div>
-              ) : null}
+              {/* Per-fault-type breakdown. Confirmed is the trustworthy
+                  signal that drives the badge classification; the others
+                  are supplementary. Hide a non-confirmed row when its
+                  distance is *less* than the confirmed one — a closer
+                  disputed/studied fault is just noise that contradicts
+                  the badge without adding information. We only show
+                  studied/disputed when they're further than confirmed
+                  (i.e. they confirm the picture: "no faults of any kind
+                  closer than the confirmed one"). */}
+              {(() => {
+                if (!complex) return null;
+                const confirmed = complex.seismicConfirmedM;
+                const studied = complex.seismicStudiedM;
+                const disputed = complex.seismicDisputedM;
+                const showStudied = studied != null && (confirmed == null || studied >= confirmed);
+                const showDisputed = disputed != null && (confirmed == null || disputed >= confirmed);
+                const hasAny = confirmed != null || showStudied || showDisputed;
+                if (!hasAny) return null;
+                return (
+                  <div className="space-y-1.5">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      {t("complex.seismicBreakdown")}
+                    </p>
+                    {confirmed != null && (
+                      <FaultDistanceRow
+                        color="#dc2626"
+                        label={t("complex.faultConfirmedShort")}
+                        meters={confirmed}
+                      />
+                    )}
+                    {showStudied && (
+                      <FaultDistanceRow
+                        color="#f97316"
+                        label={t("complex.faultStudiedShort")}
+                        meters={studied!}
+                      />
+                    )}
+                    {showDisputed && (
+                      <FaultDistanceRow
+                        color="#9ca3af"
+                        label={t("complex.faultDisputedShort")}
+                        meters={disputed!}
+                      />
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Seismic disclaimer — only shown when seismic data is present.
                   Distance to a fault by itself doesn't tell you whether a

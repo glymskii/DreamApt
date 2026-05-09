@@ -91,50 +91,43 @@ function distanceToSegment(
 }
 
 /**
- * Find the most dangerous fault relative to a given coordinate.
+ * Find the nearest CONFIRMED fault relative to a given coordinate, plus
+ * supplementary distances to nearest poorly-studied and disputed faults
+ * (info-only — these don't influence classification).
  *
- * Strategy: for each fault, compute effective distance = raw_distance / danger_multiplier.
- * The fault with the SMALLEST effective distance is the most relevant threat.
- * This ensures a confirmed fault (danger=3) at 900m is considered more dangerous
- * than a disputed fault (danger=1) at 700m.
+ * Risk thresholds aligned to the California Alquist-Priolo Earthquake
+ * Fault Zoning Act on RAW distance to the nearest confirmed fault. The
+ * labels are deliberately neutral: we report measured proximity, not a
+ * safety verdict. Whether a building is actually safe depends on
+ * engineering compliance with ҚНжЕ РК 2.03-30.
  *
- * Risk thresholds — calibrated to the California Alquist-Priolo Earthquake
- * Fault Zoning Act (the international gold standard) and softened for
- * residential context. The labels are deliberately neutral: we report
- * measured proximity, not a safety verdict. Whether a building is actually
- * safe depends on engineering compliance with ҚНжЕ РК 2.03-30, which is
- * beyond what this dataset can know.
+ * The classification looks ONLY at confirmed faults (danger=3) — these
+ * are the ones documented across multiple geological maps and trustworthy
+ * enough to drive a public-facing label. Poorly-studied (danger=2) and
+ * disputed (danger=1) faults still get measured and surfaced in the UI
+ * breakdown for transparency, but they don't move the badge color.
  *
- * Hybrid scale: `critical` is decided on RAW distance (literally on the
- * fault line — applies regardless of fault type), the other levels use
- * EFFECTIVE distance (raw / danger), so a confirmed fault projects further
- * than a disputed one. Trade-off: confirmed faults may not show "critical"
- * at 60m raw (they're "high" instead) — but that matches the user-facing
- * intuition: "На линии" should mean exactly that.
+ *   raw < 50m   = critical (Alquist-Priolo "no-build")
+ *   raw < 200m  = high     (Alquist-Priolo "study zone")
+ *   raw < 600m  = moderate
+ *   raw < 1500m = low      (typical Almaty residential baseline)
+ *   raw ≥ 1500m = safe
  *
- *   raw   <  50m  = critical (literally on the line, any fault type)
- *   eff   <  100m = high     (very close after danger-weighting)
- *   eff   <  300m = moderate (close enough that local geology matters)
- *   eff   <  800m = low      (typical baseline for Almaty residential zones)
- *   eff   ≥  800m = safe     (no special seismic-proximity considerations)
- *
- * Tightened from the first hybrid pass after the raw-critical change
- * pushed too many ex-critical ЖК into high — band became overcrowded
- * (49% of map was orange). The shrunk high+moderate bands rebalance
- * the distribution to ~30% red+orange, matching the design intent.
+ * Earlier iterations used an "effective distance" formula (raw / danger)
+ * that let disputed faults push the classification — confusing UX, since
+ * a 334m disputed fault would label a ЖК as "moderate" while the nearest
+ * confirmed fault was 4.5km away. Moving to confirmed-only matches user
+ * intuition: the badge reflects only the data we trust most.
  */
 export function findNearestFault(
   lat: number,
   lng: number,
 ): FaultProximityResult {
-  let bestEffectiveDistance = Infinity;
-  let bestRawDistance = Infinity;
-  let bestFault: FaultLine | null = null;
-
-  // Track nearest raw distance per danger level too. The slide-over uses
-  // these to render a "X м до подтверждённого / Y м до спорного" breakdown
-  // so users can see why classification went the way it did.
+  // Track nearest raw distance per danger level. Classification uses the
+  // confirmed (danger=3) row exclusively; the others travel along as
+  // supplementary info for the UI breakdown.
   const nearestPerDanger: Record<number, number> = { 1: Infinity, 2: Infinity, 3: Infinity };
+  const nearestFaultPerDanger: Record<number, FaultLine | null> = { 1: null, 2: null, 3: null };
 
   const allFaults = [...FAULT_LINES, ...FAULT_ZONES];
 
@@ -156,37 +149,33 @@ export function findNearestFault(
       if (dist < minDist) minDist = dist;
     }
 
-    // Effective distance: closer for more dangerous faults
-    const effectiveDist = minDist / (fault.danger || 1);
-
-    if (effectiveDist < bestEffectiveDistance) {
-      bestEffectiveDistance = effectiveDist;
-      bestRawDistance = minDist;
-      bestFault = fault;
-    }
-
-    // Per-danger nearest tracking (raw distance, untouched by multiplier)
     const dangerKey = fault.danger || 1;
     if (minDist < (nearestPerDanger[dangerKey] ?? Infinity)) {
       nearestPerDanger[dangerKey] = minDist;
+      nearestFaultPerDanger[dangerKey] = fault;
     }
   }
 
-  const distanceMeters = Math.round(bestRawDistance);
+  // Confirmed fault drives the classification AND the headline distance.
+  // If the dataset somehow contains no confirmed fault near this point,
+  // bestRawDistance stays Infinity and we fall through to "safe" below.
+  const bestRawDistance = nearestPerDanger[3];
+  const bestFault = nearestFaultPerDanger[3];
+
   const finite = (n: number) => (Number.isFinite(n) ? Math.round(n) : null);
+  const distanceMeters = finite(bestRawDistance) ?? 0;
   const nearestByType = {
     confirmed: finite(nearestPerDanger[3]),
     poorlyStudied: finite(nearestPerDanger[2]),
     disputed: finite(nearestPerDanger[1]),
   };
 
-  // Hybrid scale: `critical` is decided on raw distance (50m "literally on
-  // the fault line", applies to ANY fault type — disputed or confirmed,
-  // 50m is 50m). Everything else uses effective distance so confirmed
-  // faults project further than disputed ones — geologically correct.
-  // Softened from the original Alquist-Priolo direct port: 600 → 400m
-  // moderate, 1500 → 1000m low/safe, since Almaty residential buildings
-  // are designed to ҚНжЕ РК 2.03-30. Labels describe proximity, not danger.
+  // Classification on RAW distance to the nearest CONFIRMED fault only.
+  // Aligned with the Alquist-Priolo Earthquake Fault Zoning Act bands
+  // (50ft no-build, 660ft study zone — softened to 50m / 200m here for
+  // residential context). Buildings beyond ~1.5km from any confirmed
+  // fault sit in the city's standard seismic baseline; nothing further
+  // out warrants a special label.
   let riskLevel: FaultProximityResult["riskLevel"];
   let riskLabel: string;
   let riskColor: string;
@@ -195,15 +184,15 @@ export function findNearestFault(
     riskLevel = "critical";
     riskLabel = "На линии разлома";
     riskColor = "#dc2626"; // red
-  } else if (bestEffectiveDistance < 100) {
+  } else if (bestRawDistance < 200) {
     riskLevel = "high";
     riskLabel = "Близко к разлому";
     riskColor = "#f97316"; // orange
-  } else if (bestEffectiveDistance < 300) {
+  } else if (bestRawDistance < 600) {
     riskLevel = "moderate";
     riskLabel = "Умеренная близость";
     riskColor = "#eab308"; // yellow
-  } else if (bestEffectiveDistance < 800) {
+  } else if (bestRawDistance < 1500) {
     riskLevel = "low";
     riskLabel = "Стандартный риск города";
     riskColor = "#84cc16"; // lime
