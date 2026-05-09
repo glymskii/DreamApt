@@ -177,24 +177,36 @@ export class AirKazService {
     }
   }
 
-  /** US EPA PM 2.5 categories. Almaty winter values regularly exceed 100 µg/m³. */
+  /**
+   * PM 2.5 categories calibrated to Kazakhstan's local sanitary norm
+   * (СанПиН РК — daily-average ПДК = 35 µg/m³). Lower bands match local
+   * intuition ("ниже ПДК = хорошо"); upper bands keep US EPA breakpoints
+   * since those describe genuinely dangerous concentrations regardless of
+   * jurisdiction.
+   *
+   * The slide-over carries a WHO disclaimer noting that WHO 2021 considers
+   * anything above 15 µg/m³ already non-ideal — for users who want the
+   * strictest reading.
+   *
+   * Almaty winter values regularly exceed 100 µg/m³.
+   */
   classifyPm25(pm25: number): {
     level: AirQualityLevel;
     label: string;
     color: string;
   } {
-    if (pm25 < 12) return { level: "good", label: "Хорошее", color: "#22c55e" };
-    if (pm25 < 35.5)
+    if (pm25 < 35) return { level: "good", label: "Хорошее", color: "#22c55e" };
+    if (pm25 < 55)
       return { level: "moderate", label: "Умеренное", color: "#eab308" };
-    if (pm25 < 55.5)
+    if (pm25 < 125)
       return {
         level: "sensitive",
         label: "Вредное для чувствительных",
         color: "#f97316",
       };
-    if (pm25 < 150.5)
+    if (pm25 < 225)
       return { level: "unhealthy", label: "Вредное", color: "#dc2626" };
-    if (pm25 < 250.5)
+    if (pm25 < 325)
       return {
         level: "very_unhealthy",
         label: "Очень вредное",

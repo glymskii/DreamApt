@@ -594,37 +594,47 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
 
               {/* Air quality (PM 2.5) */}
               {airQuality?.found && (
-                <div
-                  className="flex items-center gap-3 p-3 rounded-lg border"
-                  style={{ borderLeftWidth: 4, borderLeftColor: airQuality.color }}
-                >
-                  <span className="text-2xl">🌫</span>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-baseline gap-2">
-                      <span
-                        className="text-lg font-bold"
+                <div className="space-y-1">
+                  <div
+                    className="flex items-center gap-3 p-3 rounded-lg border"
+                    style={{ borderLeftWidth: 4, borderLeftColor: airQuality.color }}
+                  >
+                    <span className="text-2xl">🌫</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-baseline gap-2">
+                        <span
+                          className="text-lg font-bold"
+                          style={{ color: airQuality.color }}
+                        >
+                          {Number(airQuality.pm25).toFixed(1)}
+                        </span>
+                        <span className="text-[10px] text-muted-foreground">µg/m³ PM 2.5</span>
+                      </div>
+                      <p
+                        className="text-xs font-semibold"
                         style={{ color: airQuality.color }}
                       >
-                        {Number(airQuality.pm25).toFixed(1)}
-                      </span>
-                      <span className="text-[10px] text-muted-foreground">µg/m³ PM 2.5</span>
+                        {(() => {
+                          const key = getAirLabelKey(airQuality.level);
+                          return key ? t(key) : airQuality.levelLabel || "";
+                        })()}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground truncate">
+                        {t("complex.airStation", { name: airQuality.station })}
+                        {airQuality.distanceMeters
+                          ? ` · ${airQuality.distanceMeters < 1000 ? airQuality.distanceMeters + " м" : (airQuality.distanceMeters / 1000).toFixed(1) + " км"}`
+                          : ""}
+                      </p>
                     </div>
-                    <p
-                      className="text-xs font-semibold"
-                      style={{ color: airQuality.color }}
-                    >
-                      {(() => {
-                        const key = getAirLabelKey(airQuality.level);
-                        return key ? t(key) : airQuality.levelLabel || "";
-                      })()}
-                    </p>
-                    <p className="text-[10px] text-muted-foreground truncate">
-                      {t("complex.airStation", { name: airQuality.station })}
-                      {airQuality.distanceMeters
-                        ? ` · ${airQuality.distanceMeters < 1000 ? airQuality.distanceMeters + " м" : (airQuality.distanceMeters / 1000).toFixed(1) + " км"}`
-                        : ""}
-                    </p>
                   </div>
+                  {/* Disclaimer — explains the scale we picked (KZ daily ПДК
+                      35 µg/m³) and notes the stricter WHO recommendation
+                      (15 µg/m³). Defensive against "вы занижаете опасность"
+                      criticism: we cite both bodies, user picks their own
+                      threshold mentally. */}
+                  <p className="text-[10px] leading-snug text-muted-foreground/80 px-1">
+                    {t("complex.airDisclaimer")}
+                  </p>
                 </div>
               )}
 
