@@ -6,7 +6,6 @@ import {
   useComplex,
   useComplexProperties,
   useComplexShutov,
-  useComplexSeismic,
   useComplexAirQuality,
   useComplexReviews,
   type ReviewItem,
@@ -38,6 +37,22 @@ function getSeismicLabelKey(risk: string | null | undefined): string | null {
     safe: "map.seismicSafe",
   };
   return keys[risk || ""] || null;
+}
+
+/** Risk-level → icon color. Mirrors the colors that findNearestFault
+ *  emits on the backend; kept here so the slide-over can render straight
+ *  from the stored `complex.seismicRiskLevel` without a second API call
+ *  to /complexes/:id/seismic (which has its own CDN cache layer and was
+ *  occasionally serving stale classifications after threshold changes). */
+function getSeismicIconColor(risk: string | null | undefined): string {
+  const colors: Record<string, string> = {
+    critical: "#dc2626",
+    high: "#f97316",
+    moderate: "#eab308",
+    low: "#84cc16",
+    safe: "#16a34a",
+  };
+  return colors[risk || ""] || "#999";
 }
 
 /** Same idea for the AirKaz `levelLabel` — backend ships RU, we translate
@@ -266,15 +281,30 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
     isAuthenticated ? complexId : "",
   );
   const { data: shutov } = useComplexShutov(complexId);
-  const { data: seismic } = useComplexSeismic(complexId);
   const { data: airQuality } = useComplexAirQuality(complexId);
   const { data: reviews, isLoading: reviewsLoading } = useComplexReviews(complexId);
+
+  // Seismic data is taken straight from the complex object (loaded by
+  // useComplex). Avoids a second HTTP call that had its own CDN cache and
+  // could end up disagreeing with the map marker after threshold changes.
+  type SeismicBlock =
+    | { found: true; riskLevel: string; distanceMeters: number; riskColor: string }
+    | { found: false };
+  const seismic: SeismicBlock =
+    complex && complex.seismicRiskLevel && complex.seismicDistanceMeters != null
+      ? {
+          found: true,
+          riskLevel: complex.seismicRiskLevel,
+          distanceMeters: Number(complex.seismicDistanceMeters),
+          riskColor: getSeismicIconColor(complex.seismicRiskLevel),
+        }
+      : { found: false };
 
   const scoreColor = (complex?.scoreTotal ?? 0) >= 85
     ? "bg-green-500" : (complex?.scoreTotal ?? 0) >= 70
     ? "bg-yellow-500" : "bg-orange-500";
 
-  const isHighRisk = seismic?.found &&
+  const isHighRisk = seismic.found &&
     (seismic.riskLevel === "critical" || seismic.riskLevel === "high");
 
   return (
@@ -402,10 +432,11 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
                       isHighRisk ? "text-red-800 dark:text-red-200" : seismic.riskLevel === "moderate" ? "text-yellow-800 dark:text-yellow-200" : "text-green-800 dark:text-green-200"
                     }`}>
                       {(() => {
-                        // Derive label from riskLevel instead of using API's
-                        // riskLabel (which is hardcoded Russian on the backend).
+                        // Label is derived from riskLevel via i18n keys —
+                        // see getSeismicLabelKey above. Stays in sync with
+                        // the map popup labels by reusing map.* keys.
                         const key = getSeismicLabelKey(seismic.riskLevel);
-                        return key ? t(key) : seismic.riskLabel || "";
+                        return key ? t(key) : "";
                       })()}
                     </p>
                     <p className={`text-xs mt-0.5 ${
