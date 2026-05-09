@@ -561,11 +561,12 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
                 el("span", {
                   text: `🏠 ${tRef.current("map.popupListings", { count: props.listings })}`,
                 }),
-                props.commute
-                  ? el("span", {
-                      text: `🚗 ${tRef.current("map.popupCommute", { count: props.commute })}`,
-                    })
-                  : null,
+                // Commute deliberately hidden from the hover popup. The map
+                // shows complexes deduplicated globally, so the commute
+                // value comes from whichever project copy "won" — not from
+                // the viewer's actual destination. Misleading to show. The
+                // slide-over surfaces it only for authenticated users where
+                // it actually maps to their interview answers.
               ],
             }),
             seismicDist

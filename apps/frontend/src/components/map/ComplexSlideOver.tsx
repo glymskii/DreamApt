@@ -334,8 +334,13 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
                 )}
               </div>
 
-              {/* Stats row */}
-              <div className="grid grid-cols-3 gap-2 text-center">
+              {/* Stats row. The "До работы" cell is gated behind auth — for
+                  guests the commute is calculated against a project-wide
+                  default destination that has nothing to do with where they
+                  actually work, so the value is misleading. Authenticated
+                  users see it because their project's interview captures a
+                  real address. Grid columns flex 3→2 to avoid an empty cell. */}
+              <div className={`grid gap-2 text-center ${isAuthenticated ? "grid-cols-3" : "grid-cols-2"}`}>
                 <div className="p-2 bg-muted/50 rounded-lg">
                   <p className="text-xs text-muted-foreground">{t("complex.priceFrom")}</p>
                   <p className="font-bold text-sm">
@@ -346,12 +351,14 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
                   <p className="text-xs text-muted-foreground">{t("complex.listings")}</p>
                   <p className="font-bold text-sm">{complex.listingsCount}</p>
                 </div>
-                <div className="p-2 bg-muted/50 rounded-lg">
-                  <p className="text-xs text-muted-foreground">{t("complex.commute")}</p>
-                  <p className="font-bold text-sm">
-                    {complex.commuteMinutes ? `${complex.commuteMinutes} ${t("complex.minutes")}` : "—"}
-                  </p>
-                </div>
+                {isAuthenticated && (
+                  <div className="p-2 bg-muted/50 rounded-lg">
+                    <p className="text-xs text-muted-foreground">{t("complex.commute")}</p>
+                    <p className="font-bold text-sm">
+                      {complex.commuteMinutes ? `${complex.commuteMinutes} ${t("complex.minutes")}` : "—"}
+                    </p>
+                  </div>
+                )}
               </div>
 
               {/* Building meta row — only renders when at least one value is
