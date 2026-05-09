@@ -479,21 +479,22 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
               )}
 
               {/* Per-fault-type breakdown. Confirmed is the trustworthy
-                  signal that drives the badge classification; the others
-                  are supplementary. Hide a non-confirmed row when its
-                  distance is *less* than the confirmed one — a closer
-                  disputed/studied fault is just noise that contradicts
-                  the badge without adding information. We only show
-                  studied/disputed when they're further than confirmed
-                  (i.e. they confirm the picture: "no faults of any kind
-                  closer than the confirmed one"). */}
+                  signal that drives the badge; the others are supplementary
+                  info. Show a studied/disputed row only when it's CLOSER
+                  than the confirmed one — that's the case where the row
+                  adds new information ("watch out, there's an even-closer
+                  fault, though it's only weakly attested"). Hide it when
+                  it's further away than confirmed: redundant noise that
+                  doesn't help the reader. */}
               {(() => {
                 if (!complex) return null;
                 const confirmed = complex.seismicConfirmedM;
                 const studied = complex.seismicStudiedM;
                 const disputed = complex.seismicDisputedM;
-                const showStudied = studied != null && (confirmed == null || studied >= confirmed);
-                const showDisputed = disputed != null && (confirmed == null || disputed >= confirmed);
+                // If there's no confirmed reference, fall back to showing
+                // whatever's available (rare edge case for our dataset).
+                const showStudied = studied != null && (confirmed == null || studied < confirmed);
+                const showDisputed = disputed != null && (confirmed == null || disputed < confirmed);
                 const hasAny = confirmed != null || showStudied || showDisputed;
                 if (!hasAny) return null;
                 return (
