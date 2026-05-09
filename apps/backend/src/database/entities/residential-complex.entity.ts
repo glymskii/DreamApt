@@ -124,8 +124,24 @@ export class ResidentialComplexEntity {
   @Column({ name: "seismic_risk_level", nullable: true })
   seismicRiskLevel: string;
 
+  // Distance to whichever fault dominated the classification (smallest
+  // effective distance after danger weighting). Kept for backwards-compat
+  // with map markers / legend displays.
   @Column({ name: "seismic_distance_meters", nullable: true })
   seismicDistanceMeters: number;
+
+  // Per-fault-type nearest distances. Populated by the same findNearestFault
+  // pass — used in the slide-over to show "X м до подтверждённого / Y м до
+  // спорного" so the user can see why a "low risk" badge sits next to a
+  // small number (it was a disputed fault, not a confirmed one).
+  @Column({ name: "seismic_confirmed_m", nullable: true })
+  seismicConfirmedM: number;
+
+  @Column({ name: "seismic_studied_m", nullable: true })
+  seismicStudiedM: number;
+
+  @Column({ name: "seismic_disputed_m", nullable: true })
+  seismicDisputedM: number;
 
   // Air quality (PM 2.5 from AirKaz.org)
   @Column({ name: "air_quality_pm25", type: "decimal", precision: 6, scale: 2, nullable: true })

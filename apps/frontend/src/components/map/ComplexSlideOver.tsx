@@ -69,6 +69,31 @@ function getAirLabelKey(level: string | null | undefined): string | null {
   return keys[level || ""] || null;
 }
 
+/** One row in the per-fault-type proximity breakdown. Shows a colored dot
+ *  matching the fault danger band (red/orange/grey for confirmed/studied/
+ *  disputed) + the type label + the raw distance formatted naturally. */
+function FaultDistanceRow({
+  color,
+  label,
+  meters,
+}: {
+  color: string;
+  label: string;
+  meters: number;
+}) {
+  const text = meters < 1000 ? `${meters} м` : `${(meters / 1000).toFixed(1)} км`;
+  return (
+    <div className="flex items-center gap-2 text-xs">
+      <span
+        className="w-2 h-2 rounded-full shrink-0"
+        style={{ backgroundColor: color }}
+      />
+      <span className="flex-1 text-muted-foreground">{label}</span>
+      <span className="font-medium tabular-nums">{text}</span>
+    </div>
+  );
+}
+
 function ScoreBar({ label, score }: { label: string; score: number }) {
   const color = score >= 85 ? "bg-green-500" : score >= 70 ? "bg-yellow-500" : "bg-orange-500";
   return (
@@ -414,7 +439,7 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
               )}
 
               {/* Seismic info — always show when data available */}
-              {seismic?.found && (
+              {seismic.found && (
                 <div className={`flex items-start gap-2 p-3 rounded-lg border ${
                   isHighRisk
                     ? "bg-red-50 border-red-200 dark:bg-red-950/30 dark:border-red-900"
@@ -452,6 +477,46 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
                   </div>
                 </div>
               )}
+
+              {/* Per-fault-type breakdown. Resolves a UX trap: the headline
+                  uses the smallest *effective* distance (raw / danger), so
+                  a 334m disputed-fault classification ends up "low risk"
+                  while still showing 334m next to it — looks contradictory.
+                  Listing all three lets the reader see "ah, the 334m is to
+                  the disputed fault; the confirmed one is 1.2km away".
+                  Each row appears only when there's data for that type. */}
+              {complex && (
+                (complex.seismicConfirmedM != null) ||
+                (complex.seismicStudiedM != null) ||
+                (complex.seismicDisputedM != null)
+              ) ? (
+                <div className="space-y-1.5">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    {t("complex.seismicBreakdown")}
+                  </p>
+                  {complex.seismicConfirmedM != null && (
+                    <FaultDistanceRow
+                      color="#dc2626"
+                      label={t("complex.faultConfirmedShort")}
+                      meters={complex.seismicConfirmedM}
+                    />
+                  )}
+                  {complex.seismicStudiedM != null && (
+                    <FaultDistanceRow
+                      color="#f97316"
+                      label={t("complex.faultStudiedShort")}
+                      meters={complex.seismicStudiedM}
+                    />
+                  )}
+                  {complex.seismicDisputedM != null && (
+                    <FaultDistanceRow
+                      color="#9ca3af"
+                      label={t("complex.faultDisputedShort")}
+                      meters={complex.seismicDisputedM}
+                    />
+                  )}
+                </div>
+              ) : null}
 
               {/* Seismic disclaimer — only shown when seismic data is present.
                   Distance to a fault by itself doesn't tell you whether a

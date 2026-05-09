@@ -26,6 +26,15 @@ export interface FaultProximityResult {
     label: string;
     danger: number;
   };
+  /** Per-danger-level nearest distances. Lets the UI show "X м до
+   *  подтверждённого, Y м до спорного" so users can decode why the risk
+   *  label is what it is — without having to understand the danger
+   *  multiplier. Null if no fault of that type within the dataset. */
+  nearestByType: {
+    confirmed: number | null;   // danger=3
+    poorlyStudied: number | null; // danger=2
+    disputed: number | null;    // danger=1
+  };
   riskLevel: "critical" | "high" | "moderate" | "low" | "safe";
   riskLabel: string;
   riskColor: string;
@@ -122,6 +131,11 @@ export function findNearestFault(
   let bestRawDistance = Infinity;
   let bestFault: FaultLine | null = null;
 
+  // Track nearest raw distance per danger level too. The slide-over uses
+  // these to render a "X м до подтверждённого / Y м до спорного" breakdown
+  // so users can see why classification went the way it did.
+  const nearestPerDanger: Record<number, number> = { 1: Infinity, 2: Infinity, 3: Infinity };
+
   const allFaults = [...FAULT_LINES, ...FAULT_ZONES];
 
   for (const fault of allFaults) {
@@ -150,9 +164,21 @@ export function findNearestFault(
       bestRawDistance = minDist;
       bestFault = fault;
     }
+
+    // Per-danger nearest tracking (raw distance, untouched by multiplier)
+    const dangerKey = fault.danger || 1;
+    if (minDist < (nearestPerDanger[dangerKey] ?? Infinity)) {
+      nearestPerDanger[dangerKey] = minDist;
+    }
   }
 
   const distanceMeters = Math.round(bestRawDistance);
+  const finite = (n: number) => (Number.isFinite(n) ? Math.round(n) : null);
+  const nearestByType = {
+    confirmed: finite(nearestPerDanger[3]),
+    poorlyStudied: finite(nearestPerDanger[2]),
+    disputed: finite(nearestPerDanger[1]),
+  };
 
   // Hybrid scale: `critical` is decided on raw distance (50m "literally on
   // the fault line", applies to ANY fault type — disputed or confirmed,
@@ -197,6 +223,7 @@ export function findNearestFault(
           danger: bestFault.danger,
         }
       : { name: "Неизвестно", level: "unknown", label: "Неизвестно", danger: 0 },
+    nearestByType,
     riskLevel,
     riskLabel,
     riskColor,

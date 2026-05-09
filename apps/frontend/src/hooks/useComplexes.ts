@@ -30,6 +30,9 @@ export interface ResidentialComplex {
   shutovCategory: number | null;
   seismicRiskLevel: string | null;
   seismicDistanceMeters: number | null;
+  seismicConfirmedM: number | null;
+  seismicStudiedM: number | null;
+  seismicDisputedM: number | null;
   floorsMax: number | null;
   floorSegment: string | null;
   yearBuilt: number | null;
@@ -168,6 +171,9 @@ export interface MapData {
     listingsCount: number;
     seismicRiskLevel: string | null;
     seismicDistanceMeters: number | null;
+    seismicConfirmedM: number | null;
+    seismicStudiedM: number | null;
+    seismicDisputedM: number | null;
     commuteMinutes: number | null;
     photoUrl: string | null;
     district: string | null;

@@ -52,6 +52,7 @@ export class ComplexService {
       select: [
         "id", "name", "displayName", "lat", "lng", "scoreTotal", "priceAvg",
         "listingsCount", "seismicRiskLevel", "seismicDistanceMeters",
+        "seismicConfirmedM", "seismicStudiedM", "seismicDisputedM",
         "commuteMinutes", "photoUrl", "district", "priceMin", "priceMax",
         "shutovCategory", "scoreInfrastructure", "scoreLifestyle",
         "scoreCommute", "scoreSeismic", "floorsMax", "floorSegment",
@@ -448,7 +449,11 @@ export class ComplexService {
     skipped: number;
   }> {
     const all = await this.complexesRepo.find({
-      select: ["id", "lat", "lng", "seismicRiskLevel", "seismicDistanceMeters"],
+      select: [
+        "id", "lat", "lng",
+        "seismicRiskLevel", "seismicDistanceMeters",
+        "seismicConfirmedM", "seismicStudiedM", "seismicDisputedM",
+      ],
     });
     let inspected = 0;
     let updated = 0;
@@ -460,13 +465,26 @@ export class ComplexService {
       const seismic = findNearestFault(Number(c.lat), Number(c.lng));
       const newLevel = seismic.riskLevel;
       const newDist = Math.round(seismic.distanceMeters);
-      if (
-        c.seismicRiskLevel !== newLevel ||
-        c.seismicDistanceMeters !== newDist
-      ) {
+      const confirmed = seismic.nearestByType.confirmed;
+      const studied = seismic.nearestByType.poorlyStudied;
+      const disputed = seismic.nearestByType.disputed;
+
+      // Compare each field to skip pointless UPDATEs. The per-type fields
+      // can also be null (no fault of that type in dataset) — keep that.
+      const same =
+        c.seismicRiskLevel === newLevel &&
+        c.seismicDistanceMeters === newDist &&
+        (c.seismicConfirmedM ?? null) === confirmed &&
+        (c.seismicStudiedM ?? null) === studied &&
+        (c.seismicDisputedM ?? null) === disputed;
+
+      if (!same) {
         await this.complexesRepo.update(c.id, {
           seismicRiskLevel: newLevel,
           seismicDistanceMeters: newDist,
+          seismicConfirmedM: confirmed as any,
+          seismicStudiedM: studied as any,
+          seismicDisputedM: disputed as any,
         });
         updated++;
       }
