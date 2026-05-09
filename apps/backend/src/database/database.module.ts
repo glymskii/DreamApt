@@ -7,6 +7,7 @@ import { ResidentialComplexEntity } from "./entities/residential-complex.entity"
 import { CJMScenarioEntity } from "./entities/cjm-scenario.entity";
 import { WishlistItemEntity } from "./entities/wishlist-item.entity";
 import { RegistrationLeadEntity } from "./entities/registration-lead.entity";
+import { AirQualityReadingEntity } from "./entities/air-quality-reading.entity";
 
 const entities = [
   UserEntity,
@@ -16,6 +17,7 @@ const entities = [
   CJMScenarioEntity,
   WishlistItemEntity,
   RegistrationLeadEntity,
+  AirQualityReadingEntity,
 ];
 
 @Module({

@@ -375,18 +375,25 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
           type: "circle",
           source: "air-stations",
           minzoom: 12,
+          // Stations render as a "donut" — white fill, thick colored ring —
+          // so they read distinctly from the solid ЖК circles. The color
+          // still encodes PM2.5 level via the ring; the white center is the
+          // visual cue that says "sensor / measurement" instead of "place".
           paint: {
             "circle-radius": [
               "interpolate", ["linear"], ["zoom"],
-              12, 3, 14, 5, 17, 9,
+              12, 4, 14, 6, 17, 10,
             ],
-            "circle-color": ["get", "color"],
+            "circle-color": "#ffffff",
             "circle-opacity": [
               "interpolate", ["linear"], ["zoom"],
-              12, 0.5, 14, 0.85, 17, 1,
+              12, 0.95, 14, 1, 17, 1,
             ],
-            "circle-stroke-width": 1,
-            "circle-stroke-color": "#fff",
+            "circle-stroke-width": [
+              "interpolate", ["linear"], ["zoom"],
+              12, 2, 14, 3, 17, 4,
+            ],
+            "circle-stroke-color": ["get", "color"],
           },
         });
 
@@ -709,6 +716,22 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
 
       {/* Compact legend */}
       <div className="absolute bottom-2 left-2 sm:bottom-3 sm:left-3 bg-card/95 text-card-foreground border border-border backdrop-blur rounded-lg shadow-lg p-2 sm:p-2.5 text-[9px] sm:text-[10px] space-y-0.5 sm:space-y-1 z-10">
+        {/* Marker shape legend — explains the two visual languages on the
+            map (solid circle = ЖК, ring = AirKaz station). Without this
+            the donut markers blend in as "weirdly drawn ЖК". */}
+        <div className="space-y-0.5 pb-1 mb-1 border-b">
+          <div className="flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-muted-foreground" />
+            {t("map.markerComplex")}
+          </div>
+          {showAirQuality && (
+            <div className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-background border-2 border-muted-foreground" />
+              {t("map.markerStation")}
+            </div>
+          )}
+        </div>
+
         <div className="font-medium text-[10px]">{t("map.legend")}</div>
         <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-green-500" />{t("map.legendSafe")} ({riskCounts.safe})</div>
         <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-yellow-500" />{t("map.legendModerate")} ({riskCounts.moderate})</div>
@@ -729,10 +752,10 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-green-500" />{t("map.pmGood")}</div>
-            <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-yellow-500" />{t("map.pmModerate")}</div>
-            <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-orange-500" />{t("map.pmSensitive")}</div>
-            <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-red-600" />{t("map.pmUnhealthy")}</div>
+            <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-background border-2 border-green-500" />{t("map.pmGood")}</div>
+            <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-background border-2 border-yellow-500" />{t("map.pmModerate")}</div>
+            <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-background border-2 border-orange-500" />{t("map.pmSensitive")}</div>
+            <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-background border-2 border-red-600" />{t("map.pmUnhealthy")}</div>
           </div>
         )}
       </div>

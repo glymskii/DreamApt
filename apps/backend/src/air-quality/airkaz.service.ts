@@ -49,10 +49,12 @@ export class AirKazService {
   private readonly logger = new Logger(AirKazService.name);
   private cache: { stations: AirKazStation[]; fetchedAt: number } | null = null;
 
-  /** Get all Almaty stations with live PM 2.5 readings, deduplicated by (lat,lng). */
-  async getStations(): Promise<AirKazStation[]> {
+  /** Get all Almaty stations with live PM 2.5 readings, deduplicated by (lat,lng).
+   *  `forceRefresh` bypasses the 15-min in-memory cache (used by the cron
+   *  recorder so each scheduled snapshot really hits upstream). */
+  async getStations(opts: { forceRefresh?: boolean } = {}): Promise<AirKazStation[]> {
     const now = Date.now();
-    if (this.cache && now - this.cache.fetchedAt < CACHE_TTL_MS) {
+    if (!opts.forceRefresh && this.cache && now - this.cache.fetchedAt < CACHE_TTL_MS) {
       return this.cache.stations;
     }
     try {

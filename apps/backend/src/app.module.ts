@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
 import { ThrottlerModule, ThrottlerGuard } from "@nestjs/throttler";
+import { ScheduleModule } from "@nestjs/schedule";
 import { DatabaseModule } from "./database/database.module";
 import { AuthModule } from "./auth/auth.module";
 import { ProjectsModule } from "./projects/projects.module";
@@ -30,6 +31,8 @@ import { HealthController } from "./health.controller";
       { name: "medium", ttl: 60_000, limit: 100 },
       { name: "long", ttl: 15 * 60_000, limit: 1000 },
     ]),
+    // Enables @Cron decorators on injected services (AirQualityRecorder).
+    ScheduleModule.forRoot(),
     DatabaseModule,
     AuthModule,
     ProjectsModule,

@@ -155,20 +155,37 @@ function OnboardingDialog({ onClose }: { onClose: () => void }) {
                   {t("onboarding.step2Sub")}
                 </p>
               </div>
-              {/* Visual hint: a tiny 'map' with dots */}
-              <div className="flex items-center justify-center gap-1 py-2">
-                {[
-                  "bg-green-500",
-                  "bg-yellow-500",
-                  "bg-orange-500",
-                  "bg-red-500",
-                  "bg-green-500",
-                ].map((c, i) => (
-                  <span
-                    key={i}
-                    className={`h-3 w-3 rounded-full ${c} ring-2 ring-background`}
-                  />
-                ))}
+              {/* Marker legend — explains the two visual languages on the map.
+                  Solid = ЖК with a score color, hollow ring = AirKaz station
+                  with a PM2.5 color. Without this users mistake stations for
+                  weirdly-styled ЖК markers. */}
+              <div className="space-y-2 pt-2 text-left">
+                <div className="flex items-center gap-3 px-3 py-2 rounded-lg border bg-muted/30">
+                  <div className="flex items-center gap-1 shrink-0">
+                    <span className="h-3 w-3 rounded-full bg-green-500 ring-2 ring-background" />
+                    <span className="h-3 w-3 rounded-full bg-yellow-500 ring-2 ring-background -ml-1" />
+                    <span className="h-3 w-3 rounded-full bg-red-500 ring-2 ring-background -ml-1" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold">{t("onboarding.legendComplexTitle")}</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      {t("onboarding.legendComplexSub")}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 px-3 py-2 rounded-lg border bg-muted/30">
+                  <div className="flex items-center gap-1 shrink-0">
+                    <span className="h-3 w-3 rounded-full bg-background border-2 border-green-500" />
+                    <span className="h-3 w-3 rounded-full bg-background border-2 border-orange-500 -ml-1" />
+                    <span className="h-3 w-3 rounded-full bg-background border-2 border-red-600 -ml-1" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold">{t("onboarding.legendStationTitle")}</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      {t("onboarding.legendStationSub")}
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
           )}
