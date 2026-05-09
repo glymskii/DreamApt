@@ -435,6 +435,47 @@ export class ComplexService {
     return best;
   }
 
+  /**
+   * Recompute seismic risk for every complex. Needed when the threshold
+   * table in @dreamapt/shared/findNearestFault changes — stored
+   * `seismicRiskLevel` and `seismicDistanceMeters` would otherwise be
+   * stale until the next per-complex re-score. Pure CPU pass over the
+   * existing fault dataset, no upstream calls.
+   */
+  async recomputeSeismicForAll(): Promise<{
+    inspected: number;
+    updated: number;
+    skipped: number;
+  }> {
+    const all = await this.complexesRepo.find({
+      select: ["id", "lat", "lng", "seismicRiskLevel", "seismicDistanceMeters"],
+    });
+    let inspected = 0;
+    let updated = 0;
+    let skipped = 0;
+
+    for (const c of all) {
+      inspected++;
+      if (!c.lat || !c.lng) { skipped++; continue; }
+      const seismic = findNearestFault(Number(c.lat), Number(c.lng));
+      const newLevel = seismic.riskLevel;
+      const newDist = Math.round(seismic.distanceMeters);
+      if (
+        c.seismicRiskLevel !== newLevel ||
+        c.seismicDistanceMeters !== newDist
+      ) {
+        await this.complexesRepo.update(c.id, {
+          seismicRiskLevel: newLevel,
+          seismicDistanceMeters: newDist,
+        });
+        updated++;
+      }
+    }
+
+    this.invalidateMapCache();
+    return { inspected, updated, skipped };
+  }
+
   /** Delete complexes outside Almaty bounds */
   async deleteNonAlmaty(): Promise<number> {
     const all = await this.complexesRepo.find();

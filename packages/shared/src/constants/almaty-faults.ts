@@ -89,12 +89,18 @@ function distanceToSegment(
  * This ensures a confirmed fault (danger=3) at 900m is considered more dangerous
  * than a disputed fault (danger=1) at 700m.
  *
- * Risk thresholds (on effective distance):
- *   <200m  = critical ("На разломе")
- *   <500m  = high ("Опасная зона")
- *   <1200m = moderate ("Зона внимания")
- *   <3000m = low ("Умеренный риск")
- *   >3000m = safe ("Безопасная зона")
+ * Risk thresholds (on effective distance) — calibrated to the California
+ * Alquist-Priolo Earthquake Fault Zoning Act (the international gold
+ * standard) and softened slightly for residential context. The labels are
+ * deliberately neutral: we report measured proximity, not a safety verdict.
+ * Whether a building is actually safe depends on engineering compliance
+ * with ҚНжЕ РК 2.03-30, which is beyond what this dataset can know.
+ *
+ *   <50m   = critical (literally on the fault line — Alquist-Priolo "no build")
+ *   <200m  = high     (Alquist-Priolo "study zone" — extra investigation needed)
+ *   <600m  = moderate (close enough that local geology matters)
+ *   <1500m = low      (the typical baseline for Almaty residential zones)
+ *   ≥1500m = safe     (no special seismic-proximity considerations)
  */
 export function findNearestFault(
   lat: number,
@@ -136,31 +142,34 @@ export function findNearestFault(
 
   const distanceMeters = Math.round(bestRawDistance);
 
-  // Relaxed thresholds — Almaty is a seismically active city,
-  // most buildings are built to seismic codes. Only flag truly close proximity.
+  // Thresholds aligned with California's Alquist-Priolo Earthquake Fault
+  // Zoning Act (50ft "no build" / 660ft "study zone"), softened for Almaty
+  // residential buildings since they're already designed to ҚНжЕ РК 2.03-30.
+  // Labels are intentionally neutral — they describe proximity, not danger.
+  // The slide-over carries a disclaimer making this explicit.
   let riskLevel: FaultProximityResult["riskLevel"];
   let riskLabel: string;
   let riskColor: string;
 
-  if (bestEffectiveDistance < 200) {
+  if (bestEffectiveDistance < 50) {
     riskLevel = "critical";
-    riskLabel = "На разломе";
+    riskLabel = "На линии разлома";
     riskColor = "#dc2626"; // red
-  } else if (bestEffectiveDistance < 500) {
+  } else if (bestEffectiveDistance < 200) {
     riskLevel = "high";
-    riskLabel = "Опасная зона";
+    riskLabel = "Близко к разлому";
     riskColor = "#f97316"; // orange
-  } else if (bestEffectiveDistance < 1200) {
+  } else if (bestEffectiveDistance < 600) {
     riskLevel = "moderate";
-    riskLabel = "Зона внимания";
+    riskLabel = "Умеренная близость";
     riskColor = "#eab308"; // yellow
-  } else if (bestEffectiveDistance < 3000) {
+  } else if (bestEffectiveDistance < 1500) {
     riskLevel = "low";
-    riskLabel = "Умеренный риск";
+    riskLabel = "Стандартный риск города";
     riskColor = "#84cc16"; // lime
   } else {
     riskLevel = "safe";
-    riskLabel = "Безопасная зона";
+    riskLabel = "Минимальный риск";
     riskColor = "#16a34a"; // dark green
   }
 

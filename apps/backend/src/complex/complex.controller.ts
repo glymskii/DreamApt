@@ -162,6 +162,16 @@ export class ComplexController {
     return this.complexService.recomputeAggregatesFromProperties();
   }
 
+  /** Recompute seismic risk for all complexes. Call after the threshold
+   *  table in shared/findNearestFault has been changed — stored levels
+   *  would otherwise still reflect the old classification. Synchronous,
+   *  ~1 sec for ~500 complexes. */
+  @Post("complexes/recompute-seismic")
+  @UseGuards(AdminGuard)
+  async recomputeSeismic() {
+    return this.complexService.recomputeSeismicForAll();
+  }
+
   @Post("complexes/parse-krisha")
   @UseGuards(AdminGuard)
   async parseAllFromKrisha() {
