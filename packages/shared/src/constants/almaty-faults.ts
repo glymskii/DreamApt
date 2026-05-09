@@ -103,11 +103,16 @@ function distanceToSegment(
  * at 60m raw (they're "high" instead) — but that matches the user-facing
  * intuition: "На линии" should mean exactly that.
  *
- *   raw   <  50m  = critical (Alquist-Priolo "no build", any fault type)
- *   eff   <  200m = high     (Alquist-Priolo "study zone")
- *   eff   <  400m = moderate (close enough that local geology matters)
- *   eff   < 1000m = low      (typical baseline for Almaty residential zones)
- *   eff   ≥ 1000m = safe     (no special seismic-proximity considerations)
+ *   raw   <  50m  = critical (literally on the line, any fault type)
+ *   eff   <  100m = high     (very close after danger-weighting)
+ *   eff   <  300m = moderate (close enough that local geology matters)
+ *   eff   <  800m = low      (typical baseline for Almaty residential zones)
+ *   eff   ≥  800m = safe     (no special seismic-proximity considerations)
+ *
+ * Tightened from the first hybrid pass after the raw-critical change
+ * pushed too many ex-critical ЖК into high — band became overcrowded
+ * (49% of map was orange). The shrunk high+moderate bands rebalance
+ * the distribution to ~30% red+orange, matching the design intent.
  */
 export function findNearestFault(
   lat: number,
@@ -164,15 +169,15 @@ export function findNearestFault(
     riskLevel = "critical";
     riskLabel = "На линии разлома";
     riskColor = "#dc2626"; // red
-  } else if (bestEffectiveDistance < 200) {
+  } else if (bestEffectiveDistance < 100) {
     riskLevel = "high";
     riskLabel = "Близко к разлому";
     riskColor = "#f97316"; // orange
-  } else if (bestEffectiveDistance < 400) {
+  } else if (bestEffectiveDistance < 300) {
     riskLevel = "moderate";
     riskLabel = "Умеренная близость";
     riskColor = "#eab308"; // yellow
-  } else if (bestEffectiveDistance < 1000) {
+  } else if (bestEffectiveDistance < 800) {
     riskLevel = "low";
     riskLabel = "Стандартный риск города";
     riskColor = "#84cc16"; // lime
