@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
@@ -19,6 +20,7 @@ import {
   Loader2,
   Clock,
   Shield,
+  BarChart3,
 } from "lucide-react";
 
 interface Lead {
@@ -151,12 +153,18 @@ export default function AdminLeadsPage() {
           >
             <ArrowLeft className="h-5 w-5" />
           </Button>
-          <div>
+          <div className="flex-1">
             <h1 className="text-xl sm:text-2xl font-bold">Заявки на регистрацию</h1>
             <p className="text-xs text-muted-foreground">
               {leads.length} всего · {counts.pending || 0} ожидают одобрения
             </p>
           </div>
+          <Link href="/admin/stats">
+            <Button variant="outline" size="sm" className="h-8">
+              <BarChart3 className="h-4 w-4 mr-1.5" />
+              <span className="hidden sm:inline">Мониторинг</span>
+            </Button>
+          </Link>
         </div>
 
         {leadsQuery.isLoading ? (

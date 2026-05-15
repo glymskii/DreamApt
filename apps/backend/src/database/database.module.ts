@@ -8,6 +8,7 @@ import { CJMScenarioEntity } from "./entities/cjm-scenario.entity";
 import { WishlistItemEntity } from "./entities/wishlist-item.entity";
 import { RegistrationLeadEntity } from "./entities/registration-lead.entity";
 import { AirQualityReadingEntity } from "./entities/air-quality-reading.entity";
+import { RequestStatEntity } from "./entities/request-stat.entity";
 
 const entities = [
   UserEntity,
@@ -18,6 +19,7 @@ const entities = [
   WishlistItemEntity,
   RegistrationLeadEntity,
   AirQualityReadingEntity,
+  RequestStatEntity,
 ];
 
 @Module({
