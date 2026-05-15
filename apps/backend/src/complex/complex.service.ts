@@ -76,7 +76,7 @@ export class ComplexService {
       }
     }
 
-    const { FAULT_LINES, FAULT_ZONES, ALMATY_BOUNDARY, ALMATY_URBAN_PLANS } =
+    const { FAULT_LINES, FAULT_ZONES, ALMATY_BOUNDARY, ALMATY_URBAN_PLANS, ALMATY_URBAN_PLAN_GEOMETRY } =
       await import("@dreamapt/shared");
 
     // Fetch live air quality stations (cached for 15 min in service)
@@ -135,10 +135,12 @@ export class ComplexService {
       // City boundary polygon (OSM admin_level=4) — drawn as a thin grey
       // outline on the map so users can see where Almaty ends.
       cityBoundary: ALMATY_BOUNDARY,
-      // 2040 master-plan street plan. Surfaced as structured text — the
-      // slide-over / info panel renders the list grouped by year. No
-      // geometry encoded yet, so this doesn't add map layers.
+      // 2040 master-plan street plan: textual timeline (grouped by 5-year
+      // wave) + matching OSM LineString geometry. Both arrive on every
+      // map-data response; frontend keeps the layer hidden by default
+      // and only renders it when the user toggles "Генплан" on.
       urbanPlans: ALMATY_URBAN_PLANS,
+      urbanPlanGeometry: ALMATY_URBAN_PLAN_GEOMETRY,
     };
   }
 

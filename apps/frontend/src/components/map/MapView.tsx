@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+import Link from "next/link";
 import type { MapData } from "@/hooks/useComplexes";
 import { formatPrice } from "@/lib/utils";
 import { useTheme } from "@/components/theme-provider";
@@ -112,6 +113,10 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
   const [showFaults, setShowFaults] = useState(true);
   const [showAirQuality, setShowAirQuality] = useState(true);
   const [showCityBoundary, setShowCityBoundary] = useState(true);
+  // Genplan layer hidden by default — it's a niche curiosity, surfacing
+  // every planned widening would clutter the map for the 95% of users
+  // who care about ЖК + air + seismic.
+  const [showUrbanPlan, setShowUrbanPlan] = useState(false);
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
 
@@ -178,6 +183,42 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
             ],
             "line-opacity": 0.7,
             "line-dasharray": [4, 2],
+          },
+        });
+      }
+
+      // === ALMATY 2040 MASTER-PLAN STREETS ===
+      // Toggleable layer (default off). Lines coloured by completion
+      // year — earlier waves use warmer colours (red ≈ imminent) so the
+      // map reads "what's coming when" at a glance.
+      if (data.urbanPlanGeometry?.features?.length) {
+        map.addSource("urban-plan", {
+          type: "geojson",
+          data: data.urbanPlanGeometry as any,
+        });
+        map.addLayer({
+          id: "urban-plan-line",
+          type: "line",
+          source: "urban-plan",
+          // Start hidden — toggled by the showUrbanPlan effect below.
+          layout: { visibility: "none", "line-cap": "round", "line-join": "round" },
+          paint: {
+            "line-color": [
+              "match",
+              ["get", "year"],
+              2025, "#dc2626", // red — imminent
+              2030, "#f97316", // orange
+              2035, "#eab308", // amber
+              2040, "#64748b", // slate — long-term
+              /* default */ "#94a3b8",
+            ],
+            "line-width": [
+              "interpolate", ["linear"], ["zoom"],
+              10, 1.5,
+              13, 3,
+              16, 5,
+            ],
+            "line-opacity": 0.8,
           },
         });
       }
@@ -728,6 +769,19 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
     else map.once("idle", apply);
   }, [showCityBoundary]);
 
+  // Toggle 2040 master-plan layer (default off)
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const visibility = showUrbanPlan ? "visible" : "none";
+    const apply = () => {
+      if (map.getLayer("urban-plan-line"))
+        map.setLayoutProperty("urban-plan-line", "visibility", visibility);
+    };
+    if (map.isStyleLoaded()) apply();
+    else map.once("idle", apply);
+  }, [showUrbanPlan]);
+
   return (
     <div className="relative w-full h-full">
       <div ref={mapContainer} className="w-full h-full" />
@@ -762,6 +816,15 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
           />
           {t("map.cityBoundary")}
         </label>
+        <label className="flex items-center gap-2 text-xs cursor-pointer">
+          <input
+            type="checkbox"
+            checked={showUrbanPlan}
+            onChange={(e) => setShowUrbanPlan(e.target.checked)}
+            className="rounded accent-rose-500 w-3.5 h-3.5"
+          />
+          {t("map.urbanPlan")}
+        </label>
       </div>
 
       {/* Compact legend */}
@@ -790,6 +853,20 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
         {showFaults && (
           <div className="border-t pt-1 mt-1 space-y-0.5">
             <div className="flex items-center gap-1.5"><span className="w-3 h-px bg-red-600" />{t("map.faultLabel")}</div>
+          </div>
+        )}
+        {showUrbanPlan && (
+          <div className="border-t pt-1 mt-1 space-y-0.5">
+            <div className="font-medium text-[10px]">{t("map.urbanPlanLegend")}</div>
+            <div className="flex items-center gap-1.5"><span className="w-3 h-[2px] bg-red-600" />2025</div>
+            <div className="flex items-center gap-1.5"><span className="w-3 h-[2px] bg-orange-500" />2030</div>
+            <div className="flex items-center gap-1.5"><span className="w-3 h-[2px] bg-yellow-500" />2035</div>
+            <div className="flex items-center gap-1.5"><span className="w-3 h-[2px] bg-slate-500" />2040</div>
+            <div className="pt-1">
+              <Link href="/urban-plans" className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline">
+                {t("map.urbanPlanDetails")}
+              </Link>
+            </div>
           </div>
         )}
         {showAirQuality && (

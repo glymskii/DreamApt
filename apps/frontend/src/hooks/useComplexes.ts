@@ -224,6 +224,17 @@ export interface MapData {
       streets: Array<{ name: string; zone: string; segment: string }>;
     }>;
   };
+  // GeoJSON polylines for the streets in `urbanPlans`, one Feature per
+  // OSM way. Each feature carries `{ name, year }`. Rendered as a hidden-
+  // by-default map layer with year-coloured strokes.
+  urbanPlanGeometry?: {
+    type: "FeatureCollection";
+    features: Array<{
+      type: "Feature";
+      properties: { name: string; year: number };
+      geometry: { type: "LineString"; coordinates: number[][] };
+    }>;
+  };
 }
 
 export function useMapData(projectId: string) {

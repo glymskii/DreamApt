@@ -1,5 +1,6 @@
 import boundaryJson from "./almaty-boundary.json";
 import urbanPlansJson from "./almaty-urban-plans.json";
+import urbanPlanGeometryJson from "./almaty-urban-plan-geometry.json";
 
 /**
  * Almaty city administrative boundary as a GeoJSON FeatureCollection.
@@ -56,3 +57,38 @@ export interface UrbanPlansData {
   phases: UrbanPlanPhase[];
 }
 export const ALMATY_URBAN_PLANS: UrbanPlansData = urbanPlansJson as UrbanPlansData;
+
+/**
+ * GeoJSON LineString features for the streets in ALMATY_URBAN_PLANS,
+ * each tagged with the year it's scheduled for completion (2025 / 2030 /
+ * 2035 / 2040). Geometries pulled from OpenStreetMap admin_level=4
+ * Almaty (one Overpass query for all highway≠service ways with names),
+ * matched against the textual plan list by normalised name + manual
+ * aliases for Kazakh transliteration (Райымбек→даңғылы, etc.), then
+ * simplified with Douglas-Peucker at ε≈11m to halve the bundle size
+ * without visible loss at our zoom range.
+ *
+ * Coverage: 30 of 34 listed streets matched. The 4 unmatched are
+ * either purpose-built new corridors that don't yet exist in OSM
+ * ("Новый проспект", "Северо-южная магистраль") or fragmented streets
+ * whose OSM entry name diverges too far for the alias map to catch
+ * — those degrade gracefully to text-only entries on the /urban-plans
+ * page.
+ *
+ * Note: each feature shows the WHOLE named street, not just the segment
+ * scheduled for widening. The plan describes work in chunks ("from X to
+ * Y") and trimming each line to that segment would need geocoding of
+ * the segment endpoints — a follow-up. For now the layer answers "which
+ * streets will see major works by year Z", which is the main UX value.
+ */
+export interface UrbanPlanGeometryFeature {
+  type: "Feature";
+  properties: { name: string; year: number };
+  geometry: { type: "LineString"; coordinates: number[][] };
+}
+export interface UrbanPlanGeometryFC {
+  type: "FeatureCollection";
+  features: UrbanPlanGeometryFeature[];
+}
+export const ALMATY_URBAN_PLAN_GEOMETRY: UrbanPlanGeometryFC =
+  urbanPlanGeometryJson as UrbanPlanGeometryFC;
