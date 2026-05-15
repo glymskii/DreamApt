@@ -98,6 +98,12 @@ export default function DashboardPage() {
                 </Button>
               </Link>
             )}
+            <Link href="/urban-plans">
+              <Button variant="ghost" size="sm" className="h-8 text-xs hidden md:flex">
+                <Building2 className="h-3.5 w-3.5 mr-1" />
+                {t("header.urbanPlans")}
+              </Button>
+            </Link>
             {isAdmin && (
               <Link href="/admin">
                 <Button variant="ghost" size="sm" className="h-8 text-xs hidden sm:flex">

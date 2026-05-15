@@ -197,6 +197,33 @@ export interface MapData {
     danger: number;
     coordinates: [number, number][];
   }>;
+  // Almaty admin boundary — single Polygon Feature; drawn as a thin
+  // outline on the map. Both nullable so older API responses don't
+  // break the frontend.
+  cityBoundary?: {
+    type: "FeatureCollection";
+    features: Array<{
+      type: "Feature";
+      properties: { name: string; admin_level: number; source: string };
+      geometry: { type: "Polygon"; coordinates: number[][][] };
+    }>;
+  };
+  urbanPlans?: {
+    source: {
+      primary: string;
+      primaryUrl: string;
+      fullMapUrl: string;
+      officialAuthority: string;
+      authorityUrl: string;
+      newsContext: string;
+      lastUpdated: string;
+    };
+    phases: Array<{
+      year: number;
+      label: string;
+      streets: Array<{ name: string; zone: string; segment: string }>;
+    }>;
+  };
 }
 
 export function useMapData(projectId: string) {

@@ -6,6 +6,7 @@ export * from "./constants/scoring";
 export * from "./constants/developers";
 export * from "./constants/shutov-ratings";
 export * from "./constants/almaty-faults";
+export * from "./constants/almaty-urban";
 
 // Types
 export * from "./types/user";

@@ -111,6 +111,7 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
   // общего рейтинга для решения о покупке.
   const [showFaults, setShowFaults] = useState(true);
   const [showAirQuality, setShowAirQuality] = useState(true);
+  const [showCityBoundary, setShowCityBoundary] = useState(true);
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
 
@@ -154,6 +155,33 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
     mapRef.current = map;
 
     map.on("load", () => {
+      // === ALMATY CITY BOUNDARY ===
+      // Drawn first so everything else renders on top. Pure outline, no
+      // fill — just shows the user where Almaty ends. Static OSM polygon
+      // baked into the shared package.
+      if (data.cityBoundary?.features?.length) {
+        map.addSource("city-boundary", {
+          type: "geojson",
+          data: data.cityBoundary as any,
+        });
+        map.addLayer({
+          id: "city-boundary-line",
+          type: "line",
+          source: "city-boundary",
+          paint: {
+            "line-color": isDark ? "#94a3b8" : "#475569",
+            "line-width": [
+              "interpolate", ["linear"], ["zoom"],
+              9, 1.5,
+              13, 2.5,
+              16, 3,
+            ],
+            "line-opacity": 0.7,
+            "line-dasharray": [4, 2],
+          },
+        });
+      }
+
       // === FAULT RISK ZONES ===
       if (data.faultLines?.length > 0) {
         const allFaultFeatures = data.faultLines.map((f) => ({
@@ -687,6 +715,19 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
     else map.once("idle", apply);
   }, [showAirQuality]);
 
+  // Toggle city boundary outline
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const visibility = showCityBoundary ? "visible" : "none";
+    const apply = () => {
+      if (map.getLayer("city-boundary-line"))
+        map.setLayoutProperty("city-boundary-line", "visibility", visibility);
+    };
+    if (map.isStyleLoaded()) apply();
+    else map.once("idle", apply);
+  }, [showCityBoundary]);
+
   return (
     <div className="relative w-full h-full">
       <div ref={mapContainer} className="w-full h-full" />
@@ -711,6 +752,15 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
             className="rounded accent-emerald-500 w-3.5 h-3.5"
           />
           {t("map.airQuality")}
+        </label>
+        <label className="flex items-center gap-2 text-xs cursor-pointer">
+          <input
+            type="checkbox"
+            checked={showCityBoundary}
+            onChange={(e) => setShowCityBoundary(e.target.checked)}
+            className="rounded accent-slate-500 w-3.5 h-3.5"
+          />
+          {t("map.cityBoundary")}
         </label>
       </div>
 

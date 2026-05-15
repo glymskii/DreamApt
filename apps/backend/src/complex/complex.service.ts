@@ -76,7 +76,8 @@ export class ComplexService {
       }
     }
 
-    const { FAULT_LINES, FAULT_ZONES } = await import("@dreamapt/shared");
+    const { FAULT_LINES, FAULT_ZONES, ALMATY_BOUNDARY, ALMATY_URBAN_PLANS } =
+      await import("@dreamapt/shared");
 
     // Fetch live air quality stations (cached for 15 min in service)
     let airStations: any[] = [];
@@ -131,6 +132,13 @@ export class ComplexService {
       complexes,
       faultLines: [...(FAULT_LINES || []), ...(FAULT_ZONES || [])],
       airStations,
+      // City boundary polygon (OSM admin_level=4) — drawn as a thin grey
+      // outline on the map so users can see where Almaty ends.
+      cityBoundary: ALMATY_BOUNDARY,
+      // 2040 master-plan street plan. Surfaced as structured text — the
+      // slide-over / info panel renders the list grouped by year. No
+      // geometry encoded yet, so this doesn't add map layers.
+      urbanPlans: ALMATY_URBAN_PLANS,
     };
   }
 
