@@ -6,7 +6,7 @@ import Link from "next/link";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useAuth } from "@/hooks/useAuth";
-import { api } from "@/lib/api-client";
+import { api, ApiUnauthorizedError } from "@/lib/api-client";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Save, RotateCcw, Loader2 } from "lucide-react";
@@ -199,12 +199,34 @@ export default function GenplanAlignPage() {
     if (!cfgRef.current) return;
     setSaving(true);
     try {
-      await api.put(`/admin/map-overlays/${KEY}`, {
-        ...cfgRef.current,
-        opacity,
-      });
+      // Coerce to plain numbers — defends against any rogue string that
+      // might have slipped in from the number-input onChange handler.
+      const body = {
+        imageUrl: cfgRef.current.imageUrl,
+        nwLon: Number(cfgRef.current.nwLon),
+        nwLat: Number(cfgRef.current.nwLat),
+        neLon: Number(cfgRef.current.neLon),
+        neLat: Number(cfgRef.current.neLat),
+        seLon: Number(cfgRef.current.seLon),
+        seLat: Number(cfgRef.current.seLat),
+        swLon: Number(cfgRef.current.swLon),
+        swLat: Number(cfgRef.current.swLat),
+        opacity: Number(opacity),
+      };
+      console.log("[align] PUT body:", body);
+      await api.put(`/admin/map-overlays/${KEY}`, body);
       setSavedAt(Date.now());
     } catch (e) {
+      // Distinguish auth-fail (most common cause after a day idle) from
+      // network/validation errors so the user knows what to do.
+      console.error("[align] save failed:", e);
+      if (e instanceof ApiUnauthorizedError) {
+        alert(
+          "Сессия истекла. Перелогинься через хедер и попробуй снова — " +
+          "значения углов уже в полях, они не потеряются.",
+        );
+        return;
+      }
       alert("Не удалось сохранить: " + (e as Error).message);
     } finally {
       setSaving(false);
