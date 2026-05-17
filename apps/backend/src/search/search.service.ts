@@ -4,12 +4,14 @@ import {
   HttpException,
   HttpStatus,
   NotFoundException,
+  ForbiddenException,
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { SearchProjectEntity } from "../database/entities/search-project.entity";
 import { PropertyEntity } from "../database/entities/property.entity";
 import { ResidentialComplexEntity } from "../database/entities/residential-complex.entity";
+import { UserEntity } from "../database/entities/user.entity";
 import { AIService } from "../ai/ai.service";
 import { ScoringService } from "../scoring/scoring.service";
 import { KrishaParserService, KrishaPropertyDetail } from "./krisha-parser.service";
@@ -39,6 +41,8 @@ export class SearchService {
     private propertiesRepo: Repository<PropertyEntity>,
     @InjectRepository(ResidentialComplexEntity)
     private complexesRepo: Repository<ResidentialComplexEntity>,
+    @InjectRepository(UserEntity)
+    private usersRepo: Repository<UserEntity>,
     private aiService: AIService,
     private scoringService: ScoringService,
     private krishaParser: KrishaParserService,
@@ -48,6 +52,21 @@ export class SearchService {
     projectId: string,
     userId?: string,
   ): Promise<{ jobId: string; status: string }> {
+    // Access gate — only admins and users whose searchEnabled flag was
+    // explicitly granted can launch the paid OpenAI/parser pipeline. The
+    // frontend hides the button for non-eligible users, but we re-check
+    // server-side so a forged request can't bypass it.
+    if (userId) {
+      const user = await this.usersRepo.findOne({ where: { id: userId } });
+      if (!user) throw new ForbiddenException("User not found");
+      if (user.role !== "admin" && !user.searchEnabled) {
+        throw new ForbiddenException({
+          message: "Запуск поиска доступен после одобрения администратором.",
+          code: "SEARCH_NOT_ALLOWED",
+        });
+      }
+    }
+
     // Ownership check — controller passes the authenticated user's id so
     // anyone holding a JWT can only start searches for projects they own.
     // Without this, the pre-IDOR-fix attacker could trigger our paid OpenAI

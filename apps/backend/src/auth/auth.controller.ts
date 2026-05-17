@@ -4,12 +4,14 @@ import {
   Get,
   Body,
   Param,
+  Req,
   UseGuards,
 } from "@nestjs/common";
 import { Throttle } from "@nestjs/throttler";
 import { IsString, MinLength } from "class-validator";
 import { AuthService } from "./auth.service";
 import { AdminGuard } from "./admin.guard";
+import { JwtAuthGuard } from "./auth.guard";
 
 class LoginDto {
   @IsString()
@@ -65,6 +67,15 @@ export class AuthController {
   @Throttle({ default: { ttl: 60_000, limit: 5 } })
   async registerComplete(@Body() dto: RegisterCompleteDto) {
     return this.authService.completeRegistration(dto.token, dto.password);
+  }
+
+  /** Fresh profile lookup — frontend calls this on mount so the locally
+   *  cached `user` (with stale searchEnabled/expertEnabled flags) gets
+   *  reconciled with the server after an admin grants access. */
+  @Get("auth/me")
+  @UseGuards(JwtAuthGuard)
+  async me(@Req() req: any) {
+    return this.authService.getProfile(req.user.id);
   }
 
   // ── Admin only ──

@@ -9,12 +9,15 @@ import {
   UseGuards,
   Header,
 } from "@nestjs/common";
+import { InjectRepository } from "@nestjs/typeorm";
+import { Repository } from "typeorm";
 import { ComplexService } from "./complex.service";
 import { KrishaComplexParserService } from "./krisha-complex-parser.service";
 import { SearchService } from "../search/search.service";
 import { JwtAuthGuard } from "../auth/auth.guard";
 import { OptionalJwtGuard } from "../auth/optional-jwt.guard";
 import { AdminGuard } from "../auth/admin.guard";
+import { UserEntity } from "../database/entities/user.entity";
 
 @Controller()
 export class ComplexController {
@@ -22,6 +25,8 @@ export class ComplexController {
     private complexService: ComplexService,
     private krishaComplexParser: KrishaComplexParserService,
     private searchService: SearchService,
+    @InjectRepository(UserEntity)
+    private usersRepo: Repository<UserEntity>,
   ) {}
 
   // ── PUBLIC endpoints (no auth required) ──
@@ -72,16 +77,27 @@ export class ComplexController {
   // ── Mixed: public but unlocks data when authenticated ──
 
   /**
-   * Shutov rating: guests see only existence + locked teaser.
-   * Authenticated users get full data (category, label, color, description).
+   * Shutov rating: guests + non-expert-enabled users see only existence + locked
+   * teaser. Admins and users with expertEnabled=true get full data
+   * (category, label, color, description).
    */
   @Get("complexes/:id/shutov")
   @UseGuards(OptionalJwtGuard)
   async getShutov(@Param("id") id: string, @Req() req: any) {
     const full = await this.complexService.getShutovRating(id);
     if (!full.found) return { found: false };
-    if (!req.user) {
-      // Locked teaser for guests
+
+    let unlocked = false;
+    if (req.user) {
+      if (req.user.role === "admin") {
+        unlocked = true;
+      } else {
+        const u = await this.usersRepo.findOne({ where: { id: req.user.id } });
+        if (u?.expertEnabled) unlocked = true;
+      }
+    }
+
+    if (!unlocked) {
       return {
         found: true,
         locked: true,

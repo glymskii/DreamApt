@@ -62,6 +62,10 @@ interface AuthContextValue {
   otpRequest: (phone: string) => Promise<OtpRequestResponse>;
   /** Telegram OTP: step 2 — verify code, sets token + logs the user in. */
   otpVerify: (phone: string, code: string) => Promise<OtpVerifyResponse>;
+  /** Force-refetch the current user from the backend — useful after an
+   *  admin grants searchEnabled/expertEnabled so the user can immediately
+   *  unlock gated features without logging out. */
+  refreshUser: () => Promise<AuthUser | null>;
   isAuthenticated: boolean;
   isAdmin: boolean;
 }
@@ -83,19 +87,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const token = api.getToken();
-    if (token) {
-      const stored = localStorage.getItem("user");
-      if (stored) {
-        try {
-          const u = JSON.parse(stored);
-          if (!u.role) u.role = "user";
-          setUser(u);
-        } catch {
-          // ignore corrupted localStorage
-        }
+    if (!token) {
+      setIsLoading(false);
+      return;
+    }
+    // Hydrate immediately from localStorage so the header doesn't flicker,
+    // then revalidate against /auth/me so admin-granted flag changes show
+    // up without forcing a re-login. If /me fails (token expired) we clear.
+    const stored = localStorage.getItem("user");
+    if (stored) {
+      try {
+        const u = JSON.parse(stored);
+        if (!u.role) u.role = "user";
+        setUser(u);
+      } catch {
+        // ignore corrupted localStorage
       }
     }
-    setIsLoading(false);
+    api
+      .get<AuthUser>("/auth/me")
+      .then((fresh) => {
+        setUser(fresh);
+        localStorage.setItem("user", JSON.stringify(fresh));
+      })
+      .catch(() => {
+        api.clearToken();
+        localStorage.removeItem("user");
+        setUser(null);
+      })
+      .finally(() => setIsLoading(false));
   }, []);
 
   const login = useCallback(
@@ -185,6 +205,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [queryClient],
   );
 
+  const refreshUser = useCallback(async (): Promise<AuthUser | null> => {
+    if (!api.getToken()) return null;
+    try {
+      const fresh = await api.get<AuthUser>("/auth/me");
+      setUser(fresh);
+      localStorage.setItem("user", JSON.stringify(fresh));
+      return fresh;
+    } catch {
+      return null;
+    }
+  }, []);
+
   const value: AuthContextValue = {
     user,
     isLoading,
@@ -195,6 +227,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     checkRegisterToken,
     otpRequest,
     otpVerify,
+    refreshUser,
     isAuthenticated: !!user,
     isAdmin: user?.role === "admin",
   };

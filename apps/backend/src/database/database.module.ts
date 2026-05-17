@@ -13,6 +13,7 @@ import { MapOverlayConfigEntity } from "./entities/map-overlay-config.entity";
 import { OtpCodeEntity } from "./entities/otp-code.entity";
 import { CommentEntity } from "./entities/comment.entity";
 import { CommentLikeEntity } from "./entities/comment-like.entity";
+import { AccessRequestEntity } from "./entities/access-request.entity";
 
 const entities = [
   UserEntity,
@@ -28,6 +29,7 @@ const entities = [
   OtpCodeEntity,
   CommentEntity,
   CommentLikeEntity,
+  AccessRequestEntity,
 ];
 
 @Module({

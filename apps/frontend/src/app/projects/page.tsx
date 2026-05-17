@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useProjects, useCreateProject } from "@/hooks/useProjects";
 import { useAuth } from "@/hooks/useAuth";
@@ -9,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Search, Home, Clock, ArrowLeft, LogIn, Lock } from "lucide-react";
+import { RequestAccessModal } from "@/components/access/RequestAccessModal";
 
 const STATUS_LABELS: Record<string, { label: string; variant: "default" | "secondary" | "outline" }> = {
   draft: { label: "Черновик", variant: "secondary" },
@@ -27,8 +29,13 @@ export default function ProjectsPage() {
     enabled: !!user,
   });
   const createProject = useCreateProject();
+  const [requestOpen, setRequestOpen] = useState(false);
 
   const handleCreate = async () => {
+    if (user && user.role !== "admin" && !user.searchEnabled) {
+      setRequestOpen(true);
+      return;
+    }
     const project = await createProject.mutateAsync("Новый поиск");
     router.push(`/projects/${project.id}/interview`);
   };
@@ -136,6 +143,11 @@ export default function ProjectsPage() {
           </Card>
         )}
       </main>
+      <RequestAccessModal
+        open={requestOpen}
+        onClose={() => setRequestOpen(false)}
+        type="search"
+      />
     </div>
   );
 }

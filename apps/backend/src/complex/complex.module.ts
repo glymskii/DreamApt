@@ -6,6 +6,7 @@ import { KrishaComplexParserService } from "./krisha-complex-parser.service";
 import { ResidentialComplexEntity } from "../database/entities/residential-complex.entity";
 import { PropertyEntity } from "../database/entities/property.entity";
 import { SearchProjectEntity } from "../database/entities/search-project.entity";
+import { UserEntity } from "../database/entities/user.entity";
 import { AuthModule } from "../auth/auth.module";
 import { SearchModule } from "../search/search.module";
 import { AirQualityModule } from "../air-quality/air-quality.module";
@@ -14,7 +15,7 @@ import { MapOverlaysModule } from "../map-overlays/map-overlays.module";
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([ResidentialComplexEntity, PropertyEntity, SearchProjectEntity]),
+    TypeOrmModule.forFeature([ResidentialComplexEntity, PropertyEntity, SearchProjectEntity, UserEntity]),
     AuthModule,
     forwardRef(() => SearchModule),
     AirQualityModule,

@@ -157,15 +157,34 @@ export class AuthService implements OnModuleInit {
     const payload = { sub: user.id, username: user.username, role: user.role };
     return {
       accessToken: this.jwtService.sign(payload),
-      user: {
-        id: user.id,
-        username: user.username,
-        email: user.email,
-        phone: user.phone,
-        avatarUrl: user.avatarUrl,
-        role: user.role,
-        createdAt: user.createdAt.toISOString(),
-      },
+      user: this.toAuthUserDTO(user),
+    };
+  }
+
+  /** Returns the freshest user record for the authenticated caller — used
+   *  by the frontend's AuthProvider mount-effect to reconcile cached flags
+   *  with the server. Returns 404-ish (NotFound) only if the user was hard
+   *  deleted; otherwise the JWT is still trusted.
+   */
+  async getProfile(userId: string) {
+    const u = await this.usersRepo.findOne({ where: { id: userId } });
+    if (!u) throw new UnauthorizedException("User not found");
+    return this.toAuthUserDTO(u);
+  }
+
+  private toAuthUserDTO(user: UserEntity) {
+    return {
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      phone: user.phone,
+      avatarUrl: user.avatarUrl,
+      role: user.role,
+      displayName: user.displayName || null,
+      phoneVerified: user.phoneVerified,
+      searchEnabled: user.searchEnabled,
+      expertEnabled: user.expertEnabled,
+      createdAt: user.createdAt.toISOString(),
     };
   }
 

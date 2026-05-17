@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { LangToggle } from "@/components/lang-toggle";
 import { useAuthDialog } from "@/components/auth/auth-dialog";
+import { RequestAccessModal } from "@/components/access/RequestAccessModal";
 import {
   Building2, Plus, LogOut, Loader2, List, Search, X, LogIn, Shield,
 } from "lucide-react";
@@ -38,10 +39,16 @@ export default function DashboardPage() {
   const [selectedComplexId, setSelectedComplexId] = useState<string | null>(null);
   const [hoveredComplexId, setHoveredComplexId] = useState<string | null>(null);
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
+  const [requestSearchOpen, setRequestSearchOpen] = useState(false);
 
   const handleNewSearch = async () => {
     if (!user) {
-      authDialog.open("login", t("auth.newSearchGate"));
+      authDialog.open("otp", t("auth.newSearchGate"));
+      return;
+    }
+    // Admin or explicitly enabled users skip the gate.
+    if (user.role !== "admin" && !user.searchEnabled) {
+      setRequestSearchOpen(true);
       return;
     }
     const project = await createProject.mutateAsync(t("header.newSearch"));
@@ -194,6 +201,12 @@ export default function DashboardPage() {
           </>
         )}
       </div>
+
+      <RequestAccessModal
+        open={requestSearchOpen}
+        onClose={() => setRequestSearchOpen(false)}
+        type="search"
+      />
     </div>
   );
 }

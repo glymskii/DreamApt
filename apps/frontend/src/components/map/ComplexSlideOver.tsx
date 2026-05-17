@@ -13,6 +13,7 @@ import {
 import { useAuth } from "@/hooks/useAuth";
 import { useAuthDialog } from "@/components/auth/auth-dialog";
 import { CommentsSection } from "@/components/comments/CommentsSection";
+import { RequestAccessModal } from "@/components/access/RequestAccessModal";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatPrice, formatArea } from "@/lib/utils";
@@ -299,8 +300,9 @@ interface Props {
 
 export function ComplexSlideOver({ complexId, onClose }: Props) {
   const { t } = useTranslation();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const authDialog = useAuthDialog();
+  const [expertModalOpen, setExpertModalOpen] = useState(false);
   const { data: complex, isLoading } = useComplex(complexId);
   // Properties are gated server-side for guests; only fetch when authenticated.
   const { data: properties } = useComplexProperties(
@@ -553,10 +555,16 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
                 </div>
               )}
 
-              {/* Shutov rating — locked for guests */}
+              {/* Shutov rating — locked for guests AND for users without expertEnabled */}
               {shutov?.found && shutov.locked ? (
                 <button
-                  onClick={() => authDialog.open("login", t("auth.shutovGate"))}
+                  onClick={() => {
+                    if (!user) {
+                      authDialog.open("otp", t("auth.shutovGate"));
+                    } else {
+                      setExpertModalOpen(true);
+                    }
+                  }}
                   className="flex items-center gap-3 p-3 rounded-lg border w-full text-left hover:bg-muted/50 transition-colors"
                   style={{ borderLeftWidth: 4, borderLeftColor: "#94a3b8" }}
                 >
@@ -763,6 +771,12 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
           ) : null}
         </div>
       )}
+
+      <RequestAccessModal
+        open={expertModalOpen}
+        onClose={() => setExpertModalOpen(false)}
+        type="expert"
+      />
     </div>
   );
 }
