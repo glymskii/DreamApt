@@ -15,12 +15,17 @@ import {
   Loader2,
   CheckCircle2,
   MessageCircle,
+  ExternalLink,
+  ArrowLeft,
 } from "lucide-react";
 
-type Tab = "login" | "request";
+type Tab = "otp" | "password";
+// Legacy callers still pass "login" / "request" — accept those too and
+// map at the boundary. Saves us touching every site that opens the dialog.
+type OpenTab = Tab | "login" | "request";
 
 interface AuthDialogContextValue {
-  open: (tab?: Tab, message?: string) => void;
+  open: (tab?: OpenTab, message?: string) => void;
   close: () => void;
 }
 
@@ -34,11 +39,15 @@ export function useAuthDialog() {
 
 export function AuthDialogProvider({ children }: { children: React.ReactNode }) {
   const [isOpen, setIsOpen] = useState(false);
-  const [tab, setTab] = useState<Tab>("login");
+  const [tab, setTab] = useState<Tab>("otp");
   const [message, setMessage] = useState<string | null>(null);
 
-  const open = useCallback((t: Tab = "login", m?: string) => {
-    setTab(t);
+  const open = useCallback((t: OpenTab = "otp", m?: string) => {
+    // Backwards-compat: legacy code calls open("login") / open("request").
+    // Map those to the new tab names so nothing breaks while we migrate.
+    const mapped: Tab =
+      t === "login" ? "password" : t === "request" ? "otp" : t;
+    setTab(mapped);
     setMessage(m || null);
     setIsOpen(true);
   }, []);
@@ -74,22 +83,25 @@ function AuthDialog({
   message: string | null;
 }) {
   const { t } = useTranslation();
-  const { login, registerRequest } = useAuth();
+  const { login, otpRequest, otpVerify } = useAuth();
 
-  // login state — phone-only, formatted via the same KZ mask as registration.
-  // Backend's validateUser normalizes the input so we can ship the formatted
-  // string straight from the input; toE164 below is just a client-side sanity
-  // check that prevents a request when the user clearly hasn't finished typing.
+  // === Password tab state (admin / legacy users) ===
   const [loginPhone, setLoginPhone] = useState("+7 ");
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
 
-  // register state
-  const [phone, setPhone] = useState("+7 ");
-  const [regError, setRegError] = useState("");
-  const [regLoading, setRegLoading] = useState(false);
-  const [regSuccess, setRegSuccess] = useState(false);
+  // === OTP tab state ===
+  // Multi-step within one tab: input phone → wait-for-code → done.
+  // Keeping state local to AuthDialog so closing the dialog reset everything.
+  type OtpStep = "phone" | "code";
+  const [otpStep, setOtpStep] = useState<OtpStep>("phone");
+  const [otpPhone, setOtpPhone] = useState("+7 ");
+  const [otpCode, setOtpCode] = useState("");
+  const [otpDeeplink, setOtpDeeplink] = useState<string | null>(null);
+  const [otpBotUsername, setOtpBotUsername] = useState<string | null>(null);
+  const [otpError, setOtpError] = useState("");
+  const [otpLoading, setOtpLoading] = useState(false);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -114,23 +126,53 @@ function AuthDialog({
     }
   };
 
-  const handleRegister = async (e: React.FormEvent) => {
+  const handleOtpRequest = async (e: React.FormEvent) => {
     e.preventDefault();
-    setRegError("");
-    const e164 = toE164(phone);
+    setOtpError("");
+    const e164 = toE164(otpPhone);
     if (!e164) {
-      setRegError(t("auth.phoneInvalid"));
+      setOtpError(t("auth.phoneInvalid"));
       return;
     }
-    setRegLoading(true);
+    setOtpLoading(true);
     try {
-      await registerRequest(e164);
-      setRegSuccess(true);
+      const res = await otpRequest(e164);
+      setOtpDeeplink(res.telegramDeeplink);
+      setOtpBotUsername(res.botUsername);
+      setOtpStep("code");
     } catch (err: any) {
-      setRegError(err?.message || t("auth.requestFailed"));
+      setOtpError(err?.message || t("auth.otpRequestFailed"));
     } finally {
-      setRegLoading(false);
+      setOtpLoading(false);
     }
+  };
+
+  const handleOtpVerify = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setOtpError("");
+    const e164 = toE164(otpPhone);
+    if (!e164) return;
+    const cleanCode = otpCode.replace(/\D+/g, "");
+    if (cleanCode.length !== 6) {
+      setOtpError(t("auth.otpCodeLengthError"));
+      return;
+    }
+    setOtpLoading(true);
+    try {
+      await otpVerify(e164, cleanCode);
+      onClose();
+    } catch (err: any) {
+      setOtpError(err?.message || t("auth.otpVerifyFailed"));
+    } finally {
+      setOtpLoading(false);
+    }
+  };
+
+  const otpBack = () => {
+    setOtpStep("phone");
+    setOtpCode("");
+    setOtpError("");
+    setOtpDeeplink(null);
   };
 
   return (
@@ -158,31 +200,31 @@ function AuthDialog({
           </div>
         )}
 
-        {/* Tabs */}
+        {/* Tabs: OTP is the primary path. Password tab kept for admin. */}
         <div className="flex gap-1 p-1 bg-muted rounded-lg mt-3 mb-4 text-sm">
           <button
-            onClick={() => setTab("login")}
+            onClick={() => setTab("otp")}
             className={`flex-1 px-3 py-1.5 rounded-md transition-colors ${
-              tab === "login"
+              tab === "otp"
                 ? "bg-background shadow-sm font-medium"
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            {t("auth.tabLogin")}
+            {t("auth.tabOtp")}
           </button>
           <button
-            onClick={() => setTab("request")}
+            onClick={() => setTab("password")}
             className={`flex-1 px-3 py-1.5 rounded-md transition-colors ${
-              tab === "request"
+              tab === "password"
                 ? "bg-background shadow-sm font-medium"
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            {t("auth.tabRequest")}
+            {t("auth.tabPassword")}
           </button>
         </div>
 
-        {tab === "login" ? (
+        {tab === "password" ? (
           <form onSubmit={handleLogin} className="space-y-3">
             <div>
               <label className="text-xs font-medium block mb-1" htmlFor="login-phone">
@@ -197,9 +239,7 @@ function AuthDialog({
                   className="pl-8 font-mono tracking-wide"
                   value={loginPhone}
                   onChange={(e) => setLoginPhone(formatKzPhone(e.target.value))}
-                  onFocus={() => {
-                    if (!loginPhone) setLoginPhone("+7 ");
-                  }}
+                  onFocus={() => { if (!loginPhone) setLoginPhone("+7 "); }}
                   required
                   autoComplete="tel"
                   placeholder="+7 (___) ___-__-__"
@@ -220,78 +260,102 @@ function AuthDialog({
                 autoComplete="current-password"
               />
             </div>
-            {loginError && (
-              <p className="text-xs text-destructive">{loginError}</p>
-            )}
+            {loginError && <p className="text-xs text-destructive">{loginError}</p>}
             <Button type="submit" className="w-full" disabled={loginLoading}>
-              {loginLoading ? (
-                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-              ) : null}
+              {loginLoading ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : null}
               {t("auth.loginSubmit")}
             </Button>
             <p className="text-[11px] text-muted-foreground text-center">
-              {t("auth.loginNoAccount")}{" "}
-              <button
-                type="button"
-                onClick={() => setTab("request")}
-                className="text-primary hover:underline"
-              >
-                {t("auth.loginRequestLink")}
-              </button>
+              {t("auth.passwordHintAdmin")}
             </p>
           </form>
-        ) : regSuccess ? (
-          <div className="text-center py-4 space-y-3">
-            <CheckCircle2 className="h-10 w-10 mx-auto text-green-600" />
+        ) : otpStep === "phone" ? (
+          <form onSubmit={handleOtpRequest} className="space-y-3">
+            <p className="text-xs text-muted-foreground">{t("auth.otpIntro")}</p>
             <div>
-              <p className="font-semibold">{t("auth.requestSuccessTitle")}</p>
-              <p className="text-xs text-muted-foreground mt-1 max-w-xs mx-auto">
-                {t("auth.requestSuccessSub")}
-              </p>
-            </div>
-            <Button variant="outline" onClick={onClose} className="w-full">
-              {t("auth.ok")}
-            </Button>
-          </div>
-        ) : (
-          <form onSubmit={handleRegister} className="space-y-3">
-            <div className="text-xs text-muted-foreground mb-2">
-              {t("auth.requestIntro")}
-            </div>
-            <div>
-              <label className="text-xs font-medium block mb-1" htmlFor="phone">
+              <label className="text-xs font-medium block mb-1" htmlFor="otp-phone">
                 {t("auth.phoneField")}
               </label>
               <div className="relative">
                 <Phone className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
-                  id="phone"
+                  id="otp-phone"
                   type="tel"
                   inputMode="tel"
                   className="pl-8 font-mono tracking-wide"
-                  value={phone}
-                  onChange={(e) => setPhone(formatKzPhone(e.target.value))}
-                  onFocus={() => {
-                    if (!phone) setPhone("+7 ");
-                  }}
+                  value={otpPhone}
+                  onChange={(e) => setOtpPhone(formatKzPhone(e.target.value))}
+                  onFocus={() => { if (!otpPhone) setOtpPhone("+7 "); }}
                   required
                   autoComplete="tel"
                   placeholder="+7 (___) ___-__-__"
                   maxLength={18}
                 />
               </div>
-              <div className="mt-1.5 flex items-start gap-1.5 text-[11px] text-muted-foreground leading-snug">
-                <MessageCircle className="h-3 w-3 mt-0.5 shrink-0 text-green-600" />
-                <span>{t("auth.phoneHint")}</span>
-              </div>
             </div>
-            {regError && <p className="text-xs text-destructive">{regError}</p>}
-            <Button type="submit" className="w-full" disabled={regLoading}>
-              {regLoading ? (
-                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-              ) : null}
-              {t("auth.requestSubmit")}
+            {otpError && <p className="text-xs text-destructive">{otpError}</p>}
+            <Button type="submit" className="w-full" disabled={otpLoading}>
+              {otpLoading ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : null}
+              {t("auth.otpRequestSubmit")}
             </Button>
+            <p className="text-[11px] text-muted-foreground text-center leading-snug">
+              {t("auth.otpFooterNoTelegram")}
+            </p>
+          </form>
+        ) : (
+          <form onSubmit={handleOtpVerify} className="space-y-3">
+            {/* Step 2: deeplink to bot + code input */}
+            <div className="text-xs text-muted-foreground">
+              {t("auth.otpStep2Intro")}{" "}
+              {otpBotUsername && (
+                <span className="font-mono">@{otpBotUsername}</span>
+              )}
+            </div>
+
+            {otpDeeplink && (
+              <a href={otpDeeplink} target="_blank" rel="noopener noreferrer" className="block">
+                <Button type="button" variant="outline" className="w-full">
+                  <MessageCircle className="h-4 w-4 mr-1.5 text-blue-500" />
+                  {t("auth.otpOpenBot")}
+                  <ExternalLink className="h-3 w-3 ml-1.5 text-muted-foreground" />
+                </Button>
+              </a>
+            )}
+
+            <div>
+              <label className="text-xs font-medium block mb-1" htmlFor="otp-code">
+                {t("auth.otpCodeLabel")}
+              </label>
+              <Input
+                id="otp-code"
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={6}
+                value={otpCode}
+                onChange={(e) => setOtpCode(e.target.value.replace(/\D+/g, "").slice(0, 6))}
+                className="text-center text-2xl font-mono tracking-[0.4em]"
+                placeholder="••••••"
+                autoFocus
+                autoComplete="one-time-code"
+              />
+            </div>
+
+            {otpError && <p className="text-xs text-destructive">{otpError}</p>}
+
+            <Button type="submit" className="w-full" disabled={otpLoading || otpCode.length !== 6}>
+              {otpLoading ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-1" />}
+              {t("auth.otpVerifySubmit")}
+            </Button>
+
+            <button
+              type="button"
+              onClick={otpBack}
+              className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground mx-auto"
+            >
+              <ArrowLeft className="h-3 w-3" />
+              {t("auth.otpChangePhone")}
+            </button>
           </form>
         )}
       </div>

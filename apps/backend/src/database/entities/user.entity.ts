@@ -35,6 +35,20 @@ export class UserEntity {
   @Column({ default: "user" })
   role: string; // "admin" | "user"
 
+  /** Phone has been verified through a Telegram OTP exchange. Used as a
+   *  gate for commenting / liking (the UGC features) — confirms the
+   *  account belongs to a real human who can receive Telegram messages. */
+  @Column({ name: "phone_verified", default: false })
+  phoneVerified: boolean;
+
+  /** Admin has granted access to the search / interview pipeline. */
+  @Column({ name: "search_enabled", default: false })
+  searchEnabled: boolean;
+
+  /** Admin has granted access to expert opinions (Шутов rating etc). */
+  @Column({ name: "expert_enabled", default: false })
+  expertEnabled: boolean;
+
   @CreateDateColumn({ name: "created_at" })
   createdAt: Date;
 

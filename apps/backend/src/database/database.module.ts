@@ -10,6 +10,7 @@ import { RegistrationLeadEntity } from "./entities/registration-lead.entity";
 import { AirQualityReadingEntity } from "./entities/air-quality-reading.entity";
 import { RequestStatEntity } from "./entities/request-stat.entity";
 import { MapOverlayConfigEntity } from "./entities/map-overlay-config.entity";
+import { OtpCodeEntity } from "./entities/otp-code.entity";
 
 const entities = [
   UserEntity,
@@ -22,6 +23,7 @@ const entities = [
   AirQualityReadingEntity,
   RequestStatEntity,
   MapOverlayConfigEntity,
+  OtpCodeEntity,
 ];
 
 @Module({

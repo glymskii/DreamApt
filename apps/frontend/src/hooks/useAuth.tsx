@@ -18,11 +18,30 @@ export interface AuthUser {
   phone?: string;
   avatarUrl?: string;
   role: "admin" | "user";
+  // New per-user flags introduced with the Telegram OTP flow. Optional
+  // on the client side so legacy login responses (no flag fields) don't
+  // break the shape.
+  phoneVerified?: boolean;
+  searchEnabled?: boolean;
+  expertEnabled?: boolean;
 }
 
 interface LoginResponse {
   accessToken: string;
   user: AuthUser;
+}
+
+interface OtpRequestResponse {
+  sessionToken: string;
+  telegramDeeplink: string | null;
+  botUsername: string | null;
+  expiresInSec: number;
+}
+
+interface OtpVerifyResponse {
+  accessToken: string;
+  user: AuthUser;
+  isNewUser: boolean;
 }
 
 interface AuthContextValue {
@@ -39,6 +58,10 @@ interface AuthContextValue {
   checkRegisterToken: (
     token: string,
   ) => Promise<{ phone: string; valid: boolean }>;
+  /** Telegram OTP: step 1 — request a code, returns deeplink + bot info. */
+  otpRequest: (phone: string) => Promise<OtpRequestResponse>;
+  /** Telegram OTP: step 2 — verify code, sets token + logs the user in. */
+  otpVerify: (phone: string, code: string) => Promise<OtpVerifyResponse>;
   isAuthenticated: boolean;
   isAdmin: boolean;
 }
@@ -134,6 +157,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [],
   );
 
+  /** Step 1 of the Telegram OTP flow. The returned `telegramDeeplink`
+   *  is what the user clicks (or scans) to land in the bot — backend has
+   *  already created the OTP row tied to the returned `sessionToken`. */
+  const otpRequest = useCallback(
+    async (phone: string): Promise<OtpRequestResponse> => {
+      return api.post<OtpRequestResponse>("/auth/otp/request", { phone });
+    },
+    [],
+  );
+
+  /** Step 2 of the Telegram OTP flow. On success, mirrors `login()` —
+   *  stores the JWT, sets the user, refetches queries — so the rest of
+   *  the app (header, gated panels) updates immediately. */
+  const otpVerify = useCallback(
+    async (phone: string, code: string): Promise<OtpVerifyResponse> => {
+      const data = await api.post<OtpVerifyResponse>("/auth/otp/verify", {
+        phone,
+        code,
+      });
+      api.setToken(data.accessToken);
+      localStorage.setItem("user", JSON.stringify(data.user));
+      setUser(data.user);
+      queryClient.invalidateQueries();
+      return data;
+    },
+    [queryClient],
+  );
+
   const value: AuthContextValue = {
     user,
     isLoading,
@@ -142,6 +193,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     registerRequest,
     completeRegistration,
     checkRegisterToken,
+    otpRequest,
+    otpVerify,
     isAuthenticated: !!user,
     isAdmin: user?.role === "admin",
   };
