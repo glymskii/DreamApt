@@ -5,6 +5,7 @@ import {
   ForbiddenException,
   Get,
   Param,
+  Patch,
   Post,
   Query,
   Req,
@@ -25,6 +26,12 @@ class CreateCommentDto {
   @IsOptional()
   @IsString()
   parentId?: string;
+}
+
+class EditCommentDto {
+  @IsString()
+  @MaxLength(1000)
+  text: string;
 }
 
 /**
@@ -69,6 +76,20 @@ export class CommentsController {
     @Req() req: any,
   ) {
     return this.comments.create(req.user.id, complexId, dto);
+  }
+
+  /** Owner-only edit, allowed only within the 10-minute window from
+   *  createdAt (enforced in service). Admins cannot edit — rewriting other
+   *  people's words is a moderation hazard; admins delete instead. */
+  @Patch("comments/:id")
+  @UseGuards(JwtAuthGuard)
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
+  async edit(
+    @Param("id") commentId: string,
+    @Body() dto: EditCommentDto,
+    @Req() req: any,
+  ) {
+    return this.comments.edit(req.user.id, commentId, dto.text);
   }
 
   /** Toggle like. Same rate-limit / verification rules as create. */

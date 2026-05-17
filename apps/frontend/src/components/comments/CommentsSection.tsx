@@ -1,13 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Heart, Trash2, MessageCircle, Loader2 } from "lucide-react";
+import { Heart, Trash2, Pencil, X, MessageCircle, Loader2 } from "lucide-react";
 import {
   useComments,
   usePostComment,
   useToggleLike,
   useDeleteComment,
+  useEditComment,
+  COMMENT_EDIT_WINDOW_MS,
   type CommentDTO,
 } from "@/hooks/useComments";
 import { useAuth } from "@/hooks/useAuth";
@@ -41,6 +43,7 @@ export function CommentsSection({ complexId }: Props) {
   const postMutation = usePostComment(complexId);
   const likeMutation = useToggleLike(complexId);
   const deleteMutation = useDeleteComment(complexId);
+  const editMutation = useEditComment(complexId);
 
   const isVerified = !!user?.phoneVerified;
 
@@ -175,6 +178,9 @@ export function CommentsSection({ complexId }: Props) {
               comment={c}
               onLike={() => handleLike(c.id)}
               onDelete={() => handleDelete(c.id)}
+              onEdit={(newText) =>
+                editMutation.mutateAsync({ commentId: c.id, text: newText })
+              }
               isAdmin={user?.role === "admin"}
             />
           ))}
@@ -188,11 +194,13 @@ function CommentRow({
   comment,
   onLike,
   onDelete,
+  onEdit,
   isAdmin,
 }: {
   comment: CommentDTO;
   onLike: () => void;
   onDelete: () => void;
+  onEdit: (newText: string) => Promise<unknown>;
   isAdmin: boolean;
 }) {
   const { t, i18n } = useTranslation();
@@ -205,6 +213,51 @@ function CommentRow({
     hour: "2-digit",
     minute: "2-digit",
   });
+
+  const [isEditing, setIsEditing] = useState(false);
+  const [draft, setDraft] = useState(comment.text);
+  const [editError, setEditError] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Re-render once per minute while the comment is still inside its edit
+  // window so the button disappears at the boundary without needing a
+  // full list refetch.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (isDeleted || !comment.isMine) return;
+    const ageMs = now - new Date(comment.createdAt).getTime();
+    if (ageMs >= COMMENT_EDIT_WINDOW_MS) return;
+    const id = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, [comment.createdAt, comment.isMine, isDeleted, now]);
+
+  const ageMs = now - new Date(comment.createdAt).getTime();
+  const canEdit = comment.isMine && !isDeleted && ageMs < COMMENT_EDIT_WINDOW_MS;
+  const minutesLeft = canEdit
+    ? Math.max(1, Math.ceil((COMMENT_EDIT_WINDOW_MS - ageMs) / 60_000))
+    : 0;
+
+  const handleSave = async () => {
+    const trimmed = draft.trim();
+    if (!trimmed) {
+      setEditError(t("comments.empty"));
+      return;
+    }
+    if (trimmed === comment.text) {
+      setIsEditing(false);
+      return;
+    }
+    setEditError("");
+    setIsSaving(true);
+    try {
+      await onEdit(trimmed);
+      setIsEditing(false);
+    } catch (err: any) {
+      setEditError(err?.message || t("comments.editFailed"));
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   return (
     <div className="flex gap-2 text-xs">
@@ -225,15 +278,69 @@ function CommentRow({
             </span>
           )}
           <span className="text-[10px] text-muted-foreground">{date}</span>
+          {comment.editedAt && !isDeleted && (
+            <span className="text-[10px] text-muted-foreground italic">
+              · {t("comments.editedTag")}
+            </span>
+          )}
         </div>
-        <p
-          className={`mt-0.5 leading-snug whitespace-pre-line ${
-            isDeleted ? "italic text-muted-foreground" : ""
-          }`}
-        >
-          {isDeleted ? t("comments.deletedPlaceholder") : comment.text}
-        </p>
-        {!isDeleted && (
+
+        {isEditing ? (
+          <div className="mt-1 space-y-1.5">
+            <textarea
+              value={draft}
+              onChange={(e) => setDraft(e.target.value.slice(0, 1000))}
+              className="w-full text-sm p-2 border rounded-md bg-background min-h-[60px] resize-y"
+              disabled={isSaving}
+              autoFocus
+            />
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[10px] text-muted-foreground">
+                {draft.length}/1000
+              </span>
+              <div className="flex gap-1.5">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  onClick={() => {
+                    setDraft(comment.text);
+                    setEditError("");
+                    setIsEditing(false);
+                  }}
+                  disabled={isSaving}
+                >
+                  <X className="h-3 w-3 mr-1" />
+                  {t("common.cancel")}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  onClick={handleSave}
+                  disabled={isSaving || !draft.trim()}
+                >
+                  {isSaving && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
+                  {t("common.save")}
+                </Button>
+              </div>
+            </div>
+            {editError && (
+              <p className="text-xs text-destructive">{editError}</p>
+            )}
+          </div>
+        ) : (
+          <p
+            className={`mt-0.5 leading-snug whitespace-pre-line ${
+              isDeleted ? "italic text-muted-foreground" : ""
+            }`}
+          >
+            {isDeleted ? t("comments.deletedPlaceholder") : comment.text}
+          </p>
+        )}
+
+        {!isDeleted && !isEditing && (
           <div className="flex items-center gap-3 mt-1 text-[11px]">
             <button
               onClick={onLike}
@@ -249,6 +356,20 @@ function CommentRow({
               />
               {comment.likesCount > 0 && <span>{comment.likesCount}</span>}
             </button>
+            {canEdit && (
+              <button
+                onClick={() => {
+                  setDraft(comment.text);
+                  setEditError("");
+                  setIsEditing(true);
+                }}
+                className="flex items-center gap-1 text-muted-foreground/70 hover:text-foreground transition-colors"
+                title={t("comments.editWindowHint", { minutes: minutesLeft })}
+              >
+                <Pencil className="h-3 w-3" />
+                <span>{t("comments.edit")}</span>
+              </button>
+            )}
             {(comment.isMine || isAdmin) && (
               <button
                 onClick={onDelete}

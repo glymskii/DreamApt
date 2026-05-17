@@ -33,7 +33,7 @@ export interface CommentDTO {
 }
 
 const MAX_TEXT_LEN = 1000;
-const EDIT_WINDOW_MS = 15 * 60 * 1000;
+const EDIT_WINDOW_MS = 10 * 60 * 1000;
 const POSTS_PER_MIN_PER_USER = 5;
 
 @Injectable()
@@ -155,6 +155,71 @@ export class CommentsService {
       relations: ["user"],
     });
     return toDTO(withUser!, viewerId, false);
+  }
+
+  /**
+   * Edit an existing comment. Owner-only, even admin can't rewrite someone
+   * else's words — that would be a moderation hazard. Editing window is 10
+   * minutes from createdAt; past that the comment is frozen (users can
+   * still delete). Same text validation as on create.
+   */
+  async edit(
+    viewerId: string,
+    commentId: string,
+    newText: string,
+  ): Promise<CommentDTO> {
+    const c = await this.commentsRepo.findOne({
+      where: { id: commentId },
+      relations: ["user"],
+    });
+    if (!c) throw new NotFoundException("Comment not found");
+    if (c.userId !== viewerId) {
+      throw new ForbiddenException("Cannot edit someone else's comment");
+    }
+    if (c.deletedAt) {
+      throw new BadRequestException("Cannot edit a deleted comment");
+    }
+    const ageMs = Date.now() - new Date(c.createdAt).getTime();
+    if (ageMs > EDIT_WINDOW_MS) {
+      throw new ForbiddenException({
+        message: "Окно редактирования истекло (10 минут после публикации)",
+        code: "EDIT_WINDOW_EXPIRED",
+      });
+    }
+    const text = (newText || "").trim();
+    if (!text) throw new BadRequestException("Comment cannot be empty");
+    if (text.length > MAX_TEXT_LEN) {
+      throw new BadRequestException(`Comment is longer than ${MAX_TEXT_LEN} chars`);
+    }
+    if (text === c.text) {
+      // No-op edit — return the existing DTO so the client UI can close
+      // its editor without flashing an error.
+      return toDTO(c, viewerId, await this.viewerLikes(viewerId, c.id));
+    }
+    await this.commentsRepo.update(c.id, {
+      text,
+      editedAt: new Date(),
+    });
+    const fresh = await this.commentsRepo.findOne({
+      where: { id: c.id },
+      relations: ["user"],
+    });
+    return toDTO(fresh!, viewerId, await this.viewerLikes(viewerId, c.id));
+  }
+
+  /** Helper: did this viewer like this comment? Used by edit() so the
+   *  returned DTO carries the right heart state without re-fetching the
+   *  whole list. */
+  private async viewerLikes(
+    viewerId: string | undefined,
+    commentId: string,
+  ): Promise<boolean> {
+    if (!viewerId) return false;
+    const hit = await this.likesRepo.findOne({
+      where: { userId: viewerId, commentId },
+      select: ["id"],
+    });
+    return !!hit;
   }
 
   /**

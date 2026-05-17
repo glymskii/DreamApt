@@ -104,3 +104,18 @@ export function useDeleteComment(complexId: string) {
     },
   });
 }
+
+/** Server enforces ownership + 10-min editing window; client uses the
+ *  same constant to hide the button once the window has elapsed. */
+export const COMMENT_EDIT_WINDOW_MS = 10 * 60 * 1000;
+
+export function useEditComment(complexId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ commentId, text }: { commentId: string; text: string }) =>
+      api.patch<CommentDTO>(`/comments/${commentId}`, { text }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["comments", complexId] });
+    },
+  });
+}
