@@ -187,41 +187,43 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
         });
       }
 
-      // === ALMATY 2040 MASTER-PLAN STREETS ===
-      // Toggleable layer (default off). Lines coloured by completion
-      // year — earlier waves use warmer colours (red ≈ imminent) so the
-      // map reads "what's coming when" at a glance.
-      if (data.urbanPlanGeometry?.features?.length) {
-        map.addSource("urban-plan", {
-          type: "geojson",
-          data: data.urbanPlanGeometry as any,
-        });
-        map.addLayer({
-          id: "urban-plan-line",
-          type: "line",
-          source: "urban-plan",
-          // Start hidden — toggled by the showUrbanPlan effect below.
-          layout: { visibility: "none", "line-cap": "round", "line-join": "round" },
-          paint: {
-            "line-color": [
-              "match",
-              ["get", "year"],
-              2025, "#dc2626", // red — imminent
-              2030, "#f97316", // orange
-              2035, "#eab308", // amber
-              2040, "#64748b", // slate — long-term
-              /* default */ "#94a3b8",
-            ],
-            "line-width": [
-              "interpolate", ["linear"], ["zoom"],
-              10, 1.5,
-              13, 3,
-              16, 5,
-            ],
-            "line-opacity": 0.8,
-          },
-        });
-      }
+      // === ALMATY 2040 MASTER-PLAN IMAGE OVERLAY ===
+      // Toggleable layer (default off). Instead of building our own vector
+      // version of the plan (where the OSM whole-street geometry over-
+      // colours streets that will only see partial work), we overlay the
+      // official "ГП_230203_Транспорт" raster from НИИ Алматыгенплан.
+      // Pros: shows the planning institute's exact intent, no
+      // reinterpretation on our part. Cons: schematic ± ~50-200m offset
+      // from OSM street centerlines, blurs at high zoom. Acceptable for
+      // an "overview of the genplan" use case.
+      //
+      // The four-corner `coordinates` are an empirical first cut that
+      // roughly matches the image's red-dashed admin boundary to the
+      // OSM admin boundary; expect to fine-tune by eye.
+      map.addSource("urban-plan-img", {
+        type: "image",
+        url: "/genplan-2040.jpg",
+        coordinates: [
+          [76.62, 43.45], // top-left (NW)
+          [77.22, 43.45], // top-right (NE)
+          [77.22, 43.04], // bottom-right (SE)
+          [76.62, 43.04], // bottom-left (SW)
+        ],
+      });
+      map.addLayer({
+        id: "urban-plan-img",
+        type: "raster",
+        source: "urban-plan-img",
+        layout: { visibility: "none" },
+        paint: {
+          // Semi-transparent so the base map + ЖК markers still read
+          // through it. 0.65 keeps the year-coloured planning lines
+          // clearly visible while letting the user orient by their
+          // familiar street grid underneath.
+          "raster-opacity": 0.65,
+          "raster-fade-duration": 200,
+        },
+      });
 
       // === FAULT RISK ZONES ===
       if (data.faultLines?.length > 0) {
@@ -769,14 +771,15 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
     else map.once("idle", apply);
   }, [showCityBoundary]);
 
-  // Toggle 2040 master-plan layer (default off)
+  // Toggle 2040 master-plan layer (default off). Targets the raster
+  // image overlay added in the load handler above.
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     const visibility = showUrbanPlan ? "visible" : "none";
     const apply = () => {
-      if (map.getLayer("urban-plan-line"))
-        map.setLayoutProperty("urban-plan-line", "visibility", visibility);
+      if (map.getLayer("urban-plan-img"))
+        map.setLayoutProperty("urban-plan-img", "visibility", visibility);
     };
     if (map.isStyleLoaded()) apply();
     else map.once("idle", apply);
@@ -857,13 +860,16 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
         )}
         {showUrbanPlan && (
           <div className="border-t pt-1 mt-1 space-y-0.5">
+            {/* Legend mirrors the colours in the official raster overlay
+                (Алматыгенплан 2023). Numbers are km of new/widened road
+                in each wave per the planning institute's annotation. */}
             <div className="font-medium text-[10px]">{t("map.urbanPlanLegend")}</div>
-            <div className="flex items-center gap-1.5"><span className="w-3 h-[2px] bg-red-600" />2025</div>
-            <div className="flex items-center gap-1.5"><span className="w-3 h-[2px] bg-orange-500" />2030</div>
-            <div className="flex items-center gap-1.5"><span className="w-3 h-[2px] bg-yellow-500" />2035</div>
-            <div className="flex items-center gap-1.5"><span className="w-3 h-[2px] bg-slate-500" />2040</div>
-            <div className="pt-1">
-              <Link href="/urban-plans" className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline">
+            <div className="flex items-center gap-1.5"><span className="w-3 h-[2px] bg-green-600" />2025 · 29.4 км</div>
+            <div className="flex items-center gap-1.5"><span className="w-3 h-[2px] bg-red-600" />2030 · 52.0 км</div>
+            <div className="flex items-center gap-1.5"><span className="w-3 h-[2px] bg-yellow-500" />2035 · 60.3 км</div>
+            <div className="flex items-center gap-1.5"><span className="w-3 h-[2px] bg-purple-600" />2040 · 42.6 км</div>
+            <div className="pt-1 text-[9px] text-muted-foreground">
+              <Link href="/urban-plans" className="text-blue-600 dark:text-blue-400 hover:underline">
                 {t("map.urbanPlanDetails")}
               </Link>
             </div>
