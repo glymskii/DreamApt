@@ -6,6 +6,7 @@ import { PropertyEntity } from "../database/entities/property.entity";
 import { SearchProjectEntity } from "../database/entities/search-project.entity";
 import { AirKazService } from "../air-quality/airkaz.service";
 import { TwoGisReviewsService } from "../properties/twogis-reviews.service";
+import { MapOverlaysService } from "../map-overlays/map-overlays.service";
 import { findShutovRating, findNearestFault, SHUTOV_CATEGORY_COLORS, SHUTOV_CATEGORY_LABELS } from "@dreamapt/shared";
 
 // In-memory cache for the public map-data response. Built every request before
@@ -33,6 +34,7 @@ export class ComplexService {
     private airKaz: AirKazService,
     @Inject(forwardRef(() => TwoGisReviewsService))
     private twoGisReviews: TwoGisReviewsService,
+    private mapOverlays: MapOverlaysService,
   ) {}
 
   /** Get all complexes globally, deduplicated by normalized name (best score wins) */
@@ -141,6 +143,10 @@ export class ComplexService {
       // and only renders it when the user toggles "Генплан" on.
       urbanPlans: ALMATY_URBAN_PLANS,
       urbanPlanGeometry: ALMATY_URBAN_PLAN_GEOMETRY,
+      // Admin-calibrated raster overlay configs (corners + opacity).
+      // Frontend reads `overlays["genplan-2040"]` to position the image
+      // layer — values are updated live from /admin/genplan-align.
+      overlays: await this.mapOverlays.list(),
     };
   }
 

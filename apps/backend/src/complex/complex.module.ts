@@ -10,6 +10,7 @@ import { AuthModule } from "../auth/auth.module";
 import { SearchModule } from "../search/search.module";
 import { AirQualityModule } from "../air-quality/air-quality.module";
 import { PropertiesModule } from "../properties/properties.module";
+import { MapOverlaysModule } from "../map-overlays/map-overlays.module";
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { PropertiesModule } from "../properties/properties.module";
     forwardRef(() => SearchModule),
     AirQualityModule,
     forwardRef(() => PropertiesModule),
+    MapOverlaysModule,
   ],
   controllers: [ComplexController],
   providers: [ComplexService, KrishaComplexParserService],

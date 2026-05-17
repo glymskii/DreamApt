@@ -235,6 +235,24 @@ export interface MapData {
       geometry: { type: "LineString"; coordinates: number[][] };
     }>;
   };
+  // Admin-calibrated overlay configs (raster image corner positions +
+  // opacity). Map renderer reads `overlays.find(o => o.key === ...)`
+  // to position image sources — values are editable in /admin/genplan-align.
+  overlays?: Array<OverlayConfig>;
+}
+
+export interface OverlayConfig {
+  key: string;
+  imageUrl: string;
+  nwLon: number;
+  nwLat: number;
+  neLon: number;
+  neLat: number;
+  seLon: number;
+  seLat: number;
+  swLon: number;
+  swLat: number;
+  opacity: number;
 }
 
 export function useMapData(projectId: string) {

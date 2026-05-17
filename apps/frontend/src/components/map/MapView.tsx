@@ -200,24 +200,29 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
       // The four-corner `coordinates` are an empirical first cut that
       // roughly matches the image's red-dashed admin boundary to the
       // OSM admin boundary; expect to fine-tune by eye.
+      // Pull the admin-calibrated overlay config from the API response,
+      // falling back to the last math-derived bbox if the backend hasn't
+      // seeded yet. Future "genplan-2040" tweaks happen in /admin/
+      // genplan-align and survive without a frontend redeploy.
+      const genplanCfg = (data.overlays || []).find((o) => o.key === "genplan-2040");
+      const coords: [[number, number], [number, number], [number, number], [number, number]] =
+        genplanCfg
+          ? [
+              [genplanCfg.nwLon, genplanCfg.nwLat],
+              [genplanCfg.neLon, genplanCfg.neLat],
+              [genplanCfg.seLon, genplanCfg.seLat],
+              [genplanCfg.swLon, genplanCfg.swLat],
+            ]
+          : [
+              [76.6836, 43.4157],
+              [77.1701, 43.4157],
+              [77.1701, 43.0325],
+              [76.6836, 43.0325],
+            ];
       map.addSource("urban-plan-img", {
         type: "image",
-        url: "/genplan-2040.jpg",
-        // Empirically derived bbox.
-        // First pass (eyeball) was shifted SW. Second pass detected the
-        // INNER bright red dashed boundary, not the outer admin one —
-        // overcorrected NE. Third pass uses a colour filter tuned to
-        // catch the faint pink outer admin boundary itself (r>200,
-        // r-g>15, r-b>15, mask saturation 30+). That gives pixel bbox
-        // [142,35]-[1124,1124] which spans almost the whole image. Solved
-        // linearly against the OSM admin_level=4 bbox (lon 76.7421-
-        // 77.1470, lat 43.0328-43.4038) → these full-image corners.
-        coordinates: [
-          [76.6836, 43.4157], // NW
-          [77.1701, 43.4157], // NE
-          [77.1701, 43.0325], // SE
-          [76.6836, 43.0325], // SW
-        ],
+        url: genplanCfg?.imageUrl || "/genplan-2040.jpg",
+        coordinates: coords,
       });
       map.addLayer({
         id: "urban-plan-img",
@@ -225,11 +230,7 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
         source: "urban-plan-img",
         layout: { visibility: "none" },
         paint: {
-          // Semi-transparent so the base map + ЖК markers still read
-          // through it. 0.65 keeps the year-coloured planning lines
-          // clearly visible while letting the user orient by their
-          // familiar street grid underneath.
-          "raster-opacity": 0.65,
+          "raster-opacity": genplanCfg?.opacity ?? 0.65,
           "raster-fade-duration": 200,
         },
       });

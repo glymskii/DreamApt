@@ -165,6 +165,12 @@ export default function AdminLeadsPage() {
               <span className="hidden sm:inline">Мониторинг</span>
             </Button>
           </Link>
+          <Link href="/admin/genplan-align">
+            <Button variant="outline" size="sm" className="h-8">
+              <span className="hidden sm:inline">Калибровка карты</span>
+              <span className="sm:hidden">Карта</span>
+            </Button>
+          </Link>
         </div>
 
         {leadsQuery.isLoading ? (
