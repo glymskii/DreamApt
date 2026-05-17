@@ -203,17 +203,20 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
       map.addSource("urban-plan-img", {
         type: "image",
         url: "/genplan-2040.jpg",
-        // Derived empirically: detected the outer pink admin boundary in
-        // the raster (pixel bbox [144,56]-[1052,913]) and solved a linear
-        // mapping against the OSM admin_level=4 bbox we already store
-        // (lon [76.7421, 77.1470], lat [43.0328, 43.4038]). The image
-        // has some padding outside the admin boundary so the full-image
-        // corners extrapolate beyond city limits.
+        // Empirically derived bbox.
+        // First pass (eyeball) was shifted SW. Second pass detected the
+        // INNER bright red dashed boundary, not the outer admin one —
+        // overcorrected NE. Third pass uses a colour filter tuned to
+        // catch the faint pink outer admin boundary itself (r>200,
+        // r-g>15, r-b>15, mask saturation 30+). That gives pixel bbox
+        // [142,35]-[1124,1124] which spans almost the whole image. Solved
+        // linearly against the OSM admin_level=4 bbox (lon 76.7421-
+        // 77.1470, lat 43.0328-43.4038) → these full-image corners.
         coordinates: [
-          [76.6779, 43.4280], // NW
-          [77.2041, 43.4280], // NE
-          [77.2041, 42.9410], // SE
-          [76.6779, 42.9410], // SW
+          [76.6836, 43.4157], // NW
+          [77.1701, 43.4157], // NE
+          [77.1701, 43.0325], // SE
+          [76.6836, 43.0325], // SW
         ],
       });
       map.addLayer({
