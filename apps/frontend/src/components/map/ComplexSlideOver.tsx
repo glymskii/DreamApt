@@ -12,6 +12,7 @@ import {
 } from "@/hooks/useComplexes";
 import { useAuth } from "@/hooks/useAuth";
 import { useAuthDialog } from "@/components/auth/auth-dialog";
+import { CommentsSection } from "@/components/comments/CommentsSection";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatPrice, formatArea } from "@/lib/utils";
@@ -659,6 +660,13 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
                   twogisUrl={reviews.twogisUrl}
                 />
               ) : null}
+
+              {/* User-generated discussion (post-OTP feature). Threads-
+                  style: anyone can read, only phone-verified can post +
+                  like. Component handles its own login/verify gates. */}
+              <div className="rounded-lg border bg-muted/20 p-3">
+                <CommentsSection complexId={complex.id} />
+              </div>
 
               {/* Properties list — locked for guests */}
               {!isAuthenticated && (

@@ -143,6 +143,21 @@
     "openOnKrisha": "Открыть на Krisha.kz",
     "loginForDetails": "Войти для подробностей"
   },
+  "comments": {
+    "title": "Обсуждение",
+    "sortNew": "Новые",
+    "sortTop": "Топ",
+    "empty": "Будьте первым — оставьте мнение об этом ЖК",
+    "placeholder": "Что вы думаете об этом ЖК?",
+    "postSubmit": "Отправить",
+    "delete": "Удалить",
+    "deleteConfirm": "Удалить комментарий?",
+    "deletedPlaceholder": "[удалён]",
+    "adminBadge": "Admin",
+    "gatePost": "Войдите, чтобы оставить комментарий",
+    "gateVerify": "Подтвердите номер через Telegram, чтобы комментировать",
+    "gateLike": "Войдите и подтвердите номер, чтобы ставить лайки"
+  },
   "auth": {
     "title": "DreamApt",
     "tabLogin": "Вход",

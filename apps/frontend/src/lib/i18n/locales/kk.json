@@ -139,6 +139,21 @@
     "openOnKrisha": "Krisha.kz-те ашу",
     "loginForDetails": "Толық бетті көру үшін кіру"
   },
+  "comments": {
+    "title": "Талқылау",
+    "sortNew": "Жаңа",
+    "sortTop": "Танымал",
+    "empty": "Бірінші болыңыз — осы ТК туралы пікіріңізді қалдырыңыз",
+    "placeholder": "Осы ТК туралы не ойлайсыз?",
+    "postSubmit": "Жіберу",
+    "delete": "Жою",
+    "deleteConfirm": "Пікірді жою керек пе?",
+    "deletedPlaceholder": "[жойылған]",
+    "adminBadge": "Admin",
+    "gatePost": "Пікір қалдыру үшін кіріңіз",
+    "gateVerify": "Пікір қалдыру үшін нөмірді Telegram арқылы растаңыз",
+    "gateLike": "Лайк басу үшін кіріп, нөмірді растаңыз"
+  },
   "auth": {
     "title": "DreamApt",
     "tabLogin": "Кіру",

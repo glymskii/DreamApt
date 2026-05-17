@@ -11,6 +11,8 @@ import { AirQualityReadingEntity } from "./entities/air-quality-reading.entity";
 import { RequestStatEntity } from "./entities/request-stat.entity";
 import { MapOverlayConfigEntity } from "./entities/map-overlay-config.entity";
 import { OtpCodeEntity } from "./entities/otp-code.entity";
+import { CommentEntity } from "./entities/comment.entity";
+import { CommentLikeEntity } from "./entities/comment-like.entity";
 
 const entities = [
   UserEntity,
@@ -24,6 +26,8 @@ const entities = [
   RequestStatEntity,
   MapOverlayConfigEntity,
   OtpCodeEntity,
+  CommentEntity,
+  CommentLikeEntity,
 ];
 
 @Module({

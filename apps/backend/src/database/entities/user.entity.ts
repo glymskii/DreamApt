@@ -32,6 +32,12 @@ export class UserEntity {
   @Column({ name: "avatar_url", nullable: true })
   avatarUrl: string;
 
+  /** Display name shown in the public UGC surface (comments, likes).
+   *  Optional — when empty, the comments API anonymises to "Аноним ··XX"
+   *  (last 2 digits of phone). Users can pick a name later. */
+  @Column({ name: "display_name", nullable: true, length: 40 })
+  displayName: string;
+
   @Column({ default: "user" })
   role: string; // "admin" | "user"
 

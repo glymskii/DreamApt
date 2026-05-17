@@ -17,6 +17,7 @@ import { AirQualityModule } from "./air-quality/air-quality.module";
 import { MonitoringModule } from "./monitoring/monitoring.module";
 import { MapOverlaysModule } from "./map-overlays/map-overlays.module";
 import { TelegramModule } from "./telegram/telegram.module";
+import { CommentsModule } from "./comments/comments.module";
 import { HealthController } from "./health.controller";
 
 @Module({
@@ -51,6 +52,7 @@ import { HealthController } from "./health.controller";
     MonitoringModule,
     MapOverlaysModule,
     TelegramModule,
+    CommentsModule,
   ],
   controllers: [HealthController],
   providers: [
