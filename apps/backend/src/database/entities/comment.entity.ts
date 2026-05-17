@@ -36,8 +36,11 @@ export class CommentEntity {
   @Column({ type: "text" })
   text: string;
 
-  /** Optional reply parent — flat threads only for MVP (one level deep). */
-  @Column({ name: "parent_id", nullable: true })
+  /** Optional reply parent — flat threads only for MVP (one level deep).
+   *  Explicit `type: "uuid"` because TypeScript reflection sees
+   *  `string | null` as Object and TypeORM can't infer the Postgres type
+   *  otherwise — schema sync would fail with DataTypeNotSupportedError. */
+  @Column({ name: "parent_id", type: "uuid", nullable: true })
   parentId: string | null;
 
   /** Denormalised counter, maintained by service.like / service.unlike. */

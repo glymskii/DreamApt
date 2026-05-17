@@ -57,7 +57,10 @@ export class AccessRequestEntity {
   @Column({ name: "processed_at", type: "timestamp", nullable: true })
   processedAt: Date | null;
 
-  @Column({ name: "processed_by", nullable: true })
+  /** Admin who processed the request. Explicit `type: "uuid"` because
+   *  `string | null` reflects as Object at runtime — without this TypeORM
+   *  can't infer the Postgres column type. */
+  @Column({ name: "processed_by", type: "uuid", nullable: true })
   processedBy: string | null;
 
   @CreateDateColumn({ name: "created_at" })
