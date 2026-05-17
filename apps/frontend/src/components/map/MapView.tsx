@@ -203,11 +203,17 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
       map.addSource("urban-plan-img", {
         type: "image",
         url: "/genplan-2040.jpg",
+        // Derived empirically: detected the outer pink admin boundary in
+        // the raster (pixel bbox [144,56]-[1052,913]) and solved a linear
+        // mapping against the OSM admin_level=4 bbox we already store
+        // (lon [76.7421, 77.1470], lat [43.0328, 43.4038]). The image
+        // has some padding outside the admin boundary so the full-image
+        // corners extrapolate beyond city limits.
         coordinates: [
-          [76.62, 43.45], // top-left (NW)
-          [77.22, 43.45], // top-right (NE)
-          [77.22, 43.04], // bottom-right (SE)
-          [76.62, 43.04], // bottom-left (SW)
+          [76.6779, 43.4280], // NW
+          [77.2041, 43.4280], // NE
+          [77.2041, 42.9410], // SE
+          [76.6779, 42.9410], // SW
         ],
       });
       map.addLayer({
