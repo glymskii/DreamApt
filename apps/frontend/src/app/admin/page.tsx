@@ -25,9 +25,17 @@ import {
   type AccessRequestType,
 } from "@/hooks/useAccessRequests";
 import {
+  useProblematicList,
+  useSyncAkimatList,
+  useAddProblematicManual,
+  useUnflagProblematic,
+  type SyncReport,
+} from "@/hooks/useProblematicComplexes";
+import {
   ArrowLeft, Phone, CheckCircle2, XCircle, Copy, Loader2, Clock,
   Shield, BarChart3, Users, KeyRound, MessageCircle, Search,
-  ChevronLeft, ChevronRight,
+  ChevronLeft, ChevronRight, AlertTriangle, Plus, Trash2, RefreshCcw,
+  ExternalLink,
 } from "lucide-react";
 
 // ── Legacy (password-flow) leads ────────────────────────────────────
@@ -52,7 +60,7 @@ const LEAD_STATUS: Record<string, { label: string; className: string }> = {
 
 // ──────────────────────────────────────────────────────────────────────
 
-type Tab = "users" | "requests" | "leads";
+type Tab = "users" | "requests" | "problematic" | "leads";
 
 export default function AdminPage() {
   const router = useRouter();
@@ -127,6 +135,9 @@ export default function AdminPage() {
           <TabButton active={tab === "requests"} onClick={() => setTab("requests")} icon={<KeyRound className="h-3.5 w-3.5" />}>
             Запросы доступа
           </TabButton>
+          <TabButton active={tab === "problematic"} onClick={() => setTab("problematic")} icon={<AlertTriangle className="h-3.5 w-3.5" />}>
+            Проблемные ЖК
+          </TabButton>
           <TabButton active={tab === "leads"} onClick={() => setTab("leads")} icon={<MessageCircle className="h-3.5 w-3.5" />}>
             Регистрация (legacy)
           </TabButton>
@@ -134,6 +145,7 @@ export default function AdminPage() {
 
         {tab === "users" && <UsersTab />}
         {tab === "requests" && <AccessRequestsTab />}
+        {tab === "problematic" && <ProblematicTab />}
         {tab === "leads" && <LeadsTab />}
       </main>
     </div>
@@ -497,7 +509,301 @@ function AccessRequestsTab() {
   );
 }
 
-// ── Tab 3: Legacy leads (password-flow) ───────────────────────────────
+// ── Tab 3: Problematic complexes (akimat blacklist) ───────────────────
+
+function ProblematicTab() {
+  const { data, isLoading } = useProblematicList();
+  const sync = useSyncAkimatList();
+  const addManual = useAddProblematicManual();
+  const unflag = useUnflagProblematic();
+  const [lastReport, setLastReport] = useState<SyncReport | null>(null);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [form, setForm] = useState({
+    name: "",
+    district: "",
+    address: "",
+    reason: "",
+    sourceUrl: "",
+  });
+  const [addError, setAddError] = useState("");
+
+  const runSync = async () => {
+    setLastReport(null);
+    try {
+      const report = await sync.mutateAsync();
+      setLastReport(report);
+    } catch (err: any) {
+      alert(err?.message || "Не удалось синхронизировать список");
+    }
+  };
+
+  const handleManualAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAddError("");
+    if (!form.name.trim()) {
+      setAddError("Название обязательно");
+      return;
+    }
+    try {
+      await addManual.mutateAsync({
+        name: form.name.trim(),
+        district: form.district.trim() || undefined,
+        address: form.address.trim() || undefined,
+        reason: form.reason.trim() || undefined,
+        sourceUrl: form.sourceUrl.trim() || undefined,
+      });
+      setForm({ name: "", district: "", address: "", reason: "", sourceUrl: "" });
+      setShowAddForm(false);
+    } catch (err: any) {
+      setAddError(err?.message || "Не удалось добавить");
+    }
+  };
+
+  const handleUnflag = (id: string, isStub: boolean) => {
+    const msg = isStub
+      ? "Удалить эту запись? Она была создана автоматически — будет удалена полностью."
+      : "Открепить флаг «проблемный» с этого ЖК?";
+    if (!confirm(msg)) return;
+    unflag.mutate(id);
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Action bar */}
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-card p-3">
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium">Список акимата от 12.07.2025</p>
+          <p className="text-[11px] text-muted-foreground">
+            28 объектов из пресс-релиза УГАСК. Импорт идемпотентен — повторный
+            запуск только обновит метаданные, дубли не создаст.
+          </p>
+        </div>
+        <div className="flex gap-2 shrink-0">
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8"
+            onClick={() => setShowAddForm((v) => !v)}
+          >
+            <Plus className="h-3.5 w-3.5 mr-1" />
+            Добавить вручную
+          </Button>
+          <Button
+            size="sm"
+            className="h-8"
+            onClick={runSync}
+            disabled={sync.isPending}
+          >
+            {sync.isPending ? (
+              <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+            ) : (
+              <RefreshCcw className="h-3.5 w-3.5 mr-1" />
+            )}
+            Импортировать из акимата
+          </Button>
+        </div>
+      </div>
+
+      {/* Sync report */}
+      {lastReport && (
+        <div className="rounded-lg border bg-muted/40 p-3 text-xs space-y-1">
+          <p className="font-medium">
+            Импорт завершён · {lastReport.total} объектов
+          </p>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-muted-foreground">
+            <span>✓ {lastReport.matched} помечено</span>
+            <span>↻ {lastReport.alreadyFlagged} уже были</span>
+            <span>+ {lastReport.stubsCreated} карточек-заглушек создано</span>
+            {lastReport.failures.length > 0 && (
+              <span className="text-rose-600">✕ {lastReport.failures.length} ошибок</span>
+            )}
+          </div>
+          {lastReport.failures.length > 0 && (
+            <details className="mt-2">
+              <summary className="cursor-pointer">Показать ошибки</summary>
+              <ul className="mt-1 space-y-0.5 pl-4">
+                {lastReport.failures.map((f, i) => (
+                  <li key={i}>
+                    <span className="font-mono">{f.name}</span> — {f.reason}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </div>
+      )}
+
+      {/* Manual-add form */}
+      {showAddForm && (
+        <form
+          onSubmit={handleManualAdd}
+          className="rounded-lg border bg-card p-3 space-y-2"
+        >
+          <p className="text-sm font-medium">Добавить вручную</p>
+          <Input
+            placeholder="Название ЖК (обязательно)"
+            value={form.name}
+            onChange={(e) => setForm({ ...form, name: e.target.value })}
+            className="h-9 text-sm"
+          />
+          <div className="grid grid-cols-2 gap-2">
+            <Input
+              placeholder="Район"
+              value={form.district}
+              onChange={(e) => setForm({ ...form, district: e.target.value })}
+              className="h-9 text-sm"
+            />
+            <Input
+              placeholder="Адрес"
+              value={form.address}
+              onChange={(e) => setForm({ ...form, address: e.target.value })}
+              className="h-9 text-sm"
+            />
+          </div>
+          <Input
+            placeholder="Причина (опционально)"
+            value={form.reason}
+            onChange={(e) => setForm({ ...form, reason: e.target.value })}
+            className="h-9 text-sm"
+          />
+          <Input
+            placeholder="URL источника (опционально)"
+            value={form.sourceUrl}
+            onChange={(e) => setForm({ ...form, sourceUrl: e.target.value })}
+            className="h-9 text-sm"
+          />
+          {addError && <p className="text-xs text-rose-600">{addError}</p>}
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={() => setShowAddForm(false)}
+            >
+              Отмена
+            </Button>
+            <Button
+              type="submit"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              disabled={addManual.isPending}
+            >
+              {addManual.isPending && (
+                <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+              )}
+              Сохранить
+            </Button>
+          </div>
+        </form>
+      )}
+
+      {/* List */}
+      {isLoading ? (
+        <div className="text-center py-12">
+          <Loader2 className="h-6 w-6 mx-auto animate-spin text-muted-foreground" />
+        </div>
+      ) : !data || data.length === 0 ? (
+        <p className="text-center py-12 text-sm text-muted-foreground">
+          Помеченных ЖК нет. Нажмите «Импортировать из акимата» чтобы загрузить
+          актуальный список.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {data.map((row) => (
+            <div
+              key={row.id}
+              className="flex flex-col sm:flex-row sm:items-start gap-3 p-3 rounded-lg border bg-card"
+            >
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm font-medium">
+                    {row.displayName || row.name}
+                  </span>
+                  {row.isStub && (
+                    <Badge
+                      variant="outline"
+                      className="text-[10px] py-0 text-amber-700 border-amber-300 dark:text-amber-300 dark:border-amber-800"
+                    >
+                      stub
+                    </Badge>
+                  )}
+                  {row.district && (
+                    <span className="text-[10px] text-muted-foreground">
+                      {row.district}
+                    </span>
+                  )}
+                </div>
+                {row.problematicSourceName &&
+                  row.problematicSourceName !== row.displayName && (
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      В акимате: «{row.problematicSourceName}»
+                    </p>
+                  )}
+                {row.problematicAddress && (
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    {row.problematicAddress}
+                  </p>
+                )}
+                {row.problematicReason && (
+                  <p className="mt-2 text-xs text-foreground/80 bg-muted/40 rounded p-2">
+                    {row.problematicReason}
+                  </p>
+                )}
+                <div className="flex items-center gap-3 mt-2 text-[11px] text-muted-foreground">
+                  {row.problematicUpdatedAt && (
+                    <span className="flex items-center gap-1">
+                      <Clock className="h-3 w-3" />
+                      {new Date(row.problematicUpdatedAt).toLocaleDateString(
+                        "ru-RU",
+                        { day: "2-digit", month: "short", year: "numeric" },
+                      )}
+                    </span>
+                  )}
+                  {row.problematicSourceUrl &&
+                    row.problematicSourceUrl !== "manual" && (
+                      <a
+                        href={row.problematicSourceUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1 underline hover:text-foreground"
+                      >
+                        <ExternalLink className="h-3 w-3" />
+                        источник
+                      </a>
+                    )}
+                </div>
+              </div>
+              <div className="flex gap-2 shrink-0">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8"
+                  onClick={() => handleUnflag(row.id, row.isStub)}
+                  disabled={unflag.isPending}
+                >
+                  {row.isStub ? (
+                    <>
+                      <Trash2 className="h-3.5 w-3.5 mr-1" />
+                      Удалить
+                    </>
+                  ) : (
+                    <>
+                      <XCircle className="h-3.5 w-3.5 mr-1" />
+                      Открепить
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Tab 4: Legacy leads (password-flow) ───────────────────────────────
 
 function LeadsTab() {
   const queryClient = useQueryClient();

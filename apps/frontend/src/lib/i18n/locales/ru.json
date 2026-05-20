@@ -62,7 +62,8 @@
     "seismicDanger": "Близко к разлому",
     "seismicWatch": "Умеренная близость",
     "seismicLow": "Стандартный риск города",
-    "seismicSafe": "Минимальный риск"
+    "seismicSafe": "Минимальный риск",
+    "problematicBadge": "Акимат не рекомендует покупку"
   },
   "sidebar": {
     "searchPlaceholder": "Поиск ЖК…",
@@ -101,6 +102,9 @@
     "floorsCount_one": "{{count}} этаж",
     "floorsCount_few": "{{count}} этажа",
     "floorsCount_many": "{{count}} этажей",
+    "problematicTitle": "Акимат не рекомендует покупку",
+    "problematicUpdated": "Список от {{date}}",
+    "problematicSource": "Источник →",
     "ratingTitle": "Оценка ЖК",
     "scoreInfra": "Инфраструктура",
     "scoreLifestyle": "Образ жизни",

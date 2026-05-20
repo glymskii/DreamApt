@@ -170,6 +170,44 @@ export class ResidentialComplexEntity {
   @Column({ name: "photo_url", type: "text", nullable: true })
   photoUrl: string;
 
+  // ── Problematic-complex flag ──
+  //
+  // Drives the red "акимат не рекомендует покупку" badge on the map and
+  // the warning banner in the slide-over. Set by the
+  // ProblematicComplexesService — either auto-matched from an akimat
+  // press-release sync (akimat-list-*.ts seed) or added manually through
+  // /admin/problematic. The 4 metadata columns let admins audit/revoke.
+  @Column({ name: "is_problematic", default: false })
+  isProblematic: boolean;
+
+  // Original ЖК name from the akimat list. Stored verbatim so the
+  // admin can verify the fuzzy-match was correct.
+  @Column({ name: "problematic_source_name", type: "text", nullable: true })
+  problematicSourceName: string | null;
+
+  // Address as published by the akimat — different format from our
+  // Krisha-derived address, kept separately for transparency.
+  @Column({ name: "problematic_address", type: "text", nullable: true })
+  problematicAddress: string | null;
+
+  @Column({ name: "problematic_reason", type: "text", nullable: true })
+  problematicReason: string | null;
+
+  // URL of the akimat press release that flagged this ЖК.
+  @Column({ name: "problematic_source_url", type: "text", nullable: true })
+  problematicSourceUrl: string | null;
+
+  @Column({ name: "problematic_updated_at", type: "timestamp", nullable: true })
+  problematicUpdatedAt: Date | null;
+
+  // True if this row was auto-created by the akimat-sync because no
+  // existing ЖК matched the published name+address. Stubs have no
+  // Krisha data / price aggregates / score — they exist purely to
+  // surface the warning on the map. Admins can delete a stub if they
+  // decide the auto-match was wrong.
+  @Column({ name: "is_stub", default: false })
+  isStub: boolean;
+
   @CreateDateColumn({ name: "created_at" })
   createdAt: Date;
 

@@ -61,11 +61,23 @@ export class ComplexService {
         "yearBuilt",
         "airQualityPm25", "airQualityLevel", "airQualityStation",
         "twogisRating", "twogisReviewCount",
+        // Surfaces the akimat "проблемный" badge on map markers + warning
+        // banner in the slide-over. Stubs (auto-created on miss) have
+        // isStub=true and no Krisha aggregates.
+        "isProblematic", "problematicReason", "problematicSourceUrl",
+        "problematicUpdatedAt", "isStub",
       ],
     });
 
     // Deduplicate by normalized name — keep the one with highest score
-    // Also filter to Almaty bounds only
+    // Also filter to Almaty bounds only.
+    //
+    // When picking the survivor we OR the isProblematic flag across
+    // duplicates: a stub may share its normalized name with a later-
+    // discovered real complex; the real one usually has a higher score
+    // and wins the dedup, but we must not silently drop the akimat
+    // warning. Same for the metadata columns — admin would lose the
+    // source link otherwise.
     const dedupMap = new Map<string, ResidentialComplexEntity>();
     for (const c of all) {
       if (!c.lat || !c.lng) continue;
@@ -74,7 +86,18 @@ export class ComplexService {
       const key = c.name.toLowerCase().trim();
       const existing = dedupMap.get(key);
       if (!existing || (Number(c.scoreTotal) || 0) > (Number(existing.scoreTotal) || 0)) {
+        if (existing?.isProblematic && !c.isProblematic) {
+          c.isProblematic = true;
+          c.problematicReason = existing.problematicReason;
+          c.problematicSourceUrl = existing.problematicSourceUrl;
+          c.problematicUpdatedAt = existing.problematicUpdatedAt;
+        }
         dedupMap.set(key, c);
+      } else if (c.isProblematic && !existing.isProblematic) {
+        existing.isProblematic = true;
+        existing.problematicReason = c.problematicReason;
+        existing.problematicSourceUrl = c.problematicSourceUrl;
+        existing.problematicUpdatedAt = c.problematicUpdatedAt;
       }
     }
 

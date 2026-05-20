@@ -562,6 +562,11 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
           district: c.district,
           scoreColor: getScoreColor(c.scoreTotal),
           seismicColor: getSeismicColor(c.seismicRiskLevel),
+          // Akimat-flagged: drives the red ring + crimson fill on the
+          // marker. Even when the ЖК scores well on seismic / commute we
+          // override the colour — the "не покупайте" signal trumps
+          // everything else on the map.
+          problematic: c.isProblematic ? 1 : 0,
         },
       }));
 
@@ -575,11 +580,30 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
         type: "circle",
         source: "complexes",
         paint: {
-          "circle-radius": ["interpolate", ["linear"], ["get", "listings"], 1, 8, 5, 12, 10, 16, 20, 20],
-          "circle-color": ["get", "seismicColor"],
+          // Stubs may have listingsCount=0; bump the floor radius up so
+          // they're still tappable on mobile.
+          "circle-radius": [
+            "case",
+            ["==", ["get", "problematic"], 1],
+            ["interpolate", ["linear"], ["get", "listings"], 0, 11, 1, 11, 5, 13, 10, 16, 20, 20],
+            ["interpolate", ["linear"], ["get", "listings"], 1, 8, 5, 12, 10, 16, 20, 20],
+          ],
+          "circle-color": [
+            "case",
+            ["==", ["get", "problematic"], 1], "#dc2626", // crimson — акимат пометил
+            ["get", "seismicColor"],
+          ],
           "circle-opacity": 0.85,
-          "circle-stroke-width": 2,
-          "circle-stroke-color": "#fff",
+          "circle-stroke-width": [
+            "case",
+            ["==", ["get", "problematic"], 1], 3,
+            2,
+          ],
+          "circle-stroke-color": [
+            "case",
+            ["==", ["get", "problematic"], 1], "#7f1d1d", // dark crimson ring
+            "#fff",
+          ],
         },
       });
 
@@ -669,6 +693,18 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
                       css: "color:#888;margin-left:auto",
                       text: `${seismicDistStr} ${tRef.current("map.toFault")}`,
                     }),
+                  ],
+                })
+              : null,
+            // Pinned at the bottom so it visually anchors the popup and is
+            // the last thing the eye lands on before the user clicks. All
+            // text comes from i18n — no attacker-controlled fields here.
+            props.problematic
+              ? el("div", {
+                  css: "display:flex;align-items:center;gap:6px;margin-top:6px;padding:6px 8px;border-radius:6px;font-size:11px;font-weight:600;background:#fef2f2;color:#7f1d1d;border:1px solid #fecaca",
+                  children: [
+                    el("span", { css: "font-size:13px", text: "⚠️" }),
+                    el("span", { text: tRef.current("map.problematicBadge") }),
                   ],
                 })
               : null,

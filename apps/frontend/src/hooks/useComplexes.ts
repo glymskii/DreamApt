@@ -39,6 +39,17 @@ export interface ResidentialComplex {
   groupingMethod: string | null;
   scoringExplanation: string | null;
   photoUrl: string | null;
+  // Акимат пометил ЖК как проблемный — нет полного пакета разрешительной
+  // документации либо стройка идёт с отклонениями. Surfaced as a red
+  // marker style on the map + warning banner in the slide-over.
+  isProblematic?: boolean;
+  problematicReason?: string | null;
+  problematicSourceUrl?: string | null;
+  problematicUpdatedAt?: string | null;
+  // True for auto-created stubs (akimat-listed но в нашем классификаторе
+  // не нашлось ничего похожего). Used by the slide-over to suppress
+  // empty Krisha sections (no listings/scores to show).
+  isStub?: boolean;
   createdAt: string;
 }
 
@@ -188,6 +199,11 @@ export interface MapData {
     airQualityStation: string | null;
     twogisRating: number | null;
     twogisReviewCount: number | null;
+    isProblematic?: boolean;
+    problematicReason?: string | null;
+    problematicSourceUrl?: string | null;
+    problematicUpdatedAt?: string | null;
+    isStub?: boolean;
   }>;
   airStations?: AirStation[];
   faultLines: Array<{

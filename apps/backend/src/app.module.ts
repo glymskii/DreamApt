@@ -19,6 +19,7 @@ import { MapOverlaysModule } from "./map-overlays/map-overlays.module";
 import { TelegramModule } from "./telegram/telegram.module";
 import { CommentsModule } from "./comments/comments.module";
 import { AccessControlModule } from "./access-control/access-control.module";
+import { ProblematicComplexesModule } from "./problematic-complexes/problematic-complexes.module";
 import { HealthController } from "./health.controller";
 
 @Module({
@@ -55,6 +56,7 @@ import { HealthController } from "./health.controller";
     TelegramModule,
     CommentsModule,
     AccessControlModule,
+    ProblematicComplexesModule,
   ],
   controllers: [HealthController],
   providers: [

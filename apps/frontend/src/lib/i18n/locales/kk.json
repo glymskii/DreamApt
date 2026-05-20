@@ -61,7 +61,8 @@
     "seismicDanger": "Жарыққа жақын",
     "seismicWatch": "Орташа жақындық",
     "seismicLow": "Қала үшін стандартты",
-    "seismicSafe": "Минималды жақындық"
+    "seismicSafe": "Минималды жақындық",
+    "problematicBadge": "Әкімдік сатып алуды ұсынбайды"
   },
   "sidebar": {
     "searchPlaceholder": "ТК іздеу…",
@@ -98,6 +99,9 @@
     "floors": "Қабат саны",
     "floorsCount_one": "{{count}} қабат",
     "floorsCount_other": "{{count}} қабат",
+    "problematicTitle": "Әкімдік сатып алуды ұсынбайды",
+    "problematicUpdated": "Тізім {{date}}",
+    "problematicSource": "Дереккөз →",
     "ratingTitle": "ТК бағасы",
     "scoreInfra": "Инфрақұрылым",
     "scoreLifestyle": "Өмір салты",

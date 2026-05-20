@@ -299,7 +299,7 @@ interface Props {
 }
 
 export function ComplexSlideOver({ complexId, onClose }: Props) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { isAuthenticated, user } = useAuth();
   const authDialog = useAuthDialog();
   const [expertModalOpen, setExpertModalOpen] = useState(false);
@@ -391,6 +391,50 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
                   </Badge>
                 )}
               </div>
+
+              {/* Akimat warning banner — placed above all other sections so
+                  the user sees it before scrolling into prices/reviews. The
+                  source link points at the originating press release so the
+                  user can verify the data is current. */}
+              {complex.isProblematic && (
+                <div className="rounded-lg border border-red-300 dark:border-red-900 bg-red-50 dark:bg-red-950/40 p-3">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="h-4 w-4 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-red-700 dark:text-red-300">
+                        {t("complex.problematicTitle")}
+                      </p>
+                      {complex.problematicReason && (
+                        <p className="text-xs text-red-800/90 dark:text-red-200/90 mt-1 leading-snug">
+                          {complex.problematicReason}
+                        </p>
+                      )}
+                      <div className="flex items-center gap-3 mt-2 text-[11px] text-red-700/80 dark:text-red-300/80">
+                        {complex.problematicUpdatedAt && (
+                          <span>
+                            {t("complex.problematicUpdated", {
+                              date: new Date(complex.problematicUpdatedAt).toLocaleDateString(
+                                i18n.language?.startsWith("kk") ? "kk-KZ" : "ru-RU",
+                                { day: "numeric", month: "long", year: "numeric" },
+                              ),
+                            })}
+                          </span>
+                        )}
+                        {complex.problematicSourceUrl && (
+                          <a
+                            href={complex.problematicSourceUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="underline hover:text-red-900 dark:hover:text-red-100"
+                          >
+                            {t("complex.problematicSource")}
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Stats row. The "До работы" cell is gated behind auth — for
                   guests the commute is calculated against a project-wide
