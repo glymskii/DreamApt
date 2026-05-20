@@ -21,9 +21,16 @@ import {
   Activity,
   Wind,
   Star,
+  AlertTriangle,
+  Route,
+  MessageSquare,
+  Sparkles,
 } from "lucide-react";
 
-const STORAGE_KEY = "dreamapt-onboarding-seen-v1";
+// Bump the key whenever a new step is added so existing users re-see
+// the dialog and don't miss the announcement. We're explicit about the
+// version number to keep the LocalStorage history readable.
+const STORAGE_KEY = "dreamapt-onboarding-seen-v2";
 
 interface OnboardingContextValue {
   /** Open the dialog manually (e.g. from a "Show again" link). */
@@ -71,7 +78,7 @@ export function OnboardingProvider({ children }: { children: React.ReactNode }) 
   );
 }
 
-const TOTAL_STEPS = 4;
+const TOTAL_STEPS = 5;
 
 function OnboardingDialog({ onClose }: { onClose: () => void }) {
   const { t, i18n } = useTranslation();
@@ -216,14 +223,60 @@ function OnboardingDialog({ onClose }: { onClose: () => void }) {
           )}
 
           {step === 3 && (
+            <div className="space-y-4">
+              <div className="mx-auto h-14 w-14 rounded-2xl bg-rose-100 dark:bg-rose-950 text-rose-600 dark:text-rose-400 flex items-center justify-center">
+                <Sparkles className="h-7 w-7" />
+              </div>
+              <div className="text-center">
+                <h2 className="text-xl font-bold">{t("onboarding.step4Title")}</h2>
+                <p className="text-sm text-muted-foreground mt-2">
+                  {t("onboarding.step4Sub")}
+                </p>
+              </div>
+              {/* Three feature cards — same visual rhythm as step 3, swap
+                  data sources for product features added in May 2026:
+                  akimat blacklist + 2040 master plan + comments. */}
+              <ul className="space-y-2.5 mt-3">
+                <li className="flex items-start gap-3 p-3 rounded-lg border bg-muted/30">
+                  <AlertTriangle className="h-5 w-5 text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold">{t("onboarding.step4Feat1Title")}</p>
+                    <p className="text-[11px] text-muted-foreground leading-snug mt-0.5">
+                      {t("onboarding.step4Feat1Sub")}
+                    </p>
+                  </div>
+                </li>
+                <li className="flex items-start gap-3 p-3 rounded-lg border bg-muted/30">
+                  <Route className="h-5 w-5 text-orange-600 dark:text-orange-400 shrink-0 mt-0.5" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold">{t("onboarding.step4Feat2Title")}</p>
+                    <p className="text-[11px] text-muted-foreground leading-snug mt-0.5">
+                      {t("onboarding.step4Feat2Sub")}
+                    </p>
+                  </div>
+                </li>
+                <li className="flex items-start gap-3 p-3 rounded-lg border bg-muted/30">
+                  <MessageSquare className="h-5 w-5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold">{t("onboarding.step4Feat3Title")}</p>
+                    <p className="text-[11px] text-muted-foreground leading-snug mt-0.5">
+                      {t("onboarding.step4Feat3Sub")}
+                    </p>
+                  </div>
+                </li>
+              </ul>
+            </div>
+          )}
+
+          {step === 4 && (
             <div className="text-center space-y-4">
               <div className="mx-auto h-14 w-14 rounded-2xl bg-amber-100 dark:bg-amber-950 text-amber-600 dark:text-amber-400 flex items-center justify-center">
                 <KeyRound className="h-7 w-7" />
               </div>
               <div>
-                <h2 className="text-xl font-bold">{t("onboarding.step4Title")}</h2>
+                <h2 className="text-xl font-bold">{t("onboarding.step5Title")}</h2>
                 <p className="text-sm text-muted-foreground mt-2">
-                  {t("onboarding.step4Sub")}
+                  {t("onboarding.step5Sub")}
                 </p>
               </div>
             </div>
