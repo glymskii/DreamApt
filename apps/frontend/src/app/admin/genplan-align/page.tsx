@@ -9,44 +9,43 @@ import { useAuth } from "@/hooks/useAuth";
 import { api, ApiUnauthorizedError } from "@/lib/api-client";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Save, RotateCcw, Loader2 } from "lucide-react";
+import { ArrowLeft, Save, RotateCcw, Loader2, Move, Maximize2, RotateCw } from "lucide-react";
 
 /**
- * Interactive admin tool for calibrating the genplan-2040 raster overlay.
+ * Admin tool for calibrating a raster overlay (genplan / ПДП) onto the map.
  *
- * The four corners (NW/NE/SE/SW) of the image are draggable markers on
- * a MapLibre map. Dragging a corner updates the image source's
- * coordinates in real time so the admin sees the warp as it happens.
- * Side panel shows the current numeric lat/lng of each corner (live
- * via map.dragstart/drag/dragend) plus an opacity slider.
+ * RIGID transform model — the image keeps its native aspect ratio and is
+ * never sheared. The operator controls only three things:
+ *   • перемещение  — drag the centre marker (или поля lat/lng)
+ *   • размер       — drag the orange handle / ширина-слайдер (масштаб, пропорции сохраняются)
+ *   • поворот      — drag the orange handle vокруг центра / слайдер
  *
- * "Save" writes back via PUT /api/admin/map-overlays/genplan-2040 and
- * invalidates the local map-data cache so the public dashboard picks
- * up the new bbox on next refresh.
- *
- * Why drag-corners and not tie-points (image-pixel → map-coord pairs):
- * MapLibre's image source already takes 4 corners directly — no warp
- * solver needed on our side. The admin can also just edit numbers in
- * the side panel for fine sub-meter tuning.
+ * Internally we store {centre, widthKm, rotation} + the image's natural
+ * aspect, and derive the 4 MapLibre image-source corners from them. On
+ * save we PUT those 4 corners (backend + dashboard render are unchanged —
+ * they still consume 4 corners, which now always form a rigid rotated
+ * rectangle). On load we decompose existing corners back into the
+ * transform; height is re-derived from the image aspect so a previously
+ * sheared overlay snaps back to correct proportions.
  */
 
 interface OverlayConfig {
   key: string;
   imageUrl: string;
-  nwLon: number;
-  nwLat: number;
-  neLon: number;
-  neLat: number;
-  seLon: number;
-  seLat: number;
-  swLon: number;
-  swLat: number;
+  nwLon: number; nwLat: number;
+  neLon: number; neLat: number;
+  seLon: number; seLat: number;
+  swLon: number; swLat: number;
   opacity: number;
 }
 
-/** Overlay keys this page can calibrate + their display titles + the
- *  fallback image used only if the API GET fails. The active overlay is
- *  chosen via ?key=<key> (defaults to genplan-2040). */
+interface Transform {
+  centerLng: number;
+  centerLat: number;
+  widthKm: number;
+  rotDeg: number; // clockwise-positive
+}
+
 const OVERLAY_META: Record<string, { title: string; imageUrl: string }> = {
   "genplan-2040": { title: "Генплан 2040", imageUrl: "/genplan-2040.jpg" },
   "pdp-aksay-zhetysu": { title: "ПДП Аксай / Жетысу (401 га)", imageUrl: "/pdp-aksay-zhetysu.jpg" },
@@ -54,6 +53,47 @@ const OVERLAY_META: Record<string, { title: string; imageUrl: string }> = {
   "pdp-sairan": { title: "ПДП Сайран (977 га)", imageUrl: "/pdp-sairan.jpg" },
 };
 const DEFAULT_KEY = "genplan-2040";
+
+const M_PER_DEG_LAT = 110574;
+const mPerDegLng = (lat: number) => 111320 * Math.cos((lat * Math.PI) / 180);
+
+type CornersTuple = [[number, number], [number, number], [number, number], [number, number]];
+
+/** Rigid transform → 4 corners [NW, NE, SE, SW]. Aspect = imgHeight/imgWidth.
+ *  Rotation applied in a local metric frame so it stays visually true
+ *  despite lng-degree compression at Almaty's latitude. */
+function cornersFromTransform(t: Transform, aspect: number): CornersTuple {
+  const halfW = (t.widthKm * 1000) / 2;
+  const halfH = halfW * aspect;
+  const th = (t.rotDeg * Math.PI) / 180;
+  const cos = Math.cos(th), sin = Math.sin(th);
+  const mLng = mPerDegLng(t.centerLat), mLat = M_PER_DEG_LAT;
+  const pts: [number, number][] = [
+    [-halfW, halfH], // NW
+    [halfW, halfH],  // NE
+    [halfW, -halfH], // SE
+    [-halfW, -halfH],// SW
+  ];
+  return pts.map(([x, y]) => {
+    const xr = x * cos + y * sin;   // clockwise-positive
+    const yr = -x * sin + y * cos;
+    return [t.centerLng + xr / mLng, t.centerLat + yr / mLat];
+  }) as CornersTuple;
+}
+
+/** Existing 4 corners → rigid transform. Height/aspect is intentionally
+ *  ignored here (re-derived from the real image), so a stored sheared
+ *  rectangle decomposes to the closest rigid placement. */
+function transformFromConfig(c: OverlayConfig): Transform {
+  const centerLng = (c.nwLon + c.neLon + c.seLon + c.swLon) / 4;
+  const centerLat = (c.nwLat + c.neLat + c.seLat + c.swLat) / 4;
+  const mLng = mPerDegLng(centerLat), mLat = M_PER_DEG_LAT;
+  const dx = (c.neLon - c.nwLon) * mLng;
+  const dy = (c.neLat - c.nwLat) * mLat;
+  const widthKm = Math.max(0.2, Math.hypot(dx, dy) / 1000);
+  const rotDeg = -(Math.atan2(dy, dx) * 180) / Math.PI;
+  return { centerLng, centerLat, widthKm, rotDeg };
+}
 
 export default function GenplanAlignPage() {
   // useSearchParams must sit under a Suspense boundary in the App Router.
@@ -73,180 +113,203 @@ function GenplanAlignInner() {
 
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
-  const markersRef = useRef<maplibregl.Marker[]>([]);
-  const cfgRef = useRef<OverlayConfig | null>(null);
+  const centerMarkerRef = useRef<maplibregl.Marker | null>(null);
+  const handleMarkerRef = useRef<maplibregl.Marker | null>(null);
+  const tRef = useRef<Transform | null>(null);
+  const aspectRef = useRef<number>(1.5);
+  const imageUrlRef = useRef<string>("");
 
-  const [cfg, setCfg] = useState<OverlayConfig | null>(null);
-  const [opacity, setOpacity] = useState(0.65);
+  const [ready, setReady] = useState(false);
+  const [t, setT] = useState<Transform | null>(null);
+  const [aspect, setAspect] = useState(1.5);
+  const [opacity, setOpacity] = useState(0.7);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
+  const initialRef = useRef<Transform | null>(null);
 
   // Admin gate
   useEffect(() => {
-    if (!authLoading && (!user || user.role !== "admin")) {
-      router.replace("/");
-    }
+    if (!authLoading && (!user || user.role !== "admin")) router.replace("/");
   }, [user, authLoading, router]);
 
-  // Load current config
+  // Load config + image aspect together, then mark ready.
   useEffect(() => {
     if (!user || user.role !== "admin") return;
+    let cancelled = false;
+    setReady(false);
+
+    const apply = (cfg: OverlayConfig) => {
+      const tr = transformFromConfig(cfg);
+      const img = new window.Image();
+      img.onload = () => {
+        if (cancelled) return;
+        const asp = img.naturalHeight / img.naturalWidth || 1.5;
+        aspectRef.current = asp;
+        imageUrlRef.current = cfg.imageUrl;
+        tRef.current = tr;
+        initialRef.current = tr;
+        setAspect(asp);
+        setT(tr);
+        setOpacity(cfg.opacity);
+        setReady(true);
+      };
+      img.onerror = () => {
+        if (cancelled) return;
+        aspectRef.current = 1.5;
+        imageUrlRef.current = cfg.imageUrl;
+        tRef.current = tr;
+        initialRef.current = tr;
+        setT(tr);
+        setOpacity(cfg.opacity);
+        setReady(true);
+      };
+      img.src = cfg.imageUrl;
+    };
+
     api.get<OverlayConfig>(`/map-overlays/${KEY}`)
-      .then((c) => {
-        setCfg(c);
-        cfgRef.current = c;
-        setOpacity(c.opacity);
-      })
+      .then(apply)
       .catch(() => {
-        // Fall back to a generic seed centred on Almaty — only hit if the
-        // API GET fails; admin drags corners into place from here.
-        const seed: OverlayConfig = {
-          key: KEY,
-          imageUrl: meta.imageUrl,
-          nwLon: 76.84, nwLat: 43.27,
-          neLon: 76.92, neLat: 43.27,
-          seLon: 76.92, seLat: 43.19,
-          swLon: 76.84, swLat: 43.19,
+        apply({
+          key: KEY, imageUrl: meta.imageUrl,
+          nwLon: 76.84, nwLat: 43.27, neLon: 76.92, neLat: 43.27,
+          seLon: 76.92, seLat: 43.19, swLon: 76.84, swLat: 43.19,
           opacity: 0.7,
-        };
-        setCfg(seed);
-        cfgRef.current = seed;
+        });
       });
+    return () => { cancelled = true; };
   }, [user, KEY]);
 
-  // Initialise map + image source + corner markers once we have config
+  // Refresh image source + both markers from the current transform.
+  const refresh = () => {
+    const map = mapRef.current;
+    const tr = tRef.current;
+    if (!map || !tr) return;
+    const corners = cornersFromTransform(tr, aspectRef.current);
+    const src = map.getSource("overlay-img") as maplibregl.ImageSource | undefined;
+    if (src) src.setCoordinates(corners);
+    centerMarkerRef.current?.setLngLat([tr.centerLng, tr.centerLat]);
+    handleMarkerRef.current?.setLngLat(corners[1]); // NE corner
+  };
+
+  // Init map + image + 2 markers once config+aspect ready.
   useEffect(() => {
-    if (!cfg || !containerRef.current || mapRef.current) return;
+    if (!ready || !t || !containerRef.current || mapRef.current) return;
 
     const map = new maplibregl.Map({
       container: containerRef.current,
       style: "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
-      center: [76.93, 43.22],
-      zoom: 11,
+      center: [t.centerLng, t.centerLat],
+      zoom: 12,
     });
     map.addControl(new maplibregl.NavigationControl(), "top-right");
     mapRef.current = map;
 
     map.on("load", () => {
-      map.addSource("genplan-img", {
+      const corners = cornersFromTransform(tRef.current!, aspectRef.current);
+      map.addSource("overlay-img", {
         type: "image",
-        url: cfg.imageUrl,
-        coordinates: cornersToArray(cfg),
+        url: imageUrlRef.current,
+        coordinates: corners,
       });
       map.addLayer({
-        id: "genplan-img",
+        id: "overlay-img",
         type: "raster",
-        source: "genplan-img",
-        paint: {
-          "raster-opacity": cfg.opacity,
-          "raster-fade-duration": 0,
-        },
+        source: "overlay-img",
+        paint: { "raster-opacity": opacity, "raster-fade-duration": 0 },
       });
 
-      // Four colour-coded draggable markers, one per corner.
-      const corners: { label: "NW" | "NE" | "SE" | "SW"; color: string }[] = [
-        { label: "NW", color: "#dc2626" },
-        { label: "NE", color: "#f97316" },
-        { label: "SE", color: "#16a34a" },
-        { label: "SW", color: "#2563eb" },
-      ];
-      for (const c of corners) {
-        const el = document.createElement("div");
-        el.textContent = c.label;
-        el.style.cssText = `
-          background:${c.color};color:white;font-weight:700;font-size:11px;
-          width:32px;height:32px;border-radius:50%;display:flex;
-          align-items:center;justify-content:center;cursor:grab;
-          border:2px solid white;box-shadow:0 1px 3px rgba(0,0,0,0.4);
-        `;
-        const m = new maplibregl.Marker({ element: el, draggable: true });
-        const [lon, lat] = cornerToLngLat(cfg, c.label);
-        m.setLngLat([lon, lat]);
-        m.addTo(map);
-        m.on("drag", () => {
-          const ll = m.getLngLat();
-          const cur = cfgRef.current;
-          if (!cur) return;
-          const next = { ...cur };
-          if (c.label === "NW") { next.nwLon = ll.lng; next.nwLat = ll.lat; }
-          if (c.label === "NE") { next.neLon = ll.lng; next.neLat = ll.lat; }
-          if (c.label === "SE") { next.seLon = ll.lng; next.seLat = ll.lat; }
-          if (c.label === "SW") { next.swLon = ll.lng; next.swLat = ll.lat; }
-          cfgRef.current = next;
-          // Live-update the image source — no React state for hot path
-          // to keep the drag smooth. State commits on dragend.
-          const src = map.getSource("genplan-img") as maplibregl.ImageSource | undefined;
-          if (src) src.setCoordinates(cornersToArray(next));
-        });
-        m.on("dragend", () => {
-          setCfg({ ...(cfgRef.current as OverlayConfig) });
-        });
-        markersRef.current.push(m);
-      }
+      // Centre marker (move).
+      const cEl = document.createElement("div");
+      cEl.style.cssText =
+        "width:26px;height:26px;border-radius:50%;background:#2563eb;border:3px solid white;box-shadow:0 1px 4px rgba(0,0,0,.5);cursor:move;";
+      const cMarker = new maplibregl.Marker({ element: cEl, draggable: true })
+        .setLngLat([t.centerLng, t.centerLat])
+        .addTo(map);
+      cMarker.on("drag", () => {
+        const ll = cMarker.getLngLat();
+        if (!tRef.current) return;
+        tRef.current = { ...tRef.current, centerLng: ll.lng, centerLat: ll.lat };
+        refresh();
+      });
+      cMarker.on("dragend", () => setT({ ...(tRef.current as Transform) }));
+      centerMarkerRef.current = cMarker;
 
-      // Helpful: zoom-to-fit the whole overlay
-      const bounds = new maplibregl.LngLatBounds()
-        .extend([cfg.nwLon, cfg.nwLat])
-        .extend([cfg.seLon, cfg.seLat]);
-      map.fitBounds(bounds, { padding: 60, duration: 0 });
+      // NE handle (resize + rotate around centre).
+      const hEl = document.createElement("div");
+      hEl.style.cssText =
+        "width:22px;height:22px;border-radius:4px;background:#f97316;border:3px solid white;box-shadow:0 1px 4px rgba(0,0,0,.5);cursor:nesw-resize;";
+      const hMarker = new maplibregl.Marker({ element: hEl, draggable: true })
+        .setLngLat(corners[1])
+        .addTo(map);
+      hMarker.on("drag", () => {
+        const ll = hMarker.getLngLat();
+        const cur = tRef.current;
+        if (!cur) return;
+        const mLng = mPerDegLng(cur.centerLat), mLat = M_PER_DEG_LAT;
+        const vx = (ll.lng - cur.centerLng) * mLng;
+        const vy = (ll.lat - cur.centerLat) * mLat;
+        const d = Math.hypot(vx, vy);                 // half-diagonal in m
+        const asp = aspectRef.current;
+        const halfW = d / Math.hypot(1, asp);
+        const widthKm = Math.max(0.2, (halfW * 2) / 1000);
+        const alpha0 = Math.atan2(asp, 1);            // unrotated NE angle
+        const rotDeg = ((alpha0 - Math.atan2(vy, vx)) * 180) / Math.PI;
+        tRef.current = { ...cur, widthKm, rotDeg };
+        refresh();
+      });
+      hMarker.on("dragend", () => setT({ ...(tRef.current as Transform) }));
+      handleMarkerRef.current = hMarker;
+
+      const bounds = new maplibregl.LngLatBounds();
+      corners.forEach((c) => bounds.extend(c as [number, number]));
+      map.fitBounds(bounds, { padding: 80, duration: 0 });
     });
 
-    return () => { map.remove(); mapRef.current = null; markersRef.current = []; };
-  }, [cfg?.imageUrl]); // re-init only if image swaps
+    return () => {
+      map.remove();
+      mapRef.current = null;
+      centerMarkerRef.current = null;
+      handleMarkerRef.current = null;
+    };
+    // `ready` toggles false→true on every overlay switch, so this re-inits
+    // the map with the freshly-loaded config + aspect each time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready]);
 
-  // Live opacity tweak — no save needed, just update the layer
+  // Live opacity
   useEffect(() => {
     const m = mapRef.current;
-    if (!m || !m.getLayer("genplan-img")) return;
-    m.setPaintProperty("genplan-img", "raster-opacity", opacity);
+    if (!m || !m.getLayer("overlay-img")) return;
+    m.setPaintProperty("overlay-img", "raster-opacity", opacity);
   }, [opacity]);
 
-  // Update markers when numeric inputs change
-  const updateCorner = (corner: "NW" | "NE" | "SE" | "SW", which: "lon" | "lat", v: number) => {
-    if (!cfgRef.current) return;
-    const next = { ...cfgRef.current };
-    const k = (corner.toLowerCase() + (which === "lon" ? "Lon" : "Lat")) as keyof OverlayConfig;
-    (next[k] as any) = v;
-    cfgRef.current = next;
-    setCfg(next);
-    // Update marker + image
-    const idx = { NW: 0, NE: 1, SE: 2, SW: 3 }[corner];
-    const [lon, lat] = cornerToLngLat(next, corner);
-    markersRef.current[idx]?.setLngLat([lon, lat]);
-    const src = mapRef.current?.getSource("genplan-img") as maplibregl.ImageSource | undefined;
-    if (src) src.setCoordinates(cornersToArray(next));
+  // Slider/numeric edits → update transform + map
+  const setTransform = (patch: Partial<Transform>) => {
+    if (!tRef.current) return;
+    const next = { ...tRef.current, ...patch };
+    tRef.current = next;
+    setT(next);
+    refresh();
   };
 
   const save = async () => {
-    if (!cfgRef.current) return;
+    if (!tRef.current) return;
     setSaving(true);
     try {
-      // Coerce to plain numbers — defends against any rogue string that
-      // might have slipped in from the number-input onChange handler.
+      const corners = cornersFromTransform(tRef.current, aspectRef.current);
       const body = {
-        imageUrl: cfgRef.current.imageUrl,
-        nwLon: Number(cfgRef.current.nwLon),
-        nwLat: Number(cfgRef.current.nwLat),
-        neLon: Number(cfgRef.current.neLon),
-        neLat: Number(cfgRef.current.neLat),
-        seLon: Number(cfgRef.current.seLon),
-        seLat: Number(cfgRef.current.seLat),
-        swLon: Number(cfgRef.current.swLon),
-        swLat: Number(cfgRef.current.swLat),
+        imageUrl: imageUrlRef.current,
+        nwLon: corners[0][0], nwLat: corners[0][1],
+        neLon: corners[1][0], neLat: corners[1][1],
+        seLon: corners[2][0], seLat: corners[2][1],
+        swLon: corners[3][0], swLat: corners[3][1],
         opacity: Number(opacity),
       };
-      console.log("[align] PUT body:", body);
       await api.put(`/admin/map-overlays/${KEY}`, body);
       setSavedAt(Date.now());
     } catch (e) {
-      // Distinguish auth-fail (most common cause after a day idle) from
-      // network/validation errors so the user knows what to do.
-      console.error("[align] save failed:", e);
       if (e instanceof ApiUnauthorizedError) {
-        alert(
-          "Сессия истекла. Перелогинься через хедер и попробуй снова — " +
-          "значения углов уже в полях, они не потеряются.",
-        );
+        alert("Сессия истекла. Перелогинься через хедер и попробуй снова — значения не потеряются.");
         return;
       }
       alert("Не удалось сохранить: " + (e as Error).message);
@@ -256,21 +319,14 @@ function GenplanAlignInner() {
   };
 
   const reset = () => {
-    if (!cfg) return;
-    cfgRef.current = cfg;
-    setOpacity(cfg.opacity);
-    // Reset markers + image
-    const corners: ("NW" | "NE" | "SE" | "SW")[] = ["NW", "NE", "SE", "SW"];
-    corners.forEach((label, idx) => {
-      const [lon, lat] = cornerToLngLat(cfg, label);
-      markersRef.current[idx]?.setLngLat([lon, lat]);
-    });
-    const src = mapRef.current?.getSource("genplan-img") as maplibregl.ImageSource | undefined;
-    if (src) src.setCoordinates(cornersToArray(cfg));
+    if (!initialRef.current) return;
+    tRef.current = initialRef.current;
+    setT(initialRef.current);
+    refresh();
   };
 
   if (authLoading || !user || user.role !== "admin") return null;
-  if (!cfg) {
+  if (!ready || !t) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -295,9 +351,7 @@ function GenplanAlignInner() {
           className="flex-1 max-w-[280px] text-sm border rounded px-2 py-1 bg-background"
         >
           {Object.entries(OVERLAY_META).map(([k, m]) => (
-            <option key={k} value={k}>
-              {m.title}
-            </option>
+            <option key={k} value={k}>{m.title}</option>
           ))}
         </select>
         {savedAt && Date.now() - savedAt < 5000 && (
@@ -316,59 +370,93 @@ function GenplanAlignInner() {
       <div className="flex-1 flex overflow-hidden">
         <div ref={containerRef} className="flex-1" />
 
-        {/* Side panel — numeric corner inputs + opacity */}
         <aside className="w-[320px] border-l p-4 overflow-y-auto space-y-4 text-sm">
-          <div>
-            <p className="font-semibold mb-1">Перетащи углы на карте</p>
-            <p className="text-xs text-muted-foreground">
-              Каждый цветной маркер — угол изображения генплана. Двигай
-              на пересечения улиц чтобы совместить с реальной картой.
-              Поля ниже — для точной правки.
+          <div className="space-y-1.5">
+            <p className="font-semibold">Жёсткая калибровка</p>
+            <p className="text-xs text-muted-foreground leading-snug">
+              Форма карты фиксирована — двигай, меняй размер и поворачивай,
+              пропорции не искажаются.
             </p>
+            <ul className="text-xs text-muted-foreground space-y-1 mt-1">
+              <li className="flex items-center gap-2">
+                <span className="w-3 h-3 rounded-full bg-blue-600 shrink-0" />
+                <Move className="h-3 w-3 shrink-0" /> синий маркер — перемещение
+              </li>
+              <li className="flex items-center gap-2">
+                <span className="w-3 h-3 rounded-sm bg-orange-500 shrink-0" />
+                <Maximize2 className="h-3 w-3 shrink-0" /> оранжевый — размер + поворот
+              </li>
+            </ul>
           </div>
 
-          <CornerInputs
-            label="NW (красный)"
-            color="#dc2626"
-            lon={cfg.nwLon}
-            lat={cfg.nwLat}
-            onLon={(v) => updateCorner("NW", "lon", v)}
-            onLat={(v) => updateCorner("NW", "lat", v)}
-          />
-          <CornerInputs
-            label="NE (оранжевый)"
-            color="#f97316"
-            lon={cfg.neLon}
-            lat={cfg.neLat}
-            onLon={(v) => updateCorner("NE", "lon", v)}
-            onLat={(v) => updateCorner("NE", "lat", v)}
-          />
-          <CornerInputs
-            label="SE (зелёный)"
-            color="#16a34a"
-            lon={cfg.seLon}
-            lat={cfg.seLat}
-            onLon={(v) => updateCorner("SE", "lon", v)}
-            onLat={(v) => updateCorner("SE", "lat", v)}
-          />
-          <CornerInputs
-            label="SW (синий)"
-            color="#2563eb"
-            lon={cfg.swLon}
-            lat={cfg.swLat}
-            onLon={(v) => updateCorner("SW", "lon", v)}
-            onLat={(v) => updateCorner("SW", "lat", v)}
-          />
+          {/* Размер */}
+          <div className="border-t pt-3">
+            <label className="text-xs font-medium flex items-center gap-1.5 mb-1">
+              <Maximize2 className="h-3.5 w-3.5" />
+              Ширина: {t.widthKm.toFixed(2)} км
+            </label>
+            <input
+              type="range" min={0.5} max={50} step={0.05}
+              value={t.widthKm}
+              onChange={(e) => setTransform({ widthKm: parseFloat(e.target.value) })}
+              className="w-full accent-orange-500"
+            />
+          </div>
 
+          {/* Поворот */}
+          <div>
+            <label className="text-xs font-medium flex items-center gap-1.5 mb-1">
+              <RotateCw className="h-3.5 w-3.5" />
+              Поворот: {t.rotDeg.toFixed(1)}° (по часовой)
+            </label>
+            <input
+              type="range" min={-180} max={180} step={0.5}
+              value={t.rotDeg}
+              onChange={(e) => setTransform({ rotDeg: parseFloat(e.target.value) })}
+              className="w-full accent-orange-500"
+            />
+            <div className="flex gap-1.5 mt-1">
+              {[-90, -1, 1, 90].map((d) => (
+                <button
+                  key={d}
+                  onClick={() => setTransform({ rotDeg: t.rotDeg + d })}
+                  className="flex-1 text-[11px] py-1 border rounded hover:bg-muted"
+                >
+                  {d > 0 ? `+${d}` : d}°
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Центр (точные координаты) */}
+          <div className="border-t pt-3 space-y-1">
+            <label className="text-xs font-medium flex items-center gap-1.5">
+              <Move className="h-3.5 w-3.5" />
+              Центр (lon · lat)
+            </label>
+            <div className="grid grid-cols-2 gap-1.5">
+              <input
+                type="number" step="0.0005"
+                value={t.centerLng.toFixed(5)}
+                onChange={(e) => { const v = parseFloat(e.target.value); if (Number.isFinite(v)) setTransform({ centerLng: v }); }}
+                className="text-xs font-mono px-2 py-1 border rounded bg-background"
+              />
+              <input
+                type="number" step="0.0005"
+                value={t.centerLat.toFixed(5)}
+                onChange={(e) => { const v = parseFloat(e.target.value); if (Number.isFinite(v)) setTransform({ centerLat: v }); }}
+                className="text-xs font-mono px-2 py-1 border rounded bg-background"
+              />
+            </div>
+          </div>
+
+          {/* Прозрачность */}
           <div className="border-t pt-3">
             <label className="text-xs font-medium block mb-1">
               Прозрачность: {(opacity * 100).toFixed(0)}%
             </label>
             <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.05}
+              type="range" min={0} max={1} step={0.05}
               value={opacity}
               onChange={(e) => setOpacity(parseFloat(e.target.value))}
               className="w-full"
@@ -376,81 +464,11 @@ function GenplanAlignInner() {
           </div>
 
           <div className="text-[11px] text-muted-foreground border-t pt-3 leading-snug">
-            После «Сохранить» новые координаты применятся на главной карте
-            при следующем обновлении страницы (CDN-кэш до 60 секунд).
+            Пропорции зафиксированы по размеру картинки (≈{aspect.toFixed(2)}:1).
+            После «Сохранить» изменения появятся на главной карте через ≤60 сек.
           </div>
         </aside>
       </div>
     </div>
   );
-}
-
-function CornerInputs({
-  label,
-  color,
-  lon,
-  lat,
-  onLon,
-  onLat,
-}: {
-  label: string;
-  color: string;
-  lon: number;
-  lat: number;
-  onLon: (v: number) => void;
-  onLat: (v: number) => void;
-}) {
-  return (
-    <div className="space-y-1">
-      <div className="flex items-center gap-2">
-        <span className="w-3 h-3 rounded-full shrink-0" style={{ background: color }} />
-        <span className="text-xs font-medium">{label}</span>
-      </div>
-      <div className="grid grid-cols-2 gap-1.5">
-        <input
-          type="number"
-          step="0.0001"
-          value={lon.toFixed(4)}
-          onChange={(e) => {
-            const v = parseFloat(e.target.value);
-            if (Number.isFinite(v)) onLon(v);
-          }}
-          className="text-xs font-mono px-2 py-1 border rounded bg-background"
-        />
-        <input
-          type="number"
-          step="0.0001"
-          value={lat.toFixed(4)}
-          onChange={(e) => {
-            const v = parseFloat(e.target.value);
-            if (Number.isFinite(v)) onLat(v);
-          }}
-          className="text-xs font-mono px-2 py-1 border rounded bg-background"
-        />
-      </div>
-      <div className="text-[10px] text-muted-foreground font-mono pl-5">
-        lon · lat
-      </div>
-    </div>
-  );
-}
-
-type CornersTuple = [[number, number], [number, number], [number, number], [number, number]];
-
-/** Convert corner config to the 4-tuple expected by MapLibre's
- *  ImageSource.coordinates: [NW, NE, SE, SW]. */
-function cornersToArray(c: OverlayConfig): CornersTuple {
-  return [
-    [c.nwLon, c.nwLat],
-    [c.neLon, c.neLat],
-    [c.seLon, c.seLat],
-    [c.swLon, c.swLat],
-  ];
-}
-
-function cornerToLngLat(c: OverlayConfig, which: "NW" | "NE" | "SE" | "SW"): [number, number] {
-  if (which === "NW") return [c.nwLon, c.nwLat];
-  if (which === "NE") return [c.neLon, c.neLat];
-  if (which === "SE") return [c.seLon, c.seLat];
-  return [c.swLon, c.swLat];
 }
