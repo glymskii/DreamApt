@@ -20,3 +20,8 @@ packages/shared/src/**/*.js.map
 packages/shared/src/**/*.d.ts
 packages/shared/src/**/*.d.ts.map
 .vercel
+
+# ПДП/genplan source artifacts — large raw scans + third-party watermarked source, never commit
+/pdp_source/
+/Security Warning Tikhon Shutov.png
+*.png.orig

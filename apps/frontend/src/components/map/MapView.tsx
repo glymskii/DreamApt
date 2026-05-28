@@ -17,6 +17,18 @@ interface MapViewProps {
   selectedComplexId?: string | null;
 }
 
+/**
+ * ПДП (детальная планировка) overlays. Each maps to an admin-calibrated
+ * config row + a cropped official scan in /public. `labelKey` is the i18n
+ * key for the layer-panel toggle. Order = display order.
+ */
+const PDP_OVERLAYS: { key: string; labelKey: string }[] = [
+  { key: "pdp-aksay-zhetysu", labelKey: "map.pdpAksayZhetysu" },
+  { key: "pdp-ryskulbekov-navoi", labelKey: "map.pdpRyskulbekovNavoi" },
+  { key: "pdp-sairan", labelKey: "map.pdpSairan" },
+];
+const PDP_OVERLAY_KEYS = PDP_OVERLAYS.map((o) => o.key);
+
 function getScoreColor(score: number | null): string {
   if (!score) return "#999";
   if (score >= 85) return "#22c55e";
@@ -117,6 +129,14 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
   // every planned widening would clutter the map for the 95% of users
   // who care about ЖК + air + seismic.
   const [showUrbanPlan, setShowUrbanPlan] = useState(false);
+  // ПДП (детальная планировка) — official per-zone planning rasters from
+  // НИИ Алматыгенплан. Off by default (niche, heavy images), each toggled
+  // independently. Keyed by the overlay config key.
+  const [pdpVisible, setPdpVisible] = useState<Record<string, boolean>>({
+    "pdp-aksay-zhetysu": false,
+    "pdp-ryskulbekov-navoi": false,
+    "pdp-sairan": false,
+  });
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
 
@@ -234,6 +254,35 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
           "raster-fade-duration": 200,
         },
       });
+
+      // === ПДП (ДЕТАЛЬНАЯ ПЛАНИРОВКА) — per-zone rasters ===
+      // One image source + raster layer per pdp-* overlay config. Default
+      // hidden; toggled independently from the layers panel. Each layer id
+      // is `${key}-img`. Coordinates come from the admin-calibrated config.
+      for (const key of PDP_OVERLAY_KEYS) {
+        const cfg = (data.overlays || []).find((o) => o.key === key);
+        if (!cfg) continue;
+        map.addSource(`${key}-img`, {
+          type: "image",
+          url: cfg.imageUrl,
+          coordinates: [
+            [cfg.nwLon, cfg.nwLat],
+            [cfg.neLon, cfg.neLat],
+            [cfg.seLon, cfg.seLat],
+            [cfg.swLon, cfg.swLat],
+          ],
+        });
+        map.addLayer({
+          id: `${key}-img`,
+          type: "raster",
+          source: `${key}-img`,
+          layout: { visibility: "none" },
+          paint: {
+            "raster-opacity": cfg.opacity ?? 0.7,
+            "raster-fade-duration": 200,
+          },
+        });
+      }
 
       // === FAULT RISK ZONES ===
       if (data.faultLines?.length > 0) {
@@ -831,6 +880,27 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
     else map.once("idle", apply);
   }, [showUrbanPlan]);
 
+  // Toggle each ПДП raster independently. Re-runs whenever any pdp flag
+  // flips; cheap since setLayoutProperty is a no-op when unchanged.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const apply = () => {
+      for (const key of PDP_OVERLAY_KEYS) {
+        const layerId = `${key}-img`;
+        if (map.getLayer(layerId)) {
+          map.setLayoutProperty(
+            layerId,
+            "visibility",
+            pdpVisible[key] ? "visible" : "none",
+          );
+        }
+      }
+    };
+    if (map.isStyleLoaded()) apply();
+    else map.once("idle", apply);
+  }, [pdpVisible]);
+
   return (
     <div className="relative w-full h-full">
       <div ref={mapContainer} className="w-full h-full" />
@@ -874,6 +944,27 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
           />
           {t("map.urbanPlan")}
         </label>
+
+        {/* ПДП (детальная планировка) — per-zone official rasters. Grouped
+            under a sub-header since they're niche + zone-specific. */}
+        <div className="pt-1 mt-0.5 border-t border-border/60">
+          <p className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">
+            {t("map.pdpGroup")}
+          </p>
+          {PDP_OVERLAYS.map((o) => (
+            <label key={o.key} className="flex items-center gap-2 text-xs cursor-pointer mb-1 last:mb-0">
+              <input
+                type="checkbox"
+                checked={!!pdpVisible[o.key]}
+                onChange={(e) =>
+                  setPdpVisible((prev) => ({ ...prev, [o.key]: e.target.checked }))
+                }
+                className="rounded accent-indigo-500 w-3.5 h-3.5"
+              />
+              {t(o.labelKey)}
+            </label>
+          ))}
+        </div>
       </div>
 
       {/* Compact legend */}

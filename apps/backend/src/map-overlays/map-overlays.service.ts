@@ -39,25 +39,57 @@ export class MapOverlaysService implements OnModuleInit {
   ) {}
 
   /**
-   * Ensure the "genplan-2040" row exists. Uses our last-tried bbox as
-   * the seed value; admin will fine-tune from there. Doesn't overwrite
-   * existing rows — operator edits survive restarts.
+   * Ensure default overlay rows exist. Each is seeded only if absent, so
+   * operator calibration edits survive restarts. bbox values are rough
+   * starting points — admin drags the 4 corners to align each raster via
+   * /admin/genplan-align?key=<key>.
+   *
+   * Overlays:
+   *  - genplan-2040: citywide 2040 master plan (НИИ Алматыгенплан)
+   *  - pdp-*: per-zone Проекты детальной планировки — official scans from
+   *    almatygenplan.kz cropped to the map area. Each covers only its
+   *    planning zone, not the whole city.
    */
   async onModuleInit() {
-    const existing = await this.repo.findOne({ where: { key: "genplan-2040" } });
-    if (existing) return;
-    await this.repo.save({
-      key: "genplan-2040",
-      imageUrl: "/genplan-2040.jpg",
-      // Last math-derived bbox from PIL boundary detection — still not
-      // pixel-perfect but a reasonable starting point.
-      nwLon: 76.6836 as any, nwLat: 43.4157 as any,
-      neLon: 77.1701 as any, neLat: 43.4157 as any,
-      seLon: 77.1701 as any, seLat: 43.0325 as any,
-      swLon: 76.6836 as any, swLat: 43.0325 as any,
-      opacity: 0.65 as any,
-    });
-    this.logger.log('Seeded default config for overlay "genplan-2040"');
+    const seeds: OverlayConfigDTO[] = [
+      {
+        key: "genplan-2040", imageUrl: "/genplan-2040.jpg",
+        nwLon: 76.6836, nwLat: 43.4157, neLon: 77.1701, neLat: 43.4157,
+        seLon: 77.1701, seLat: 43.0325, swLon: 76.6836, swLat: 43.0325,
+        opacity: 0.65,
+      },
+      {
+        key: "pdp-aksay-zhetysu", imageUrl: "/pdp-aksay-zhetysu.jpg",
+        nwLon: 76.82, nwLat: 43.24, neLon: 76.90, neLat: 43.24,
+        seLon: 76.90, seLat: 43.16, swLon: 76.82, swLat: 43.16,
+        opacity: 0.7,
+      },
+      {
+        key: "pdp-ryskulbekov-navoi", imageUrl: "/pdp-ryskulbekov-navoi.jpg",
+        nwLon: 76.85, nwLat: 43.25, neLon: 76.93, neLat: 43.25,
+        seLon: 76.93, seLat: 43.17, swLon: 76.85, swLat: 43.17,
+        opacity: 0.7,
+      },
+      {
+        key: "pdp-sairan", imageUrl: "/pdp-sairan.jpg",
+        nwLon: 76.84, nwLat: 43.27, neLon: 76.92, neLat: 43.27,
+        seLon: 76.92, seLat: 43.19, swLon: 76.84, swLat: 43.19,
+        opacity: 0.7,
+      },
+    ];
+    for (const s of seeds) {
+      const existing = await this.repo.findOne({ where: { key: s.key } });
+      if (existing) continue;
+      await this.repo.save({
+        key: s.key, imageUrl: s.imageUrl,
+        nwLon: s.nwLon as any, nwLat: s.nwLat as any,
+        neLon: s.neLon as any, neLat: s.neLat as any,
+        seLon: s.seLon as any, seLat: s.seLat as any,
+        swLon: s.swLon as any, swLat: s.swLat as any,
+        opacity: s.opacity as any,
+      });
+      this.logger.log(`Seeded default config for overlay "${s.key}"`);
+    }
   }
 
   async get(key: string): Promise<OverlayConfigDTO | null> {

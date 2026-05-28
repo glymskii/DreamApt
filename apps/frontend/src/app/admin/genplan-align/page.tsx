@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -44,10 +44,31 @@ interface OverlayConfig {
   opacity: number;
 }
 
-const KEY = "genplan-2040";
+/** Overlay keys this page can calibrate + their display titles + the
+ *  fallback image used only if the API GET fails. The active overlay is
+ *  chosen via ?key=<key> (defaults to genplan-2040). */
+const OVERLAY_META: Record<string, { title: string; imageUrl: string }> = {
+  "genplan-2040": { title: "Генплан 2040", imageUrl: "/genplan-2040.jpg" },
+  "pdp-aksay-zhetysu": { title: "ПДП Аксай / Жетысу (401 га)", imageUrl: "/pdp-aksay-zhetysu.jpg" },
+  "pdp-ryskulbekov-navoi": { title: "ПДП Рыскулбекова / Навои (515 га)", imageUrl: "/pdp-ryskulbekov-navoi.jpg" },
+  "pdp-sairan": { title: "ПДП Сайран (977 га)", imageUrl: "/pdp-sairan.jpg" },
+};
+const DEFAULT_KEY = "genplan-2040";
 
 export default function GenplanAlignPage() {
+  // useSearchParams must sit under a Suspense boundary in the App Router.
+  return (
+    <Suspense fallback={null}>
+      <GenplanAlignInner />
+    </Suspense>
+  );
+}
+
+function GenplanAlignInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const KEY = searchParams.get("key") || DEFAULT_KEY;
+  const meta = OVERLAY_META[KEY] || OVERLAY_META[DEFAULT_KEY];
   const { user, isLoading: authLoading } = useAuth();
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -77,20 +98,21 @@ export default function GenplanAlignPage() {
         setOpacity(c.opacity);
       })
       .catch(() => {
-        // Fall back to hard-coded seed
+        // Fall back to a generic seed centred on Almaty — only hit if the
+        // API GET fails; admin drags corners into place from here.
         const seed: OverlayConfig = {
           key: KEY,
-          imageUrl: "/genplan-2040.jpg",
-          nwLon: 76.6836, nwLat: 43.4157,
-          neLon: 77.1701, neLat: 43.4157,
-          seLon: 77.1701, seLat: 43.0325,
-          swLon: 76.6836, swLat: 43.0325,
-          opacity: 0.65,
+          imageUrl: meta.imageUrl,
+          nwLon: 76.84, nwLat: 43.27,
+          neLon: 76.92, neLat: 43.27,
+          seLon: 76.92, seLat: 43.19,
+          swLon: 76.84, swLat: 43.19,
+          opacity: 0.7,
         };
         setCfg(seed);
         cfgRef.current = seed;
       });
-  }, [user]);
+  }, [user, KEY]);
 
   // Initialise map + image source + corner markers once we have config
   useEffect(() => {
@@ -266,7 +288,18 @@ export default function GenplanAlignPage() {
             Назад
           </Button>
         </Link>
-        <h1 className="font-bold flex-1">Калибровка слоя «Генплан 2040»</h1>
+        <h1 className="font-bold">Калибровка слоя</h1>
+        <select
+          value={KEY}
+          onChange={(e) => router.replace(`/admin/genplan-align?key=${e.target.value}`)}
+          className="flex-1 max-w-[280px] text-sm border rounded px-2 py-1 bg-background"
+        >
+          {Object.entries(OVERLAY_META).map(([k, m]) => (
+            <option key={k} value={k}>
+              {m.title}
+            </option>
+          ))}
+        </select>
         {savedAt && Date.now() - savedAt < 5000 && (
           <span className="text-xs text-green-600 dark:text-green-400">Сохранено ✓</span>
         )}
