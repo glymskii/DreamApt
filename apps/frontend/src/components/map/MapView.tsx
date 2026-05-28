@@ -137,6 +137,10 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
     "pdp-ryskulbekov-navoi": false,
     "pdp-sairan": false,
   });
+  // View mode: false = вид сверху (pitch 0, default), true = объёмный.
+  // Ref mirrors state for the non-reactive map handlers (init, flyTo).
+  const [view3d, setView3d] = useState(false);
+  const view3dRef = useRef(false);
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
 
@@ -172,8 +176,11 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
       style: isDark ? MAP_STYLE_DARK : MAP_STYLE_LIGHT,
       center: [76.9286, 43.238],
       zoom: 12,
-      pitch: 45,
-      bearing: -10,
+      // Default = чистый вид сверху (pitch 0, без наклона/искажений).
+      // Объёмный «вид с птичьего полёта» включается кнопкой 2D/3D —
+      // см. view3dRef + toggleView ниже.
+      pitch: view3dRef.current ? 60 : 0,
+      bearing: view3dRef.current ? -10 : 0,
     });
 
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
@@ -777,7 +784,7 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
       if (complexFeatures.length > 0) {
         const bounds = new maplibregl.LngLatBounds();
         complexFeatures.forEach((f) => bounds.extend(f.geometry.coordinates as [number, number]));
-        map.fitBounds(bounds, { padding: 80, maxZoom: 14, pitch: 45 });
+        map.fitBounds(bounds, { padding: 80, maxZoom: 14, pitch: view3dRef.current ? 45 : 0 });
       }
     });
 
@@ -790,7 +797,7 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
     if (!map || !selectedComplexId) return;
     const complex = data.complexes.find((c) => c.id === selectedComplexId);
     if (complex) {
-      map.flyTo({ center: [complex.lng, complex.lat], zoom: 15, pitch: 50, duration: 1500 });
+      map.flyTo({ center: [complex.lng, complex.lat], zoom: 15, pitch: view3dRef.current ? 50 : 0, duration: 1500 });
     }
   }, [selectedComplexId, data.complexes]);
 
@@ -966,6 +973,31 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
           ))}
         </div>
       </div>
+
+      {/* View-mode toggle — вид сверху (по умолчанию) ↔ объёмный.
+          Bottom-right, above the attribution; sized for thumb tap on
+          mobile. Label shows the view you'll switch TO. */}
+      <button
+        type="button"
+        onClick={() => {
+          const map = mapRef.current;
+          const next = !view3dRef.current;
+          view3dRef.current = next;
+          setView3d(next);
+          map?.easeTo({
+            pitch: next ? 60 : 0,
+            bearing: next ? -10 : 0,
+            duration: 600,
+          });
+        }}
+        title={view3d ? t("map.view2d") : t("map.view3d")}
+        className="absolute bottom-9 right-2 sm:bottom-10 sm:right-3 z-10 flex items-center gap-1.5 bg-card/95 text-card-foreground border border-border backdrop-blur rounded-lg shadow-lg px-2.5 py-2 hover:bg-muted transition-colors"
+      >
+        <span className="text-[11px] font-bold w-5 text-center">{view3d ? "2D" : "3D"}</span>
+        <span className="hidden sm:inline text-xs font-medium">
+          {view3d ? t("map.view2d") : t("map.view3d")}
+        </span>
+      </button>
 
       {/* Compact legend */}
       <div className="absolute bottom-2 left-2 sm:bottom-3 sm:left-3 bg-card/95 text-card-foreground border border-border backdrop-blur rounded-lg shadow-lg p-2 sm:p-2.5 text-[9px] sm:text-[10px] space-y-0.5 sm:space-y-1 z-10">
