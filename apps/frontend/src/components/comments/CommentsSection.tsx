@@ -38,6 +38,9 @@ export function CommentsSection({ complexId }: Props) {
   const [sort, setSort] = useState<"new" | "top">("new");
   const [text, setText] = useState("");
   const [postError, setPostError] = useState("");
+  // Set when a guest hits submit — we open the auth dialog and remember to
+  // auto-post their draft once they're verified (see effect below).
+  const [pendingPost, setPendingPost] = useState(false);
 
   const { data, isLoading } = useComments(complexId, sort);
   const postMutation = usePostComment(complexId);
@@ -47,18 +50,39 @@ export function CommentsSection({ complexId }: Props) {
 
   const isVerified = !!user?.phoneVerified;
 
-  const handlePost = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const doPost = async (body: string) => {
     setPostError("");
-    const trimmed = text.trim();
-    if (!trimmed) return;
     try {
-      await postMutation.mutateAsync(trimmed);
+      await postMutation.mutateAsync(body);
       setText("");
     } catch (err: any) {
-      setPostError(err?.message || "Не удалось отправить");
+      setPostError(err?.message || t("comments.postFailed"));
     }
   };
+
+  const handlePost = (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    // Composer is open to everyone; the gate fires here, on submit. We
+    // keep the draft and re-attempt automatically after auth (effect).
+    if (!isVerified) {
+      setPendingPost(true);
+      authDialog.open("otp", t("comments.gatePostInline"));
+      return;
+    }
+    doPost(trimmed);
+  };
+
+  // After the user verifies through the dialog (component stays mounted
+  // behind the overlay, so `text` survives), auto-post the saved draft.
+  useEffect(() => {
+    if (isVerified && pendingPost && text.trim()) {
+      setPendingPost(false);
+      doPost(text.trim());
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isVerified, pendingPost]);
 
   const handleLike = (commentId: string) => {
     if (!isVerified) {
@@ -115,50 +139,38 @@ export function CommentsSection({ complexId }: Props) {
         )}
       </div>
 
-      {/* Composer or login gate */}
-      {!user ? (
-        <button
-          onClick={() => authDialog.open("otp", t("comments.gatePost"))}
-          className="w-full text-left p-3 rounded-lg border border-dashed text-xs text-muted-foreground hover:bg-muted/50 transition-colors"
-        >
-          {t("comments.gatePost")}
-        </button>
-      ) : !isVerified ? (
-        <button
-          onClick={() => authDialog.open("otp", t("comments.gateVerify"))}
-          className="w-full text-left p-3 rounded-lg border border-dashed text-xs text-muted-foreground hover:bg-muted/50 transition-colors"
-        >
-          {t("comments.gateVerify")}
-        </button>
-      ) : (
-        <form onSubmit={handlePost} className="space-y-2">
-          <textarea
-            value={text}
-            onChange={(e) => setText(e.target.value.slice(0, 1000))}
-            placeholder={t("comments.placeholder")}
-            className="w-full text-sm p-2 border rounded-md bg-background min-h-[60px] resize-y"
-            disabled={postMutation.isPending}
-          />
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] text-muted-foreground">
-              {text.length}/1000
-            </span>
-            <Button
-              type="submit"
-              size="sm"
-              disabled={!text.trim() || postMutation.isPending}
-            >
-              {postMutation.isPending && (
-                <Loader2 className="h-3 w-3 mr-1 animate-spin" />
-              )}
-              {t("comments.postSubmit")}
-            </Button>
-          </div>
-          {postError && (
-            <p className="text-xs text-destructive">{postError}</p>
-          )}
-        </form>
-      )}
+      {/* Composer — always open, even for guests. The login/verify gate
+          fires on submit (handlePost), not by hiding the field, so users
+          start typing immediately and only hit auth at the last step. */}
+      <form onSubmit={handlePost} className="space-y-2">
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value.slice(0, 1000))}
+          placeholder={t("comments.placeholder")}
+          className="w-full text-sm p-2 border rounded-md bg-background min-h-[60px] resize-y"
+          disabled={postMutation.isPending}
+        />
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[10px] text-muted-foreground">
+            {!isVerified && text.trim()
+              ? t("comments.guestHint")
+              : `${text.length}/1000`}
+          </span>
+          <Button
+            type="submit"
+            size="sm"
+            disabled={!text.trim() || postMutation.isPending}
+          >
+            {postMutation.isPending && (
+              <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+            )}
+            {t("comments.postSubmit")}
+          </Button>
+        </div>
+        {postError && (
+          <p className="text-xs text-destructive">{postError}</p>
+        )}
+      </form>
 
       {/* List */}
       {isLoading ? (
