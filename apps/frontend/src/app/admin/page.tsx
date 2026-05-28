@@ -31,11 +31,12 @@ import {
   useUnflagProblematic,
   type SyncReport,
 } from "@/hooks/useProblematicComplexes";
+import { useAdminComments } from "@/hooks/useAdminComments";
 import {
   ArrowLeft, Phone, CheckCircle2, XCircle, Copy, Loader2, Clock,
   Shield, BarChart3, Users, KeyRound, MessageCircle, Search,
   ChevronLeft, ChevronRight, AlertTriangle, Plus, Trash2, RefreshCcw,
-  ExternalLink,
+  ExternalLink, Heart, MessageSquare,
 } from "lucide-react";
 
 // ── Legacy (password-flow) leads ────────────────────────────────────
@@ -60,7 +61,7 @@ const LEAD_STATUS: Record<string, { label: string; className: string }> = {
 
 // ──────────────────────────────────────────────────────────────────────
 
-type Tab = "users" | "requests" | "problematic" | "leads";
+type Tab = "users" | "requests" | "problematic" | "comments" | "leads";
 
 export default function AdminPage() {
   const router = useRouter();
@@ -138,6 +139,9 @@ export default function AdminPage() {
           <TabButton active={tab === "problematic"} onClick={() => setTab("problematic")} icon={<AlertTriangle className="h-3.5 w-3.5" />}>
             Проблемные ЖК
           </TabButton>
+          <TabButton active={tab === "comments"} onClick={() => setTab("comments")} icon={<MessageSquare className="h-3.5 w-3.5" />}>
+            Комментарии
+          </TabButton>
           <TabButton active={tab === "leads"} onClick={() => setTab("leads")} icon={<MessageCircle className="h-3.5 w-3.5" />}>
             Регистрация (legacy)
           </TabButton>
@@ -146,6 +150,7 @@ export default function AdminPage() {
         {tab === "users" && <UsersTab />}
         {tab === "requests" && <AccessRequestsTab />}
         {tab === "problematic" && <ProblematicTab />}
+        {tab === "comments" && <CommentsActivityTab />}
         {tab === "leads" && <LeadsTab />}
       </main>
     </div>
@@ -803,7 +808,99 @@ function ProblematicTab() {
   );
 }
 
-// ── Tab 4: Legacy leads (password-flow) ───────────────────────────────
+// ── Tab 4: Comment activity (site-wide moderation feed) ───────────────
+
+function CommentsActivityTab() {
+  const { data, isLoading, error } = useAdminComments(50);
+
+  return (
+    <div className="space-y-4">
+      {data && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <StatCard label="Всего" value={data.total} />
+          <StatCard label="Активных" value={data.active} />
+          <StatCard label="Удалённых" value={data.deleted} />
+          <StatCard label="Авторов" value={data.authors} />
+        </div>
+      )}
+
+      {isLoading ? (
+        <div className="text-center py-12">
+          <Loader2 className="h-6 w-6 mx-auto animate-spin text-muted-foreground" />
+        </div>
+      ) : error ? (
+        <p className="text-center py-12 text-sm text-destructive">
+          Не удалось загрузить комментарии
+        </p>
+      ) : !data || data.recent.length === 0 ? (
+        <div className="text-center py-12 text-sm text-muted-foreground">
+          <MessageSquare className="h-10 w-10 mx-auto mb-3 opacity-50" />
+          Комментариев пока нет
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {data.recent.map((c) => {
+            const isDeleted = !!c.deletedAt;
+            return (
+              <div
+                key={c.id}
+                className={`p-3 rounded-lg border bg-card ${isDeleted ? "opacity-60" : ""}`}
+              >
+                <div className="flex items-center gap-2 flex-wrap text-xs">
+                  <span className="font-medium">{c.authorName}</span>
+                  {c.authorPhone && (
+                    <span className="font-mono text-muted-foreground">
+                      {formatStoredPhone(c.authorPhone)}
+                    </span>
+                  )}
+                  <span className="text-muted-foreground">→</span>
+                  <a
+                    href={`/dashboard?complex=${c.complexId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 dark:text-blue-400 hover:underline"
+                  >
+                    {c.complexName}
+                  </a>
+                  {c.complexDistrict && (
+                    <span className="text-[10px] text-muted-foreground">
+                      {c.complexDistrict}
+                    </span>
+                  )}
+                  {isDeleted && (
+                    <Badge variant="outline" className="text-[10px] py-0 text-rose-600 border-rose-300">
+                      удалён
+                    </Badge>
+                  )}
+                </div>
+                <p className={`mt-1.5 text-sm leading-snug ${isDeleted ? "italic text-muted-foreground" : ""}`}>
+                  {isDeleted ? "[удалён]" : c.text}
+                </p>
+                <div className="flex items-center gap-3 mt-2 text-[11px] text-muted-foreground">
+                  <span className="flex items-center gap-1">
+                    <Clock className="h-3 w-3" />
+                    {new Date(c.createdAt).toLocaleString("ru-RU", {
+                      day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
+                    })}
+                  </span>
+                  {c.likesCount > 0 && (
+                    <span className="flex items-center gap-1">
+                      <Heart className="h-3 w-3 fill-current text-red-500" />
+                      {c.likesCount}
+                    </span>
+                  )}
+                  {c.editedAt && <span className="italic">изменён</span>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Tab 5: Legacy leads (password-flow) ───────────────────────────────
 
 function LeadsTab() {
   const queryClient = useQueryClient();

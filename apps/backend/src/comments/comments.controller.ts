@@ -17,6 +17,7 @@ import { IsOptional, IsString, MaxLength } from "class-validator";
 import { CommentsService } from "./comments.service";
 import { JwtAuthGuard } from "../auth/auth.guard";
 import { OptionalJwtGuard } from "../auth/optional-jwt.guard";
+import { AdminGuard } from "../auth/admin.guard";
 
 class CreateCommentDto {
   @IsString()
@@ -62,6 +63,16 @@ export class CommentsController {
       limit: limit ? parseInt(limit, 10) : 20,
       viewerId: req.user?.id,
     });
+  }
+
+  /** Admin moderation feed — site-wide comment activity + headline
+   *  counts. Lives above the public POST so the static "admin/comments"
+   *  path is matched before the dynamic ":id" segment can't shadow it
+   *  (different prefix anyway, but keep it grouped). */
+  @Get("admin/comments")
+  @UseGuards(AdminGuard)
+  async recentForAdmin(@Query("limit") limit?: string) {
+    return this.comments.listRecentForAdmin(limit ? parseInt(limit, 10) : 50);
   }
 
   /** Post a new comment. JwtAuthGuard ensures we have a user; the

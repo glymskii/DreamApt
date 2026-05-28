@@ -9,6 +9,7 @@ import { Repository, In, IsNull } from "typeorm";
 import { CommentEntity } from "../database/entities/comment.entity";
 import { CommentLikeEntity } from "../database/entities/comment-like.entity";
 import { UserEntity } from "../database/entities/user.entity";
+import { ResidentialComplexEntity } from "../database/entities/residential-complex.entity";
 
 /** Public-facing comment shape. Sensitive fields (full phone, internal
  *  ids of other users) are stripped; we surface only what the UI shows. */
@@ -45,6 +46,8 @@ export class CommentsService {
     private likesRepo: Repository<CommentLikeEntity>,
     @InjectRepository(UserEntity)
     private usersRepo: Repository<UserEntity>,
+    @InjectRepository(ResidentialComplexEntity)
+    private complexesRepo: Repository<ResidentialComplexEntity>,
   ) {}
 
   /**
@@ -275,6 +278,85 @@ export class CommentsService {
       await this.commentsRepo.update(c.id, { likesCount: newCount });
       return { likesCount: newCount, isLikedByMe: true };
     }
+  }
+
+  /**
+   * Admin moderation feed: site-wide comment activity. Returns headline
+   * counts + the N most recent comments with author + ЖК context so the
+   * admin can eyeball who's posting what without clicking into every
+   * complex. Phone is included here (admin-only endpoint) to help
+   * identify the author beyond the anonymised public label.
+   */
+  async listRecentForAdmin(limit = 50): Promise<{
+    total: number;
+    active: number;
+    deleted: number;
+    authors: number;
+    recent: Array<{
+      id: string;
+      complexId: string;
+      complexName: string;
+      complexDistrict: string | null;
+      text: string | null;
+      authorName: string;
+      authorPhone: string | null;
+      likesCount: number;
+      createdAt: string;
+      editedAt: string | null;
+      deletedAt: string | null;
+    }>;
+  }> {
+    const take = Math.min(200, Math.max(1, limit));
+    const [total, active] = await Promise.all([
+      this.commentsRepo.count(),
+      this.commentsRepo.count({ where: { deletedAt: IsNull() } }),
+    ]);
+
+    // Distinct author count — one cheap grouped query.
+    const authorRows = await this.commentsRepo
+      .createQueryBuilder("c")
+      .select("COUNT(DISTINCT c.userId)", "n")
+      .getRawOne<{ n: string }>();
+    const authors = parseInt(authorRows?.n || "0", 10);
+
+    const rows = await this.commentsRepo.find({
+      relations: ["user"],
+      order: { createdAt: "DESC" },
+      take,
+    });
+
+    // Batch-resolve ЖК names in one query rather than N lookups.
+    const complexIds = [...new Set(rows.map((r) => r.complexId))];
+    const complexes = complexIds.length
+      ? await this.complexesRepo.find({
+          where: { id: In(complexIds) },
+          select: ["id", "name", "displayName", "district"],
+        })
+      : [];
+    const cxMap = new Map(complexes.map((c) => [c.id, c]));
+
+    return {
+      total,
+      active,
+      deleted: total - active,
+      authors,
+      recent: rows.map((c) => {
+        const cx = cxMap.get(c.complexId);
+        return {
+          id: c.id,
+          complexId: c.complexId,
+          complexName: cx?.displayName || cx?.name || "—",
+          complexDistrict: cx?.district || null,
+          text: c.deletedAt ? null : c.text,
+          authorName: authorLabel(c.user),
+          authorPhone: c.user?.phone || null,
+          likesCount: c.likesCount,
+          createdAt: c.createdAt.toISOString(),
+          editedAt: c.editedAt ? c.editedAt.toISOString() : null,
+          deletedAt: c.deletedAt ? c.deletedAt.toISOString() : null,
+        };
+      }),
+    };
   }
 
   /** Comment counts per complex — small batch endpoint used by the
