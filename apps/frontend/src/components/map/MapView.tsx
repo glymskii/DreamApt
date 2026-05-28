@@ -623,6 +623,11 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
           // override the colour — the "не покупайте" signal trumps
           // everything else on the map.
           problematic: c.isProblematic ? 1 : 0,
+          // Latest-comment breadcrumb. MapLibre flattens feature props to
+          // primitives, so pass the fields separately (not a nested obj).
+          lastCommentText: c.lastComment?.text || "",
+          lastCommentAuthor: c.lastComment?.author || "",
+          commentCount: c.lastComment?.count || 0,
         },
       }));
 
@@ -764,6 +769,39 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
                   ],
                 })
               : null,
+            // Comment breadcrumb — surfaces the discussion (or nudges to
+            // start one) so the comment feature gets noticed. lastComment*
+            // fields are user-generated → rendered via textContent (el's
+            // `text:`), never innerHTML, so no XSS.
+            String(props.lastCommentText || "").length > 0
+              ? el("div", {
+                  css: "margin-top:6px;padding:6px 8px;border-radius:6px;font-size:11px;background:#eff6ff;color:#1e3a8a;border:1px solid #bfdbfe",
+                  children: [
+                    el("div", {
+                      css: "font-weight:600;display:flex;align-items:center;gap:5px;margin-bottom:2px",
+                      children: [
+                        el("span", { text: "💬" }),
+                        el("span", {
+                          text:
+                            Number(props.commentCount) > 1
+                              ? tRef.current("map.commentsCount", { count: Number(props.commentCount) })
+                              : String(props.lastCommentAuthor || ""),
+                        }),
+                      ],
+                    }),
+                    el("div", {
+                      css: "color:#1e40af;font-style:italic;line-height:1.3",
+                      text: `«${String(props.lastCommentText)}»`,
+                    }),
+                  ],
+                })
+              : el("div", {
+                  css: "margin-top:6px;padding:6px 8px;border-radius:6px;font-size:11px;font-weight:500;background:#f1f5f9;color:#475569;border:1px dashed #cbd5e1;display:flex;align-items:center;gap:6px",
+                  children: [
+                    el("span", { text: "💬" }),
+                    el("span", { text: tRef.current("map.commentNudge") }),
+                  ],
+                }),
           ],
         });
         popup.setLngLat(coords).setDOMContent(popupRoot).addTo(map);

@@ -12,6 +12,7 @@ import { SearchModule } from "../search/search.module";
 import { AirQualityModule } from "../air-quality/air-quality.module";
 import { PropertiesModule } from "../properties/properties.module";
 import { MapOverlaysModule } from "../map-overlays/map-overlays.module";
+import { CommentsModule } from "../comments/comments.module";
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { MapOverlaysModule } from "../map-overlays/map-overlays.module";
     AirQualityModule,
     forwardRef(() => PropertiesModule),
     MapOverlaysModule,
+    CommentsModule, // latest-comment breadcrumbs in map-data
   ],
   controllers: [ComplexController],
   providers: [ComplexService, KrishaComplexParserService],

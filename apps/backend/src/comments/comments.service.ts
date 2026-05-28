@@ -375,6 +375,49 @@ export class CommentsService {
     for (const r of rows) out[r.complexId] = parseInt(r.count, 10);
     return out;
   }
+
+  /**
+   * Latest non-deleted comment per complex — feeds the map hover "хлебная
+   * крошка" so users see there's a discussion (or a nudge to start one).
+   * Postgres DISTINCT ON keeps it to one row per complex in a single
+   * query. Returns { complexId: { text, author, count } }.
+   */
+  async latestByComplex(
+    complexIds: string[],
+  ): Promise<Record<string, { text: string; author: string; count: number }>> {
+    if (complexIds.length === 0) return {};
+    const counts = await this.countsByComplex(complexIds);
+    const rows = await this.commentsRepo
+      .createQueryBuilder("c")
+      .leftJoin("c.user", "u")
+      .select([
+        "c.complexId AS complex_id",
+        "c.text AS text",
+        "u.displayName AS display_name",
+        "u.phone AS phone",
+      ])
+      .distinctOn(["c.complexId"])
+      .where("c.complexId IN (:...ids)", { ids: complexIds })
+      .andWhere("c.deletedAt IS NULL")
+      .orderBy("c.complexId")
+      .addOrderBy("c.createdAt", "DESC")
+      .getRawMany();
+
+    const out: Record<string, { text: string; author: string; count: number }> = {};
+    for (const r of rows) {
+      const author = r.display_name
+        ? r.display_name
+        : r.phone
+          ? `Аноним ··${String(r.phone).slice(-2)}`
+          : "Аноним";
+      out[r.complex_id] = {
+        text: r.text || "",
+        author,
+        count: counts[r.complex_id] || 1,
+      };
+    }
+    return out;
+  }
 }
 
 /** Anonymise: prefer displayName, else derive last-2-digits hint from phone. */

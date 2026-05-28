@@ -485,6 +485,14 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
                 </div>
               )}
 
+              {/* User-generated discussion — moved high in the card so it's
+                  seen before the deep data sections (people were missing
+                  it at the bottom). Threads-style: anyone reads, only
+                  phone-verified post + like; component owns its gates. */}
+              <div className="rounded-lg border bg-muted/20 p-3">
+                <CommentsSection complexId={complex.id} />
+              </div>
+
               {/* Seismic info — always show when data available */}
               {seismic.found && (
                 <div className={`flex items-start gap-2 p-3 rounded-lg border ${
@@ -712,13 +720,6 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
                   twogisUrl={reviews.twogisUrl}
                 />
               ) : null}
-
-              {/* User-generated discussion (post-OTP feature). Threads-
-                  style: anyone can read, only phone-verified can post +
-                  like. Component handles its own login/verify gates. */}
-              <div className="rounded-lg border bg-muted/20 p-3">
-                <CommentsSection complexId={complex.id} />
-              </div>
 
               {/* Properties list — locked for guests */}
               {!isAuthenticated && (

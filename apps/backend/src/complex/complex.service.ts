@@ -7,6 +7,7 @@ import { SearchProjectEntity } from "../database/entities/search-project.entity"
 import { AirKazService } from "../air-quality/airkaz.service";
 import { TwoGisReviewsService } from "../properties/twogis-reviews.service";
 import { MapOverlaysService } from "../map-overlays/map-overlays.service";
+import { CommentsService } from "../comments/comments.service";
 import { findShutovRating, findNearestFault, SHUTOV_CATEGORY_COLORS, SHUTOV_CATEGORY_LABELS } from "@dreamapt/shared";
 
 // In-memory cache for the public map-data response. Built every request before
@@ -35,6 +36,7 @@ export class ComplexService {
     @Inject(forwardRef(() => TwoGisReviewsService))
     private twoGisReviews: TwoGisReviewsService,
     private mapOverlays: MapOverlaysService,
+    private comments: CommentsService,
   ) {}
 
   /** Get all complexes globally, deduplicated by normalized name (best score wins) */
@@ -133,6 +135,27 @@ export class ComplexService {
     // Backfill missing air quality on complexes from nearest station (in-memory only,
     // doesn't write to DB — keeps map-data fast and self-healing)
     const complexes = Array.from(dedupMap.values());
+
+    // Attach the latest comment per complex — the map hover uses it as a
+    // breadcrumb ("кто-то уже обсуждает этот ЖК" / nudge to be first). One
+    // batched query; cheap while comment volume is low. Cached with the
+    // rest of map-data for 60s.
+    try {
+      const latest = await this.comments.latestByComplex(complexes.map((c) => c.id));
+      for (const c of complexes) {
+        const hit = latest[c.id];
+        if (hit) {
+          (c as any).lastComment = {
+            text: hit.text.length > 90 ? hit.text.slice(0, 90) + "…" : hit.text,
+            author: hit.author,
+            count: hit.count,
+          };
+        }
+      }
+    } catch {
+      // non-fatal — map still renders without comment breadcrumbs
+    }
+
     if (airStations.length > 0) {
       for (const c of complexes) {
         if (c.airQualityPm25) continue; // already cached

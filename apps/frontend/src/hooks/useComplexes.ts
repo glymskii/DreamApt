@@ -204,6 +204,9 @@ export interface MapData {
     problematicSourceUrl?: string | null;
     problematicUpdatedAt?: string | null;
     isStub?: boolean;
+    // Latest comment breadcrumb for the map hover. Absent when the ЖК
+    // has no comments yet (hover then shows a "be first" nudge).
+    lastComment?: { text: string; author: string; count: number } | null;
   }>;
   airStations?: AirStation[];
   faultLines: Array<{
