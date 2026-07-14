@@ -48,6 +48,7 @@ interface Transform {
 
 const OVERLAY_META: Record<string, { title: string; imageUrl: string }> = {
   "genplan-2040": { title: "Генплан 2040", imageUrl: "/genplan-2040.jpg" },
+  "genplan-detailed": { title: "Детальный генплан (Тихон Шутов)", imageUrl: "/genplan-detailed.webp" },
   "pdp-aksay-zhetysu": { title: "ПДП Аксай / Жетысу (401 га)", imageUrl: "/pdp-aksay-zhetysu.jpg" },
   "pdp-ryskulbekov-navoi": { title: "ПДП Рыскулбекова / Навои (515 га)", imageUrl: "/pdp-ryskulbekov-navoi.jpg" },
   "pdp-sairan": { title: "ПДП Сайран (977 га)", imageUrl: "/pdp-sairan.jpg" },

@@ -129,6 +129,8 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
   // every planned widening would clutter the map for the 95% of users
   // who care about ЖК + air + seismic.
   const [showUrbanPlan, setShowUrbanPlan] = useState(false);
+  // Детальный генплан (эксперт Тихон Шутов) — full-city land-use overlay.
+  const [showGenplanDetailed, setShowGenplanDetailed] = useState(false);
   // ПДП (детальная планировка) — official per-zone planning rasters from
   // НИИ Алматыгенплан. Off by default (niche, heavy images), each toggled
   // independently. Keyed by the overlay config key.
@@ -289,6 +291,36 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
             "raster-fade-duration": 200,
           },
         });
+      }
+
+      // === ДЕТАЛЬНЫЙ ГЕНПЛАН (эксперт Тихон Шутов) ===
+      // Full-city land-use plan assembled by the expert. WebP with alpha,
+      // so transparent margins let the basemap show outside the city.
+      // Own toggle in the layers panel; calibrated via /admin.
+      {
+        const cfg = (data.overlays || []).find((o) => o.key === "genplan-detailed");
+        if (cfg) {
+          map.addSource("genplan-detailed-img", {
+            type: "image",
+            url: cfg.imageUrl,
+            coordinates: [
+              [cfg.nwLon, cfg.nwLat],
+              [cfg.neLon, cfg.neLat],
+              [cfg.seLon, cfg.seLat],
+              [cfg.swLon, cfg.swLat],
+            ],
+          });
+          map.addLayer({
+            id: "genplan-detailed-img",
+            type: "raster",
+            source: "genplan-detailed-img",
+            layout: { visibility: "none" },
+            paint: {
+              "raster-opacity": cfg.opacity ?? 0.75,
+              "raster-fade-duration": 200,
+            },
+          });
+        }
       }
 
       // === FAULT RISK ZONES ===
@@ -925,6 +957,19 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
     else map.once("idle", apply);
   }, [showUrbanPlan]);
 
+  // Toggle detailed-genplan (Shutov) layer.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const visibility = showGenplanDetailed ? "visible" : "none";
+    const apply = () => {
+      if (map.getLayer("genplan-detailed-img"))
+        map.setLayoutProperty("genplan-detailed-img", "visibility", visibility);
+    };
+    if (map.isStyleLoaded()) apply();
+    else map.once("idle", apply);
+  }, [showGenplanDetailed]);
+
   // Toggle each ПДП raster independently. Re-runs whenever any pdp flag
   // flips; cheap since setLayoutProperty is a no-op when unchanged.
   useEffect(() => {
@@ -988,6 +1033,15 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
             className="rounded accent-rose-500 w-3.5 h-3.5"
           />
           {t("map.urbanPlan")}
+        </label>
+        <label className="flex items-center gap-2 text-xs cursor-pointer">
+          <input
+            type="checkbox"
+            checked={showGenplanDetailed}
+            onChange={(e) => setShowGenplanDetailed(e.target.checked)}
+            className="rounded accent-teal-500 w-3.5 h-3.5"
+          />
+          {t("map.genplanDetailed")}
         </label>
 
         {/* ПДП (детальная планировка) — per-zone official rasters. Grouped
@@ -1079,6 +1133,14 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
               <Link href="/urban-plans" className="text-blue-600 dark:text-blue-400 hover:underline">
                 {t("map.urbanPlanDetails")}
               </Link>
+            </div>
+          </div>
+        )}
+        {showGenplanDetailed && (
+          <div className="border-t pt-1 mt-1">
+            <div className="font-medium text-[10px]">{t("map.genplanDetailed")}</div>
+            <div className="text-[9px] text-muted-foreground leading-snug">
+              {t("map.genplanDetailedCredit")}
             </div>
           </div>
         )}

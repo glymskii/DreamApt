@@ -59,6 +59,16 @@ export class MapOverlaysService implements OnModuleInit {
         opacity: 0.65,
       },
       {
+        // Full-city detailed land-use plan assembled by эксперт Тихон
+        // Шутов (used with permission). Alpha-cropped WebP; aspect ≈1.14
+        // (taller than wide). Citywide seed bbox — admin fine-tunes via
+        // the rigid calibration tool.
+        key: "genplan-detailed", imageUrl: "/genplan-detailed.webp",
+        nwLon: 76.77, nwLat: 43.365, neLon: 77.07, neLat: 43.365,
+        seLon: 77.07, seLat: 43.115, swLon: 76.77, swLat: 43.115,
+        opacity: 0.75,
+      },
+      {
         key: "pdp-aksay-zhetysu", imageUrl: "/pdp-aksay-zhetysu.jpg",
         nwLon: 76.82, nwLat: 43.24, neLon: 76.90, neLat: 43.24,
         seLon: 76.90, seLat: 43.16, swLon: 76.82, swLat: 43.16,
