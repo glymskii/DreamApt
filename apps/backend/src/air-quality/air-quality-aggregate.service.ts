@@ -1,6 +1,6 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Repository, SelectQueryBuilder } from "typeorm";
+import { Repository } from "typeorm";
 import { AirQualityReadingEntity } from "../database/entities/air-quality-reading.entity";
 
 /**
@@ -112,8 +112,17 @@ export class AirQualityAggregateService {
    * Averages around a point, bucketed by hour-of-day and weekday.
    *
    * Radius filtering uses a bounding box on the indexed lat/lng columns
-   * plus an exact haversine in SQL — the box lets Postgres skip most rows
-   * before doing trig.
+   * plus an exact haversine — the box lets Postgres skip most rows before
+   * doing trig.
+   *
+   * De-duplication matters more than it looks. The upstream publishes
+   * *hourly* values, while we snapshot every 30 min AND on every boot —
+   * and on a free-tier host that sleeps, boots cluster around whenever
+   * traffic happened to arrive. Averaging raw rows therefore weights each
+   * hour by how often we polled it, not by time: one real Thursday
+   * afternoon reading could outvote a whole quiet Saturday. So we first
+   * collapse to one value per (station, hour), then average those. Every
+   * station-hour now counts exactly once, whatever the polling did.
    */
   async getForLocation(
     lat: number,
@@ -133,35 +142,42 @@ export class AirQualityAggregateService {
     const dLat = radius / 111.32;
     const dLng = radius / (111.32 * Math.cos((lat * Math.PI) / 180) || 1);
 
-    const geoFilter = (
-      qb: SelectQueryBuilder<AirQualityReadingEntity>,
-    ): SelectQueryBuilder<AirQualityReadingEntity> =>
-      qb
-        .where("r.pm25 IS NOT NULL")
-        .andWhere("r.recordedAt >= :since", { since })
-        .andWhere("r.lat BETWEEN :minLat AND :maxLat", {
-          minLat: lat - dLat,
-          maxLat: lat + dLat,
-        })
-        .andWhere("r.lng BETWEEN :minLng AND :maxLng", {
-          minLng: lng - dLng,
-          maxLng: lng + dLng,
-        })
-        .andWhere(
-          `6371 * acos(LEAST(1, cos(radians(:lat)) * cos(radians(r.lat)) *
-             cos(radians(r.lng) - radians(:lng)) +
-             sin(radians(:lat)) * sin(radians(r.lat)))) <= :radius`,
-          { lat, lng, radius },
-        );
+    // One row per (station, hour) after the geo/time filter. Parameters are
+    // positional so the CTE can be reused verbatim by each aggregate below.
+    const dedupedCte = `
+      WITH deduped AS (
+        SELECT station_id,
+               date_trunc('hour', recorded_at) AS h,
+               AVG(pm25)::float AS pm25
+        FROM air_quality_readings
+        WHERE pm25 IS NOT NULL
+          AND recorded_at >= $1
+          AND lat BETWEEN $2 AND $3
+          AND lng BETWEEN $4 AND $5
+          AND 6371 * acos(LEAST(1,
+                cos(radians($6)) * cos(radians(lat)) *
+                cos(radians(lng) - radians($7)) +
+                sin(radians($6)) * sin(radians(lat)))) <= $8
+        GROUP BY station_id, h
+      )`;
+    const params = [
+      since,
+      lat - dLat,
+      lat + dLat,
+      lng - dLng,
+      lng + dLng,
+      lat,
+      lng,
+      radius,
+    ];
 
-    const totalRow = await geoFilter(
-      this.readingsRepo
-        .createQueryBuilder("r")
-        .select("COUNT(*)", "samples")
-        .addSelect("AVG(r.pm25)", "avg"),
-    ).getRawOne<{ samples: string; avg: string | null }>();
+    const [totalRow] = await this.readingsRepo.query(
+      `${dedupedCte}
+       SELECT COUNT(*)::int AS samples, AVG(pm25) AS avg FROM deduped`,
+      params,
+    );
 
-    const samples = parseInt(totalRow?.samples || "0", 10);
+    const samples = Number(totalRow?.samples || 0);
     if (samples < MIN_SAMPLES_TOTAL) {
       return {
         coverage,
@@ -177,27 +193,21 @@ export class AirQualityAggregateService {
       };
     }
 
-    const hourRows = await geoFilter(
-      this.readingsRepo
-        .createQueryBuilder("r")
-        .select("EXTRACT(HOUR FROM r.recordedAt)", "bucket")
-        .addSelect("AVG(r.pm25)", "avg")
-        .addSelect("COUNT(*)", "samples"),
-    )
-      .groupBy("bucket")
-      .orderBy("bucket", "ASC")
-      .getRawMany<{ bucket: string; avg: string; samples: string }>();
+    const hourRows: Array<{ bucket: string; avg: string; samples: number }> =
+      await this.readingsRepo.query(
+        `${dedupedCte}
+         SELECT EXTRACT(HOUR FROM h) AS bucket, AVG(pm25) AS avg, COUNT(*)::int AS samples
+         FROM deduped GROUP BY bucket ORDER BY bucket ASC`,
+        params,
+      );
 
-    const weekdayRows = await geoFilter(
-      this.readingsRepo
-        .createQueryBuilder("r")
-        .select("EXTRACT(DOW FROM r.recordedAt)", "bucket")
-        .addSelect("AVG(r.pm25)", "avg")
-        .addSelect("COUNT(*)", "samples"),
-    )
-      .groupBy("bucket")
-      .orderBy("bucket", "ASC")
-      .getRawMany<{ bucket: string; avg: string; samples: string }>();
+    const weekdayRows: Array<{ bucket: string; avg: string; samples: number }> =
+      await this.readingsRepo.query(
+        `${dedupedCte}
+         SELECT EXTRACT(DOW FROM h) AS bucket, AVG(pm25) AS avg, COUNT(*)::int AS samples
+         FROM deduped GROUP BY bucket ORDER BY bucket ASC`,
+        params,
+      );
 
     const round1 = (v: string | number | null) =>
       v === null ? 0 : Math.round(Number(v) * 10) / 10;
@@ -211,18 +221,18 @@ export class AirQualityAggregateService {
         samples,
         avgPm25: round1(totalRow?.avg ?? null),
         byHour: hourRows
-          .filter((r) => parseInt(r.samples, 10) >= MIN_SAMPLES_PER_BUCKET)
+          .filter((r) => Number(r.samples) >= MIN_SAMPLES_PER_BUCKET)
           .map((r) => ({
             hour: Number(r.bucket),
             avgPm25: round1(r.avg),
-            samples: parseInt(r.samples, 10),
+            samples: Number(r.samples),
           })),
         byWeekday: weekdayRows
-          .filter((r) => parseInt(r.samples, 10) >= MIN_SAMPLES_PER_BUCKET)
+          .filter((r) => Number(r.samples) >= MIN_SAMPLES_PER_BUCKET)
           .map((r) => ({
             weekday: Number(r.bucket),
             avgPm25: round1(r.avg),
-            samples: parseInt(r.samples, 10),
+            samples: Number(r.samples),
           })),
       },
     };
