@@ -7,6 +7,7 @@ import {
   useComplexProperties,
   useComplexShutov,
   useComplexAirQuality,
+  useComplexAirHistory,
   useComplexReviews,
   type ReviewItem,
 } from "@/hooks/useComplexes";
@@ -14,6 +15,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useAuthDialog } from "@/components/auth/auth-dialog";
 import { CommentsSection } from "@/components/comments/CommentsSection";
 import { RequestAccessModal } from "@/components/access/RequestAccessModal";
+import { AirHistoryChart } from "@/components/complex/AirHistoryChart";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatPrice, formatArea } from "@/lib/utils";
@@ -310,6 +312,8 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
   );
   const { data: shutov } = useComplexShutov(complexId);
   const { data: airQuality } = useComplexAirQuality(complexId);
+  const { data: airHistory, isLoading: airHistoryLoading } =
+    useComplexAirHistory(complexId);
   const { data: reviews, isLoading: reviewsLoading } = useComplexReviews(complexId);
 
   // Seismic data is taken straight from the complex object (loaded by
@@ -698,6 +702,13 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
                   </p>
                 </div>
               )}
+
+              {/* Historical PM2.5 pattern around this ЖК — by hour of day /
+                  weekday. Sits right under the live reading so the user
+                  reads "сейчас столько" then "а вообще тут вот так".
+                  Renders its own empty state when history is thin, and
+                  keeps working while the live upstream is down. */}
+              <AirHistoryChart data={airHistory} isLoading={airHistoryLoading} />
 
               {/* 2GIS reviews — public, key value prop of the platform */}
               {reviewsLoading ? (

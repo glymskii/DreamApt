@@ -157,6 +157,40 @@ export function useComplexAirQuality(complexId: string) {
   });
 }
 
+export interface AirHistoryResponse {
+  found: boolean;
+  coverage: {
+    totalRows: number;
+    stations: number;
+    firstReading: string | null;
+    lastReading: string | null;
+    daysSpanned: number;
+    sufficient: boolean;
+  };
+  location: {
+    lat: number;
+    lng: number;
+    radiusKm: number;
+    samples: number;
+    avgPm25: number | null;
+    byHour: { hour: number; avgPm25: number; samples: number }[];
+    byWeekday: { weekday: number; avgPm25: number; samples: number }[];
+  } | null;
+}
+
+/** Historical PM2.5 averages around a complex, bucketed by hour of day and
+ *  weekday. Backed by our own archive, so it keeps working even while the
+ *  live upstream is down. */
+export function useComplexAirHistory(complexId: string) {
+  return useQuery({
+    queryKey: ["complex-air-history", complexId],
+    queryFn: () =>
+      api.get<AirHistoryResponse>(`/complexes/${complexId}/air-quality/history`),
+    enabled: !!complexId,
+    staleTime: 30 * 60 * 1000,
+  });
+}
+
 export interface AirStation {
   id: string;
   name: string;

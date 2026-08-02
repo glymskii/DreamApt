@@ -159,6 +159,24 @@
     "openOnKrisha": "Открыть на Krisha.kz",
     "loginForDetails": "Войти для подробностей"
   },
+  "airHistory": {
+    "title": "Воздух: как меняется",
+    "byHour": "По часам",
+    "byWeekday": "По дням",
+    "unit": "µg/m³",
+    "notEnough": "Пока мало наблюдений вокруг этого ЖК, чтобы показать закономерность. Данные копятся — вернитесь позже.",
+    "caption": "Среднее PM 2.5 по датчикам в радиусе {{radius}} км · {{samples}}",
+    "wd0": "Вс",
+    "wd1": "Пн",
+    "wd2": "Вт",
+    "wd3": "Ср",
+    "wd4": "Чт",
+    "wd5": "Пт",
+    "wd6": "Сб",
+    "samplesCount_one": "{{formatted}} замер",
+    "samplesCount_few": "{{formatted}} замера",
+    "samplesCount_many": "{{formatted}} замеров"
+  },
   "comments": {
     "title": "Обсуждение",
     "sortNew": "Новые",

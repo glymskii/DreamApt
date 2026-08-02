@@ -155,6 +155,23 @@
     "openOnKrisha": "Krisha.kz-те ашу",
     "loginForDetails": "Толық бетті көру үшін кіру"
   },
+  "airHistory": {
+    "title": "Ауа: қалай өзгереді",
+    "byHour": "Сағат бойынша",
+    "byWeekday": "Күн бойынша",
+    "unit": "µg/m³",
+    "notEnough": "Бұл ТК айналасында заңдылықты көрсету үшін бақылау әлі аз. Деректер жиналуда — кейінірек оралыңыз.",
+    "caption": "{{radius}} км радиустағы датчиктер бойынша орташа PM 2.5 · {{samples}}",
+    "wd0": "Жк",
+    "wd1": "Дс",
+    "wd2": "Сс",
+    "wd3": "Ср",
+    "wd4": "Бс",
+    "wd5": "Жм",
+    "wd6": "Сн",
+    "samplesCount_one": "{{formatted}} өлшем",
+    "samplesCount_other": "{{formatted}} өлшем"
+  },
   "comments": {
     "title": "Талқылау",
     "sortNew": "Жаңа",
