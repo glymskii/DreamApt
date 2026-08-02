@@ -3,6 +3,7 @@ import { TypeOrmModule } from "@nestjs/typeorm";
 import { AirKazService } from "./airkaz.service";
 import { AirQualityController } from "./air-quality.controller";
 import { AirQualityRecorderService } from "./air-quality-recorder.service";
+import { AirQualityAggregateService } from "./air-quality-aggregate.service";
 import { ResidentialComplexEntity } from "../database/entities/residential-complex.entity";
 import { AirQualityReadingEntity } from "../database/entities/air-quality-reading.entity";
 import { AuthModule } from "../auth/auth.module";
@@ -13,7 +14,7 @@ import { AuthModule } from "../auth/auth.module";
     AuthModule,
   ],
   controllers: [AirQualityController],
-  providers: [AirKazService, AirQualityRecorderService],
-  exports: [AirKazService],
+  providers: [AirKazService, AirQualityRecorderService, AirQualityAggregateService],
+  exports: [AirKazService, AirQualityAggregateService],
 })
 export class AirQualityModule {}

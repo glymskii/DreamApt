@@ -29,6 +29,10 @@ const PDP_OVERLAYS: { key: string; labelKey: string }[] = [
 ];
 const PDP_OVERLAY_KEYS = PDP_OVERLAYS.map((o) => o.key);
 
+/** Minimum live sensors before an interpolated PM2.5 surface is honest.
+ *  The normal aggregator returns ~380; the emergency fallbacks return ~3. */
+const MIN_STATIONS_FOR_HEATMAP = 10;
+
 function getScoreColor(score: number | null): string {
   if (!score) return "#999";
   if (score >= 85) return "#22c55e";
@@ -159,6 +163,12 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
   // Recomputed only when station readings change. ~30-50ms for 60×60 grid.
   const airGrid = useMemo(() => {
     if (!data.airStations || data.airStations.length === 0) return [];
+    // IDW over a handful of sensors is not a citywide picture — it just
+    // smears one reading across whole districts. When the aggregator is
+    // down we fall back to sources with only a few Almaty units, so below
+    // this threshold we show the station markers alone and skip the
+    // heatmap rather than imply knowledge we don't have.
+    if (data.airStations.length < MIN_STATIONS_FOR_HEATMAP) return [];
     return generateInterpolatedGrid(
       data.airStations.map((s: any) => ({ lat: s.lat, lng: s.lng, pm25: s.pm25 })),
       60,  // cols
