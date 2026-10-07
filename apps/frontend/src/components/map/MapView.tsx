@@ -553,7 +553,7 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
           id: "air-stations-circles",
           type: "circle",
           source: "air-stations",
-          minzoom: 12,
+          minzoom: 9,
           // Stations render as a "donut" — white fill, thick colored ring —
           // so they read distinctly from the solid ЖК circles. The color
           // still encodes PM2.5 level via the ring; the white center is the
@@ -1164,6 +1164,11 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
                 </span>
               )}
             </div>
+            {(!data.airStations || data.airStations.length < MIN_STATIONS_FOR_HEATMAP) && (
+              <div className="text-[10px] text-muted-foreground max-w-44">
+                {t("map.pmSparse")}
+              </div>
+            )}
             <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-background border-2 border-green-500" />{t("map.pmGood")}</div>
             <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-background border-2 border-yellow-500" />{t("map.pmModerate")}</div>
             <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-background border-2 border-orange-500" />{t("map.pmSensitive")}</div>

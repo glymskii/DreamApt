@@ -8,6 +8,7 @@
     "start": "nest start",
     "start:prod": "node dist/main",
     "lint": "tsc --noEmit",
+    "test:air-quality": "ts-node test/airkaz.test.ts",
     "typeorm": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js"
   },
   "dependencies": {

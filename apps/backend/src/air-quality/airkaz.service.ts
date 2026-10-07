@@ -44,9 +44,8 @@ const CACHE_TTL_MS = 15 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 10_000;
 /** Almaty bounding box — shared by every source's coordinate filter. */
 const BOUNDS = { minLat: 43.0, maxLat: 43.5, minLng: 76.4, maxLng: 77.5 };
-/** Physically plausible PM2.5 window. Community sensors regularly emit
- *  0.02 (dead/indoor unit) or 3000+ (fault) — both poison the heatmap. */
-const PM25_MIN = 0.5;
+/** Accept low readings, including zero; filter indoor units separately. */
+const PM25_MIN = 0;
 const PM25_MAX = 1000;
 /** A source reading is only "live" if its own timestamp is this fresh. */
 const LIVE_MAX_AGE_MS = 6 * 60 * 60 * 1000;
@@ -57,6 +56,8 @@ const DB_FALLBACK_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
 /** Which source actually produced the current station list. */
 export type AirSource =
   | "air.org.kz"
+  | "backend.air.org.kz"
+  | "mixed"
   | "airkaz.org"
   | "sensor.community"
   | "archive"
@@ -72,10 +73,8 @@ export interface AirStationsResult {
 }
 
 /**
- * Aggregates live PM 2.5 readings from api.air.org.kz (Almaty Air Initiative).
- * This API merges multiple sensor networks: AirKaz, IQAir, AirGradient,
- * Clarity, PurpleAir, sensor.community, Reference sites — ~384 stations
- * across Almaty. No API key needed (public Almaty civic project).
+ * Uses the current keyed AAI API, the legacy endpoint, then combined
+ * independent public feeds. Replayed archive data is explicitly stale.
  */
 @Injectable()
 export class AirKazService {
@@ -99,11 +98,8 @@ export class AirKazService {
    * data is a replayed archive snapshot. Callers that surface data to users
    * (map, complex card) should show the staleness.
    *
-   * Source chain — first non-empty wins:
-   *   1. api.air.org.kz — the AAI aggregator (~380 stations, 7 networks)
-   *   2. airkaz.org     — inline sensors_data on the public page
-   *   3. sensor.community — open global feed, a handful of Almaty units
-   *   4. our own archive — last known good snapshot (marked stale)
+   * Prefer current AAI (when configured), then legacy AAI. If unavailable,
+   * combine airkaz.org and sensor.community before consulting the archive.
    *
    * `allowArchiveFallback: false` is used by the cron recorder: replaying
    * archived rows back into the archive would duplicate history.
@@ -114,13 +110,12 @@ export class AirKazService {
     const allowArchive = opts.allowArchiveFallback !== false;
     const now = Date.now();
     if (!opts.forceRefresh && this.cache && now - this.cache.fetchedAt < CACHE_TTL_MS) {
-      return this.cache.result;
+      if (allowArchive || !this.cache.result.stale) return this.cache.result;
     }
 
     const sources: Array<[AirSource, () => Promise<AirKazStation[]>]> = [
+      ...(process.env.AAI_API_KEY ? [["backend.air.org.kz", () => this.fetchFromAaiBackend()] as [AirSource, () => Promise<AirKazStation[]>]] : []),
       ["air.org.kz", () => this.fetchFromAirOrgKz()],
-      ["airkaz.org", () => this.fetchFromAirkazOrg()],
-      ["sensor.community", () => this.fetchFromSensorCommunity()],
     ];
 
     for (const [source, fetcher] of sources) {
@@ -143,9 +138,29 @@ export class AirKazService {
       }
     }
 
+    const fallbackSources = [
+      ["airkaz.org", () => this.fetchFromAirkazOrg()],
+      ["sensor.community", () => this.fetchFromSensorCommunity()],
+    ] as const;
+    const fallback = await Promise.all(fallbackSources.map(async ([source, fetcher]) => {
+      try { return { source, stations: await fetcher() }; }
+      catch (err) { this.logger.warn(`${source} fetch failed: ${err}`); return { source, stations: [] }; }
+    }));
+    const available = fallback.filter(x => x.stations.length > 0);
+    const stations = this.dedupe(available.flatMap(x => x.stations));
+    if (stations.length) {
+      const result: AirStationsResult = {
+        stations, source: available.length > 1 ? "mixed" : available[0].source,
+        stale: false, asOf: this.newestDate(stations),
+      };
+      this.cache = { result, fetchedAt: now };
+      return result;
+    }
+
     // Every upstream is down. Prefer a warm in-memory copy, else replay the
     // newest archived snapshot so the map isn't blank.
-    if (this.cache && this.cache.result.stations.length > 0) {
+    if (allowArchive && this.cache && this.cache.result.stations.length > 0 &&
+        now - this.cache.fetchedAt <= DB_FALLBACK_MAX_AGE_MS) {
       this.logger.warn("All AQ upstreams failed — serving in-memory cache");
       return { ...this.cache.result, stale: true };
     }
@@ -253,11 +268,43 @@ export class AirKazService {
     if (lng < BOUNDS.minLng || lng > BOUNDS.maxLng) return false;
     if (pm25 === null || !Number.isFinite(pm25)) return false;
     if (pm25 < PM25_MIN || pm25 > PM25_MAX) return false;
-    if (date) {
-      const t = new Date(date.includes("T") ? date : date.replace(" ", "T")).getTime();
-      if (Number.isFinite(t) && Date.now() - t > LIVE_MAX_AGE_MS) return false;
-    }
+    const t = Date.parse(date);
+    if (!date || !Number.isFinite(t)) return false;
+    if (Date.now() - t > LIVE_MAX_AGE_MS || t > Date.now() + 5 * 60 * 1000) return false;
     return true;
+  }
+
+  private timestamp(value: unknown, zone: string): string {
+    if (typeof value !== "string" || !value.trim()) return "";
+    let date = value.trim().replace(" ", "T");
+    if (!/(Z|[+-]\d{2}:?\d{2})$/i.test(date)) date += zone;
+    const ms = Date.parse(date);
+    return Number.isFinite(ms) ? new Date(ms).toISOString() : "";
+  }
+
+  /** Current AAI API; key belongs to this integration, not their dashboard. */
+  private async fetchFromAaiBackend(): Promise<AirKazStation[]> {
+    const ctrl = new AbortController();
+    const timeout = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+    try {
+      const res = await fetch("https://backend.air.org.kz/v1/measurements/map", {
+        headers: { Accept: "application/json", "X-API-Key": process.env.AAI_API_KEY! },
+        signal: ctrl.signal,
+      });
+      if (!res.ok) throw new Error(`AAI HTTP ${res.status}`);
+      const payload = await res.json() as any;
+      const raw = Array.isArray(payload) ? payload : payload.data;
+      if (!Array.isArray(raw)) throw new Error("AAI invalid station payload");
+      return raw.flatMap(s => {
+        const lat = Number(s.latitude), lng = Number(s.longitude);
+        const pm25 = s.pm25_avg == null ? null : Number(s.pm25_avg);
+        const date = this.timestamp(s.last_measurement, "Z");
+        if (!this.isUsable(lat, lng, pm25, date)) return [];
+        return [{ id: `map-${s.location_id}`, name: String(s.location_name || s.location_id),
+          lat, lng, pm25, date, pm10: null, aqi: null, temp: null, humid: null,
+          status: "active", district: null, origin: "airgradient" }];
+      });
+    } finally { clearTimeout(timeout); }
   }
 
   /** Find nearest station with live PM 2.5 data for a given coordinate. */
@@ -334,7 +381,8 @@ export class AirKazService {
       );
       if (!p2) continue;
       const pm25 = Number(p2.value);
-      const date = String(r?.timestamp || "");
+      if (Number(loc.indoor) === 1) continue;
+      const date = this.timestamp(r?.timestamp, "Z");
       if (!this.isUsable(lat, lng, pm25, date)) continue;
       out.push({
         id: `sc-${r.sensor?.id ?? r.id}`,
@@ -392,7 +440,7 @@ export class AirKazService {
       const lat = Number(s.lat);
       const lng = Number(s.lng);
       const pm25 = s.pm25 === null || s.pm25 === "" ? null : Number(s.pm25);
-      const date = String(s.date || "");
+      const date = this.timestamp(s.date, "+05:00");
       if (!this.isUsable(lat, lng, pm25, date)) continue;
       out.push({
         id: String(s.id),
@@ -434,15 +482,14 @@ export class AirKazService {
       const lat = Number(s.lat);
       const lng = Number(s.lon);
       const pm25 = s.pm25 === null ? null : Number(s.pm25);
-      const date = s.datetime || s.created_at || "";
-      // This aggregator is already QA'd upstream, so we only apply the
-      // geo/plausibility gate — not the freshness one, since its hourly
-      // rollups can legitimately lag behind the wall clock.
+      const date = this.timestamp(s.datetime || s.created_at, "+05:00");
+      // Apply the same freshness gate even when upstream validates values.
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
       if (lat < BOUNDS.minLat || lat > BOUNDS.maxLat) continue;
       if (lng < BOUNDS.minLng || lng > BOUNDS.maxLng) continue;
       if (pm25 === null || !Number.isFinite(pm25)) continue;
       if (pm25 < 0 || pm25 > PM25_MAX) continue;
+      if (!this.isUsable(lat, lng, pm25, date)) continue;
       out.push({
         id: String(s.id),
         name: (s.name || "").trim(),
