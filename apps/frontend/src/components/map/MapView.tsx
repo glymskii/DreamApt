@@ -2,9 +2,9 @@
 
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { useTranslation } from "react-i18next";
-import maplibregl from "maplibre-gl";
+import maplibregl, { type FilterSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import Link from "next/link";
+import { Activity, Construction, LandPlot, Wind, type LucideIcon } from "lucide-react";
 import type { MapData } from "@/hooks/useComplexes";
 import { formatPrice } from "@/lib/utils";
 import { useTheme } from "@/components/theme-provider";
@@ -16,19 +16,14 @@ interface MapViewProps {
   onComplexClick?: (complexId: string) => void;
   hoveredComplexId?: string | null;
   selectedComplexId?: string | null;
+  // ЖК the page's own search/filters leave in view (null = all). The
+  // markers follow the sidebar list instead of always showing everything.
+  visibleIds?: ReadonlySet<string> | null;
+  // «Новостройки» toggle, controlled by a page that also filters its list
+  // by it; without these the map keeps the toggle to itself.
+  onlyUnderConstruction?: boolean;
+  onOnlyUnderConstructionChange?: (value: boolean) => void;
 }
-
-/**
- * ПДП (детальная планировка) overlays. Each maps to an admin-calibrated
- * config row + a cropped official scan in /public. `labelKey` is the i18n
- * key for the layer-panel toggle. Order = display order.
- */
-const PDP_OVERLAYS: { key: string; labelKey: string }[] = [
-  { key: "pdp-aksay-zhetysu", labelKey: "map.pdpAksayZhetysu" },
-  { key: "pdp-ryskulbekov-navoi", labelKey: "map.pdpRyskulbekovNavoi" },
-  { key: "pdp-sairan", labelKey: "map.pdpSairan" },
-];
-const PDP_OVERLAY_KEYS = PDP_OVERLAYS.map((o) => o.key);
 
 type CirclePaint = NonNullable<
   Extract<maplibregl.LayerSpecification, { type: "circle" }>["paint"]
@@ -49,6 +44,62 @@ const COMPLEX_STROKE_COLOR: CirclePaint["circle-stroke-color"] = [
   ["==", ["get", "underConstruction"], 1], "#0284c7", // sky-600 — строится
   "#fff",
 ];
+
+// Map layers behind each key-feature toggle.
+const SEISMIC_LAYERS = [
+  "risk-zone-low", "risk-zone-moderate", "risk-zone-high",
+  "faults-lines-1", "faults-lines-2", "faults-lines-3",
+];
+const AIR_LAYERS = ["air-heatmap", "air-stations-circles"];
+const GENPLAN_LAYERS = ["genplan-detailed-img"];
+const COMPLEX_LAYERS = ["complexes-circles", "complexes-labels"];
+
+function setLayersVisible(map: maplibregl.Map, ids: string[], visible: boolean) {
+  for (const id of ids) {
+    if (map.getLayer(id)) map.setLayoutProperty(id, "visibility", visible ? "visible" : "none");
+  }
+}
+
+/** One of the key features (seismic, air, new buildings, genplan): a
+ *  large pill that is always on screen, filled with its colour when on. */
+function FeatureToggle({
+  active, onToggle, icon: Icon, label, title, count, activeClass, iconClass,
+}: {
+  active: boolean;
+  onToggle: () => void;
+  icon: LucideIcon;
+  label: string;
+  title: string;
+  count?: number;
+  activeClass: string;
+  iconClass: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-pressed={active}
+      title={title}
+      className={`flex items-center gap-1.5 h-8 px-3 rounded-full border shadow-md text-xs font-semibold backdrop-blur transition-colors ${
+        active
+          ? `${activeClass} text-white border-transparent`
+          : "bg-card/95 text-card-foreground border-border hover:bg-muted"
+      }`}
+    >
+      <Icon className={`h-4 w-4 ${active ? "" : iconClass}`} />
+      {label}
+      {count != null && (
+        <span
+          className={`rounded-full px-1.5 text-[10px] font-medium ${
+            active ? "bg-white/25" : "bg-muted text-muted-foreground"
+          }`}
+        >
+          {count}
+        </span>
+      )}
+    </button>
+  );
+}
 
 /** Minimum live sensors before an interpolated PM2.5 surface is honest.
  *  The normal aggregator returns ~380; the emergency fallbacks return ~3. */
@@ -135,7 +186,15 @@ const MAPTILER_KEY = "get_your_own_OpIi9ZULNHzrESv6T2vL";
 const MAP_STYLE_LIGHT = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
 const MAP_STYLE_DARK = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
 
-export default function MapView({ data, onComplexClick, hoveredComplexId, selectedComplexId }: MapViewProps) {
+export default function MapView({
+  data,
+  onComplexClick,
+  hoveredComplexId,
+  selectedComplexId,
+  visibleIds = null,
+  onlyUnderConstruction,
+  onOnlyUnderConstructionChange,
+}: MapViewProps) {
   const { t, i18n } = useTranslation();
   const tRef = useRef(t);
   tRef.current = t;
@@ -143,27 +202,21 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
   langRef.current = i18n.language;
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
-  // Layer visibility — все включены по умолчанию.
-  // Risk zones всегда вместе с разломами (без них теряют смысл).
-  // Маркеры ЖК всегда раскрашены по сейсмическому риску — это важнее
-  // общего рейтинга для решения о покупке.
+  // Key-feature layers. Seismic (faults + risk zones together — zones
+  // mean nothing without the faults) and air are on by default; the
+  // detailed genplan (expert Тихон Шутов) is a heavy full-city raster, so
+  // it waits for a click. ЖК markers are always coloured by seismic risk.
   const [showFaults, setShowFaults] = useState(true);
   const [showAirQuality, setShowAirQuality] = useState(true);
-  const [showCityBoundary, setShowCityBoundary] = useState(true);
-  // Genplan layer hidden by default — it's a niche curiosity, surfacing
-  // every planned widening would clutter the map for the 95% of users
-  // who care about ЖК + air + seismic.
-  const [showUrbanPlan, setShowUrbanPlan] = useState(false);
-  // Детальный генплан (эксперт Тихон Шутов) — full-city land-use overlay.
   const [showGenplanDetailed, setShowGenplanDetailed] = useState(false);
-  // ПДП (детальная планировка) — official per-zone planning rasters from
-  // НИИ Алматыгенплан. Off by default (niche, heavy images), each toggled
-  // independently. Keyed by the overlay config key.
-  const [pdpVisible, setPdpVisible] = useState<Record<string, boolean>>({
-    "pdp-aksay-zhetysu": false,
-    "pdp-ryskulbekov-navoi": false,
-    "pdp-sairan": false,
-  });
+  // «Новостройки» filters markers; layers above only show or hide.
+  const [ownOnlyBuilding, setOwnOnlyBuilding] = useState(false);
+  const onlyBuilding = onlyUnderConstruction ?? ownOnlyBuilding;
+  const setOnlyBuilding = onOnlyUnderConstructionChange ?? setOwnOnlyBuilding;
+  // The load handler re-applies toggles and the marker filter, so a map
+  // rebuilt by a theme or data change keeps what the user chose.
+  const layersRef = useRef({ seismic: showFaults, air: showAirQuality, genplan: showGenplanDetailed });
+  layersRef.current = { seismic: showFaults, air: showAirQuality, genplan: showGenplanDetailed };
   // View mode: false = вид сверху (pitch 0, default), true = объёмный.
   // Ref mirrors state for the non-reactive map handlers (init, flyTo).
   const [view3d, setView3d] = useState(false);
@@ -175,6 +228,20 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
     () => data.complexes.filter(isUnderConstruction).length,
     [data.complexes],
   );
+
+  // Genplan button only when map-data carries the overlay (the backend
+  // seeds it on start; /admin calibrates its corners).
+  const hasGenplan = (data.overlays || []).some((o) => o.key === "genplan-detailed");
+
+  const markerFilter = useMemo<FilterSpecification | null>(() => {
+    const parts: FilterSpecification[] = [];
+    if (visibleIds) parts.push(["in", ["get", "id"], ["literal", [...visibleIds]]]);
+    if (onlyBuilding) parts.push(["==", ["get", "underConstruction"], 1]);
+    if (parts.length === 0) return null;
+    return parts.length === 1 ? parts[0] : (["all", ...parts] as FilterSpecification);
+  }, [visibleIds, onlyBuilding]);
+  const markerFilterRef = useRef(markerFilter);
+  markerFilterRef.current = markerFilter;
 
   const riskCounts = useMemo(() => {
     const counts: Record<string, number> = { critical: 0, high: 0, moderate: 0, low: 0, safe: 0 };
@@ -248,83 +315,6 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
             ],
             "line-opacity": 0.7,
             "line-dasharray": [4, 2],
-          },
-        });
-      }
-
-      // === ALMATY 2040 MASTER-PLAN IMAGE OVERLAY ===
-      // Toggleable layer (default off). Instead of building our own vector
-      // version of the plan (where the OSM whole-street geometry over-
-      // colours streets that will only see partial work), we overlay the
-      // official "ГП_230203_Транспорт" raster from НИИ Алматыгенплан.
-      // Pros: shows the planning institute's exact intent, no
-      // reinterpretation on our part. Cons: schematic ± ~50-200m offset
-      // from OSM street centerlines, blurs at high zoom. Acceptable for
-      // an "overview of the genplan" use case.
-      //
-      // The four-corner `coordinates` are an empirical first cut that
-      // roughly matches the image's red-dashed admin boundary to the
-      // OSM admin boundary; expect to fine-tune by eye.
-      // Pull the admin-calibrated overlay config from the API response,
-      // falling back to the last math-derived bbox if the backend hasn't
-      // seeded yet. Future "genplan-2040" tweaks happen in /admin/
-      // genplan-align and survive without a frontend redeploy.
-      const genplanCfg = (data.overlays || []).find((o) => o.key === "genplan-2040");
-      const coords: [[number, number], [number, number], [number, number], [number, number]] =
-        genplanCfg
-          ? [
-              [genplanCfg.nwLon, genplanCfg.nwLat],
-              [genplanCfg.neLon, genplanCfg.neLat],
-              [genplanCfg.seLon, genplanCfg.seLat],
-              [genplanCfg.swLon, genplanCfg.swLat],
-            ]
-          : [
-              [76.6836, 43.4157],
-              [77.1701, 43.4157],
-              [77.1701, 43.0325],
-              [76.6836, 43.0325],
-            ];
-      map.addSource("urban-plan-img", {
-        type: "image",
-        url: genplanCfg?.imageUrl || "/genplan-2040.jpg",
-        coordinates: coords,
-      });
-      map.addLayer({
-        id: "urban-plan-img",
-        type: "raster",
-        source: "urban-plan-img",
-        layout: { visibility: "none" },
-        paint: {
-          "raster-opacity": genplanCfg?.opacity ?? 0.65,
-          "raster-fade-duration": 200,
-        },
-      });
-
-      // === ПДП (ДЕТАЛЬНАЯ ПЛАНИРОВКА) — per-zone rasters ===
-      // One image source + raster layer per pdp-* overlay config. Default
-      // hidden; toggled independently from the layers panel. Each layer id
-      // is `${key}-img`. Coordinates come from the admin-calibrated config.
-      for (const key of PDP_OVERLAY_KEYS) {
-        const cfg = (data.overlays || []).find((o) => o.key === key);
-        if (!cfg) continue;
-        map.addSource(`${key}-img`, {
-          type: "image",
-          url: cfg.imageUrl,
-          coordinates: [
-            [cfg.nwLon, cfg.nwLat],
-            [cfg.neLon, cfg.neLat],
-            [cfg.seLon, cfg.seLat],
-            [cfg.swLon, cfg.swLat],
-          ],
-        });
-        map.addLayer({
-          id: `${key}-img`,
-          type: "raster",
-          source: `${key}-img`,
-          layout: { visibility: "none" },
-          paint: {
-            "raster-opacity": cfg.opacity ?? 0.7,
-            "raster-fade-duration": 200,
           },
         });
       }
@@ -906,6 +896,12 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
         if (id && onComplexClickRef.current) onComplexClickRef.current(id);
       });
 
+      const layers = layersRef.current;
+      setLayersVisible(map, SEISMIC_LAYERS, layers.seismic);
+      setLayersVisible(map, AIR_LAYERS, layers.air);
+      setLayersVisible(map, GENPLAN_LAYERS, layers.genplan);
+      for (const id of COMPLEX_LAYERS) map.setFilter(id, markerFilterRef.current);
+
       // Fit bounds
       if (complexFeatures.length > 0) {
         const bounds = new maplibregl.LngLatBounds();
@@ -949,177 +945,74 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
     }
   }, [hoveredComplexId]);
 
-  // Toggle fault lines + their risk zones together.
-  // Wraps the apply in a style-load guard: if the map style hasn't finished
-  // loading yet (common on first mount), retry once on the next "idle" event.
+  // Key-feature layers follow their toggles. Before the load handler has
+  // added the layers there is nothing to set; it applies layersRef then.
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    const visibility = showFaults ? "visible" : "none";
-    const apply = () => {
-      for (const danger of [1, 2, 3]) {
-        const layerId = `faults-lines-${danger}`;
-        if (map.getLayer(layerId))
-          map.setLayoutProperty(layerId, "visibility", visibility);
-      }
-      for (const id of ["risk-zone-low", "risk-zone-moderate", "risk-zone-high"]) {
-        if (map.getLayer(id))
-          map.setLayoutProperty(id, "visibility", visibility);
-      }
-    };
-    if (map.isStyleLoaded()) apply();
-    else map.once("idle", apply);
-  }, [showFaults]);
+    setLayersVisible(map, SEISMIC_LAYERS, showFaults);
+    setLayersVisible(map, AIR_LAYERS, showAirQuality);
+    setLayersVisible(map, GENPLAN_LAYERS, showGenplanDetailed);
+  }, [showFaults, showAirQuality, showGenplanDetailed]);
 
-  // Toggle air quality layers (heatmap + station markers)
+  // Markers follow the page's filters and the «Новостройки» toggle.
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    const visibility = showAirQuality ? "visible" : "none";
-    const apply = () => {
-      for (const id of ["air-heatmap", "air-stations-circles"]) {
-        if (map.getLayer(id))
-          map.setLayoutProperty(id, "visibility", visibility);
-      }
-    };
-    if (map.isStyleLoaded()) apply();
-    else map.once("idle", apply);
-  }, [showAirQuality]);
-
-  // Toggle city boundary outline
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    const visibility = showCityBoundary ? "visible" : "none";
-    const apply = () => {
-      if (map.getLayer("city-boundary-line"))
-        map.setLayoutProperty("city-boundary-line", "visibility", visibility);
-    };
-    if (map.isStyleLoaded()) apply();
-    else map.once("idle", apply);
-  }, [showCityBoundary]);
-
-  // Toggle 2040 master-plan layer (default off). Targets the raster
-  // image overlay added in the load handler above.
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    const visibility = showUrbanPlan ? "visible" : "none";
-    const apply = () => {
-      if (map.getLayer("urban-plan-img"))
-        map.setLayoutProperty("urban-plan-img", "visibility", visibility);
-    };
-    if (map.isStyleLoaded()) apply();
-    else map.once("idle", apply);
-  }, [showUrbanPlan]);
-
-  // Toggle detailed-genplan (Shutov) layer.
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    const visibility = showGenplanDetailed ? "visible" : "none";
-    const apply = () => {
-      if (map.getLayer("genplan-detailed-img"))
-        map.setLayoutProperty("genplan-detailed-img", "visibility", visibility);
-    };
-    if (map.isStyleLoaded()) apply();
-    else map.once("idle", apply);
-  }, [showGenplanDetailed]);
-
-  // Toggle each ПДП raster independently. Re-runs whenever any pdp flag
-  // flips; cheap since setLayoutProperty is a no-op when unchanged.
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    const apply = () => {
-      for (const key of PDP_OVERLAY_KEYS) {
-        const layerId = `${key}-img`;
-        if (map.getLayer(layerId)) {
-          map.setLayoutProperty(
-            layerId,
-            "visibility",
-            pdpVisible[key] ? "visible" : "none",
-          );
-        }
-      }
-    };
-    if (map.isStyleLoaded()) apply();
-    else map.once("idle", apply);
-  }, [pdpVisible]);
+    for (const id of COMPLEX_LAYERS) {
+      if (map.getLayer(id)) map.setFilter(id, markerFilter);
+    }
+  }, [markerFilter]);
 
   return (
     <div className="relative w-full h-full">
       <div ref={mapContainer} className="w-full h-full" />
 
-      {/* Controls — layer toggles */}
-      <div className="absolute top-2 left-2 sm:top-3 sm:left-3 bg-card/95 text-card-foreground border border-border backdrop-blur rounded-lg shadow-lg p-2 sm:p-3 space-y-1.5 max-w-[160px] sm:max-w-[180px] z-10">
-        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">{t("map.layers")}</p>
-        <label className="flex items-center gap-2 text-xs cursor-pointer">
-          <input
-            type="checkbox"
-            checked={showFaults}
-            onChange={(e) => setShowFaults(e.target.checked)}
-            className="rounded accent-red-500 w-3.5 h-3.5"
+      {/* Key features, always on screen: three layers and the
+          «Новостройки» filter. Wraps to two rows on phones; the right
+          margin keeps clear of the zoom/compass control. */}
+      <div className="absolute top-2 left-2 right-12 sm:top-3 sm:left-3 z-10 flex flex-wrap gap-1.5">
+        <FeatureToggle
+          active={showFaults}
+          onToggle={() => setShowFaults((v) => !v)}
+          icon={Activity}
+          label={t("map.featureSeismic")}
+          title={t("map.featureSeismicHint")}
+          activeClass="bg-red-600 hover:bg-red-700"
+          iconClass="text-red-600"
+        />
+        <FeatureToggle
+          active={showAirQuality}
+          onToggle={() => setShowAirQuality((v) => !v)}
+          icon={Wind}
+          label={t("map.featureAir")}
+          title={t("map.airQuality")}
+          activeClass="bg-emerald-600 hover:bg-emerald-700"
+          iconClass="text-emerald-600"
+        />
+        {underConstructionCount > 0 && (
+          <FeatureToggle
+            active={onlyBuilding}
+            onToggle={() => setOnlyBuilding(!onlyBuilding)}
+            icon={Construction}
+            label={t("map.featureBuilding")}
+            title={t("map.featureBuildingHint")}
+            count={underConstructionCount}
+            activeClass="bg-sky-600 hover:bg-sky-700"
+            iconClass="text-sky-600"
           />
-          {t("map.faultLines")}
-        </label>
-        <label className="flex items-center gap-2 text-xs cursor-pointer">
-          <input
-            type="checkbox"
-            checked={showAirQuality}
-            onChange={(e) => setShowAirQuality(e.target.checked)}
-            className="rounded accent-emerald-500 w-3.5 h-3.5"
+        )}
+        {hasGenplan && (
+          <FeatureToggle
+            active={showGenplanDetailed}
+            onToggle={() => setShowGenplanDetailed((v) => !v)}
+            icon={LandPlot}
+            label={t("map.featureGenplan")}
+            title={t("map.genplanDetailed")}
+            activeClass="bg-teal-600 hover:bg-teal-700"
+            iconClass="text-teal-600"
           />
-          {t("map.airQuality")}
-        </label>
-        <label className="flex items-center gap-2 text-xs cursor-pointer">
-          <input
-            type="checkbox"
-            checked={showCityBoundary}
-            onChange={(e) => setShowCityBoundary(e.target.checked)}
-            className="rounded accent-slate-500 w-3.5 h-3.5"
-          />
-          {t("map.cityBoundary")}
-        </label>
-        <label className="flex items-center gap-2 text-xs cursor-pointer">
-          <input
-            type="checkbox"
-            checked={showUrbanPlan}
-            onChange={(e) => setShowUrbanPlan(e.target.checked)}
-            className="rounded accent-rose-500 w-3.5 h-3.5"
-          />
-          {t("map.urbanPlan")}
-        </label>
-        <label className="flex items-center gap-2 text-xs cursor-pointer">
-          <input
-            type="checkbox"
-            checked={showGenplanDetailed}
-            onChange={(e) => setShowGenplanDetailed(e.target.checked)}
-            className="rounded accent-teal-500 w-3.5 h-3.5"
-          />
-          {t("map.genplanDetailed")}
-        </label>
-
-        {/* ПДП (детальная планировка) — per-zone official rasters. Grouped
-            under a sub-header since they're niche + zone-specific. */}
-        <div className="pt-1 mt-0.5 border-t border-border/60">
-          <p className="text-[9px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">
-            {t("map.pdpGroup")}
-          </p>
-          {PDP_OVERLAYS.map((o) => (
-            <label key={o.key} className="flex items-center gap-2 text-xs cursor-pointer mb-1 last:mb-0">
-              <input
-                type="checkbox"
-                checked={!!pdpVisible[o.key]}
-                onChange={(e) =>
-                  setPdpVisible((prev) => ({ ...prev, [o.key]: e.target.checked }))
-                }
-                className="rounded accent-indigo-500 w-3.5 h-3.5"
-              />
-              {t(o.labelKey)}
-            </label>
-          ))}
-        </div>
+        )}
       </div>
 
       {/* View-mode toggle — вид сверху (по умолчанию) ↔ объёмный.
@@ -1179,23 +1072,6 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
         {showFaults && (
           <div className="border-t pt-1 mt-1 space-y-0.5">
             <div className="flex items-center gap-1.5"><span className="w-3 h-px bg-red-600" />{t("map.faultLabel")}</div>
-          </div>
-        )}
-        {showUrbanPlan && (
-          <div className="border-t pt-1 mt-1 space-y-0.5">
-            {/* Legend mirrors the colours in the official raster overlay
-                (Алматыгенплан 2023). Numbers are km of new/widened road
-                in each wave per the planning institute's annotation. */}
-            <div className="font-medium text-[10px]">{t("map.urbanPlanLegend")}</div>
-            <div className="flex items-center gap-1.5"><span className="w-3 h-[2px] bg-green-600" />2025 · 29.4 км</div>
-            <div className="flex items-center gap-1.5"><span className="w-3 h-[2px] bg-red-600" />2030 · 52.0 км</div>
-            <div className="flex items-center gap-1.5"><span className="w-3 h-[2px] bg-yellow-500" />2035 · 60.3 км</div>
-            <div className="flex items-center gap-1.5"><span className="w-3 h-[2px] bg-purple-600" />2040 · 42.6 км</div>
-            <div className="pt-1 text-[9px] text-muted-foreground">
-              <Link href="/urban-plans" className="text-blue-600 dark:text-blue-400 hover:underline">
-                {t("map.urbanPlanDetails")}
-              </Link>
-            </div>
           </div>
         )}
         {showGenplanDetailed && (

@@ -7,6 +7,7 @@ import { useTranslation } from "react-i18next";
 import { useAuth } from "@/hooks/useAuth";
 import { useCreateProject } from "@/hooks/useProjects";
 import { useGlobalMapData } from "@/hooks/useGlobalComplexes";
+import { useComplexFilters, type MapComplex } from "@/hooks/useComplexFilters";
 import { MapSidebar } from "@/components/map/MapSidebar";
 import { ComplexSlideOver } from "@/components/map/ComplexSlideOver";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,8 @@ import {
   Building2, Plus, LogOut, Loader2, List, Search, X, LogIn, Shield,
 } from "lucide-react";
 import Link from "next/link";
+
+const NO_COMPLEXES: MapComplex[] = [];
 
 const MapView = dynamic(() => import("@/components/map/MapView"), {
   ssr: false,
@@ -35,6 +38,8 @@ export default function DashboardPage() {
   const authDialog = useAuthDialog();
   const createProject = useCreateProject();
   const { data: mapData, isLoading } = useGlobalMapData();
+  // One filter state for the sidebar list (desktop + mobile) and the map.
+  const filters = useComplexFilters(mapData?.complexes ?? NO_COMPLEXES);
 
   const [selectedComplexId, setSelectedComplexId] = useState<string | null>(null);
   const [hoveredComplexId, setHoveredComplexId] = useState<string | null>(null);
@@ -72,7 +77,9 @@ export default function DashboardPage() {
             </Link>
             <span className="text-[10px] sm:text-xs text-muted-foreground">
               {mapData
-                ? t("map.complexesCount", { count: mapData.complexes.length })
+                ? t("map.complexesCount", {
+                    count: filters.visibleIds ? filters.filtered.length : mapData.complexes.length,
+                  })
                 : ""}
             </span>
           </div>
@@ -145,7 +152,7 @@ export default function DashboardPage() {
         {/* Desktop sidebar */}
         {mapData && (
           <MapSidebar
-            data={mapData}
+            filters={filters}
             selectedId={selectedComplexId}
             onSelect={handleComplexSelect}
             onHover={setHoveredComplexId}
@@ -161,7 +168,7 @@ export default function DashboardPage() {
             />
             <div className="absolute top-0 left-0 bottom-0 w-[300px] bg-card z-40 lg:hidden shadow-xl overflow-y-auto">
               <MapSidebar
-                data={mapData}
+                filters={filters}
                 selectedId={selectedComplexId}
                 onSelect={handleComplexSelect}
                 onHover={setHoveredComplexId}
@@ -183,6 +190,9 @@ export default function DashboardPage() {
               onComplexClick={handleComplexSelect}
               hoveredComplexId={hoveredComplexId}
               selectedComplexId={selectedComplexId}
+              visibleIds={filters.visibleIds}
+              onlyUnderConstruction={filters.onlyUnderConstruction}
+              onOnlyUnderConstructionChange={filters.setOnlyUnderConstruction}
             />
           )}
         </div>

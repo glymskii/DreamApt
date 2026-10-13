@@ -1,17 +1,17 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { MapPin, Clock, Search, Activity, Building, Star, AlertTriangle } from "lucide-react";
 import { formatPrice } from "@/lib/utils";
-import { matchesSearch } from "@/lib/transliterate";
 import { formatCompletion, isUnderConstruction } from "@/lib/construction";
-import type { MapData } from "@/hooks/useComplexes";
+import type { ComplexFilters } from "@/hooks/useComplexFilters";
 
 interface MapSidebarProps {
-  data: MapData;
+  // Owned by the page: the map draws the same filtered ЖК.
+  filters: ComplexFilters;
   selectedId: string | null;
   onSelect: (id: string) => void;
   onHover: (id: string | null) => void;
@@ -67,64 +67,13 @@ function getSeismicLabelKey(risk: string | null): string | null {
   return keys[risk || ""] || null;
 }
 
-export function MapSidebar({ data, selectedId, onSelect, onHover, isMobile }: MapSidebarProps) {
+export function MapSidebar({ filters, selectedId, onSelect, onHover, isMobile }: MapSidebarProps) {
   const { t } = useTranslation();
-  const [search, setSearch] = useState("");
-  const [districtFilter, setDistrictFilter] = useState("");
-  const [riskFilter, setRiskFilter] = useState<string[]>([]);
-  const [floorFilter, setFloorFilter] = useState<string[]>([]);
-  const [onlyUnderConstruction, setOnlyUnderConstruction] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
-
-  const underConstructionCount = useMemo(
-    () => data.complexes.filter(isUnderConstruction).length,
-    [data.complexes],
-  );
-
-  const filtered = useMemo(() => {
-    let result = data.complexes;
-
-    if (search) {
-      result = result.filter(
-        (c) =>
-          matchesSearch(c.displayName, search) ||
-          matchesSearch(c.district || "", search),
-      );
-    }
-
-    if (districtFilter) {
-      result = result.filter((c) => (c.district || "").includes(districtFilter));
-    }
-
-    if (riskFilter.length > 0) {
-      result = result.filter((c) => riskFilter.includes(c.seismicRiskLevel || "safe"));
-    }
-
-    if (floorFilter.length > 0) {
-      result = result.filter((c) => c.floorSegment && floorFilter.includes(c.floorSegment));
-    }
-
-    if (onlyUnderConstruction) {
-      result = result.filter(isUnderConstruction);
-    }
-
-    return result.sort((a, b) => (Number(b.scoreTotal) || 0) - (Number(a.scoreTotal) || 0));
-  }, [data.complexes, search, districtFilter, riskFilter, floorFilter, onlyUnderConstruction]);
-
-  const activeFilters =
-    (districtFilter ? 1 : 0) + riskFilter.length + floorFilter.length + (onlyUnderConstruction ? 1 : 0);
-
-  const toggleRisk = (risk: string) => {
-    setRiskFilter((prev) =>
-      prev.includes(risk) ? prev.filter((r) => r !== risk) : [...prev, risk],
-    );
-  };
-
-  const toggleFloor = (floor: string) => {
-    setFloorFilter((prev) =>
-      prev.includes(floor) ? prev.filter((f) => f !== floor) : [...prev, floor],
-    );
-  };
+  const {
+    search, setSearch, district, setDistrict, risks, toggleRisk, floors, toggleFloor,
+    onlyUnderConstruction, setOnlyUnderConstruction, underConstructionCount, filtered, activeFilters,
+  } = filters;
 
   return (
     <div className={`${isMobile ? "w-full" : "w-[340px] hidden lg:flex"} h-full bg-card border-r flex flex-col shrink-0`}>
@@ -153,8 +102,8 @@ export function MapSidebar({ data, selectedId, onSelect, onHover, isMobile }: Ma
         {showFilters && (
           <div className="space-y-2 pt-1">
             <select
-              value={districtFilter}
-              onChange={(e) => setDistrictFilter(e.target.value)}
+              value={district}
+              onChange={(e) => setDistrict(e.target.value)}
               className="w-full text-xs border rounded-md px-2 py-1.5"
             >
               <option value="">{t("sidebar.districts")}</option>
@@ -171,7 +120,7 @@ export function MapSidebar({ data, selectedId, onSelect, onHover, isMobile }: Ma
                     key={rf.value}
                     onClick={() => toggleRisk(rf.value)}
                     className={`px-2 py-0.5 rounded-full text-[10px] border transition-colors ${
-                      riskFilter.includes(rf.value)
+                      risks.includes(rf.value)
                         ? `${rf.color} text-white border-transparent`
                         : "border-border hover:border-primary/50"
                     }`}
@@ -190,7 +139,7 @@ export function MapSidebar({ data, selectedId, onSelect, onHover, isMobile }: Ma
                     key={ff.value}
                     onClick={() => toggleFloor(ff.value)}
                     className={`px-2 py-0.5 rounded-full text-[10px] border transition-colors ${
-                      floorFilter.includes(ff.value)
+                      floors.includes(ff.value)
                         ? "bg-blue-500 text-white border-transparent"
                         : "border-border hover:border-primary/50"
                     }`}
