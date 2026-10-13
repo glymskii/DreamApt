@@ -3,6 +3,8 @@ import { TypeOrmModule } from "@nestjs/typeorm";
 import { ComplexController } from "./complex.controller";
 import { ComplexService } from "./complex.service";
 import { KrishaComplexParserService } from "./krisha-complex-parser.service";
+import { ConstructionController } from "./construction.controller";
+import { ConstructionSyncService } from "./construction-sync.service";
 import { ResidentialComplexEntity } from "../database/entities/residential-complex.entity";
 import { PropertyEntity } from "../database/entities/property.entity";
 import { SearchProjectEntity } from "../database/entities/search-project.entity";
@@ -24,8 +26,8 @@ import { CommentsModule } from "../comments/comments.module";
     MapOverlaysModule,
     CommentsModule, // latest-comment breadcrumbs in map-data
   ],
-  controllers: [ComplexController],
-  providers: [ComplexService, KrishaComplexParserService],
+  controllers: [ComplexController, ConstructionController],
+  providers: [ComplexService, KrishaComplexParserService, ConstructionSyncService],
   exports: [ComplexService],
 })
 export class ComplexModule {}

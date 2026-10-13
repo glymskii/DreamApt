@@ -20,9 +20,15 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatPrice, formatArea } from "@/lib/utils";
 import {
+  formatCompletion,
+  housingClassKey,
+  isCompletionOverdue,
+  isUnderConstruction,
+} from "@/lib/construction";
+import {
   X, MapPin, Clock, Star, Shield, AlertTriangle, Activity,
   Building, ChevronRight, Home, ExternalLink, Ruler, Lock, LogIn,
-  MessageSquare, ThumbsUp, ChevronDown, Camera, MessageCircle,
+  MessageSquare, ThumbsUp, ChevronDown, Camera, MessageCircle, Construction,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -339,6 +345,13 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
   const isHighRisk = seismic.found &&
     (seismic.riskLevel === "critical" || seismic.riskLevel === "high");
 
+  // Construction stage (Krisha «Новостройки»). The listing-derived
+  // «2027 г.п.» year would only repeat «Срок сдачи», so it's hidden then.
+  const underConstruction = isUnderConstruction(complex);
+  const completion = complex ? formatCompletion(complex, t) : null;
+  const classKey = housingClassKey(complex?.housingClass);
+  const showYearBuilt = !!complex?.yearBuilt && !(underConstruction && completion);
+
   return (
     <div
       className="fixed z-50 bg-card shadow-2xl flex flex-col transition-transform duration-300 ease-out
@@ -440,6 +453,53 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
                 </div>
               )}
 
+              {/* Construction stage — what a new-build buyer asks first:
+                  is it finished, and when will it be. Developer / class
+                  render for any ЖК the catalog sync has seen. */}
+              {(underConstruction || complex.developer || classKey) && (
+                <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
+                  {underConstruction && (
+                    <div className="flex items-start gap-2">
+                      <Construction className="h-4 w-4 text-sky-600 dark:text-sky-400 shrink-0 mt-0.5" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-sky-800 dark:text-sky-200">
+                          {t("complex.underConstruction")}
+                          {completion && (
+                            <span className="font-normal text-foreground">
+                              {" · "}{t("complex.completion")}: <b>{completion}</b>
+                            </span>
+                          )}
+                        </p>
+                        {completion && isCompletionOverdue(complex) && (
+                          <p className="text-xs text-amber-700 dark:text-amber-300 mt-0.5">
+                            {t("complex.completionOverdue")}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  {(complex.developer || classKey) && (
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      {complex.developer && (
+                        <div className="min-w-0">
+                          <p className="text-muted-foreground">{t("complex.developer")}</p>
+                          <p className="font-medium truncate" title={complex.developer}>
+                            {complex.developer}
+                          </p>
+                        </div>
+                      )}
+                      {classKey && (
+                        <div>
+                          <p className="text-muted-foreground">{t("complex.housingClass")}</p>
+                          <p className="font-medium">{t(classKey)}</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  <p className="text-[10px] text-muted-foreground">{t("complex.constructionSource")}</p>
+                </div>
+              )}
+
               {/* Stats row. The "До работы" cell is gated behind auth — for
                   guests the commute is calculated against a project-wide
                   default destination that has nothing to do with where they
@@ -470,9 +530,9 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
               {/* Building meta row — only renders when at least one value is
                   available. Older complexes (parsed before yearBuilt was
                   added) may have nulls; skip the whole block in that case. */}
-              {(complex.yearBuilt || complex.floorsMax) && (
+              {(showYearBuilt || complex.floorsMax) && (
                 <div className="grid grid-cols-2 gap-2 text-center">
-                  {complex.yearBuilt ? (
+                  {showYearBuilt ? (
                     <div className="p-2 bg-muted/50 rounded-lg">
                       <p className="text-xs text-muted-foreground">{t("complex.yearBuilt")}</p>
                       <p className="font-bold text-sm">{complex.yearBuilt}</p>

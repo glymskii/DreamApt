@@ -3,36 +3,46 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { ResidentialComplexEntity } from "../database/entities/residential-complex.entity";
 import { findShutovRating, findNearestFault } from "@dreamapt/shared";
-import * as cheerio from "cheerio";
+import {
+  parseCatalogPage,
+  parseComplexDetail,
+  type CatalogCard,
+  type CatalogPage,
+  type ComplexDetail,
+  type DetailDebug,
+} from "./krisha-complex-html";
 
 const BASE_URL = "https://krisha.kz";
 const ALMATY_SEARCH_URL = `${BASE_URL}/complex/search/almaty/`;
+// «Квартиры в строящемся доме» — Krisha's own construction-stage filter.
+const UNDER_CONSTRUCTION_FILTER = "state%5B%5D=1";
 const USER_AGENTS = [
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
 ];
 
-interface ParsedComplex {
-  krishaComplexId: string;
-  name: string;
-  krishaUrl: string;
-  priceText: string;
-  state: string;
-  photoUrl: string | null;
-}
+const EMPTY_DETAIL: ComplexDetail = {
+  lat: null, lng: null, address: null, district: null, developer: null,
+  floorsMax: null, yearBuilt: null, status: null, completion: null, housingClass: null,
+};
 
-interface ComplexDetail {
-  lat: number | null;
-  lng: number | null;
-  address: string | null;
-  district: string | null;
-  developer: string | null;
-  // Floors max and year of completion. Extracted from the ЖК info table on
-  // the Krisha detail page (https://krisha.kz/complex/show/almaty/...).
-  // Both are nullable since the page format varies and old listings often
-  // just don't expose them.
-  floorsMax: number | null;
-  yearBuilt: number | null;
+/** Column patch for repository.update() — relations excluded. */
+export type ComplexPatch = Partial<Omit<ResidentialComplexEntity, "project" | "properties">>;
+
+/**
+ * Detail-page fields Krisha owns outright (developer, class, «Срок сдачи»).
+ * Overwrite when parsed, never blank out: a failed parse must not erase
+ * data a previous fetch got right.
+ */
+export function constructionFieldsFromDetail(detail: ComplexDetail): ComplexPatch {
+  const patch: ComplexPatch = {};
+  if (detail.developer) patch.developer = detail.developer;
+  if (detail.housingClass) patch.housingClass = detail.housingClass;
+  if (detail.completion) {
+    patch.completionYear = detail.completion.year;
+    patch.completionQuarter = detail.completion.quarter;
+  }
+  return patch;
 }
 
 @Injectable()
@@ -57,9 +67,30 @@ export class KrishaComplexParserService {
     return new Promise((r) => setTimeout(r, ms));
   }
 
+  /** Fetch + parse one catalog page. */
+  async fetchCatalogPage(url: string, page: number): Promise<CatalogPage> {
+    return parseCatalogPage(await this.fetchPage(url), page);
+  }
+
+  /**
+   * One page of the «строящийся дом» catalog. Throws when Krisha didn't
+   * apply the filter (heading no longer says «строящ…»): every card would
+   * otherwise be flagged as under construction, finished buildings included.
+   */
+  async fetchUnderConstructionPage(page: number): Promise<CatalogPage & { url: string }> {
+    const url = `${ALMATY_SEARCH_URL}?${UNDER_CONSTRUCTION_FILTER}${page > 1 ? `&page=${page}` : ""}`;
+    const result = await this.fetchCatalogPage(url, page);
+    if (result.cardElements > 0 && !/строящ/i.test(result.heading)) {
+      throw new Error(
+        `under-construction filter not applied on ${url} (heading: "${result.heading.slice(0, 120)}")`,
+      );
+    }
+    return { ...result, url };
+  }
+
   /** Parse all complexes from Krisha.kz listing pages */
-  async parseComplexList(): Promise<ParsedComplex[]> {
-    const allComplexes: ParsedComplex[] = [];
+  async parseComplexList(): Promise<CatalogCard[]> {
+    const allComplexes: CatalogCard[] = [];
     const seenIds = new Set<string>();
     let page = 1;
 
@@ -67,52 +98,17 @@ export class KrishaComplexParserService {
       const url = page === 1 ? ALMATY_SEARCH_URL : `${ALMATY_SEARCH_URL}?page=${page}`;
       this.logger.log(`Parsing complex list page ${page}: ${url}`);
 
-      const html = await this.fetchPage(url);
-      const $ = cheerio.load(html);
+      const { cards, cardElements, hasNextPage } = await this.fetchCatalogPage(url, page);
+      if (cardElements === 0) break;
 
-      const cards = $("[data-complex-id]");
-      if (cards.length === 0) break;
+      for (const card of cards) {
+        if (seenIds.has(card.krishaComplexId)) continue;
+        seenIds.add(card.krishaComplexId);
+        allComplexes.push(card);
+      }
 
-      // Use a[data-complex-id] for more reliable parsing
-      $("a[data-complex-id]").each((_i, el) => {
-        const id = $(el).attr("data-complex-id");
-        if (!id || seenIds.has(id)) return;
-        seenIds.add(id);
+      this.logger.log(`Page ${page}: found ${cardElements} cards, total unique: ${allComplexes.length}`);
 
-        const href = $(el).attr("href") || "";
-        if (!href.includes("/complex/show/")) return;
-
-        // Extract name: try img alt first, then ЖК text pattern, then URL slug
-        let name = $(el).find("img").first().attr("alt") || "";
-        if (!name) {
-          const allText = $(el).text();
-          const jkMatch = allText.match(/ЖК\s+([^\n]+)/);
-          name = jkMatch ? jkMatch[1].trim().split(/\s{2,}/)[0] : "";
-        }
-        if (!name) {
-          const slugMatch = href.match(/\/complex\/show\/almaty\/([^/]+)/);
-          if (slugMatch) name = slugMatch[1];
-        }
-        if (!name) return;
-
-        const priceText = $(el).find(".complex-card__price-from, [class*=price]").first().text().trim();
-        const state = $(el).find(".complex-card__state").first().text().trim();
-        const photoUrl = $(el).find("img").first().attr("src") || null;
-
-        allComplexes.push({
-          krishaComplexId: id,
-          name: name.replace(/^ЖК\s+/i, "").trim(),
-          krishaUrl: href.startsWith("http") ? href : `${BASE_URL}${href}`,
-          priceText,
-          state,
-          photoUrl,
-        });
-      });
-
-      this.logger.log(`Page ${page}: found ${cards.length} cards, total unique: ${allComplexes.length}`);
-
-      // Check if there's a next page
-      const hasNextPage = $(`a[href*="page=${page + 1}"]`).length > 0;
       if (!hasNextPage) break;
 
       page++;
@@ -123,95 +119,27 @@ export class KrishaComplexParserService {
     return allComplexes;
   }
 
-  /** Fetch detail page to get coordinates and address */
-  async fetchComplexDetail(krishaUrl: string): Promise<ComplexDetail> {
+  /** Fetch detail page to get coordinates, address, building meta and
+   *  construction fields. `ok` is false when the page couldn't be fetched
+   *  (all fields null) as opposed to fetched-but-empty. */
+  async fetchComplexDetail(krishaUrl: string): Promise<ComplexDetail & { ok: boolean }> {
     try {
-      const html = await this.fetchPage(krishaUrl);
-
-      // Extract coordinates from embedded script
-      const latMatch = html.match(/"lat":\s*([\d.]+)/);
-      const lngMatch = html.match(/"l(?:ng|on)":\s*([\d.]+)/);
-
-      // Extract address
-      const $ = cheerio.load(html);
-      const addressParts: string[] = [];
-      $(".complex-info__address, .complex-about__address").each((_i, el) => {
-        const text = $(el).text().trim();
-        if (text && !addressParts.includes(text)) addressParts.push(text);
-      });
-
-      // Extract district from address
-      const allText = addressParts.join(" ");
-      const districtMatch = allText.match(/(Алмалинский|Ауэзовский|Бостандыкский|Медеуский|Наурызбайский|Турксибский|Жетысуский|Алатауский)\s*р-н/i);
-
-      // Extract developer
-      const developer = $(".complex-info__developer, .developer-name, [class*=developer] a").first().text().trim();
-
-      // Extract floors + year built. Krisha's current ЖК page format embeds
-      // building meta inline in apartment listing descriptions, not in any
-      // structured `complex-info__*` block. We use two robust patterns:
-      //
-      //   • Year: "<digits> г.п." (год постройки) e.g. "2028 г.п." appears
-      //     in every apartment card's description on a given complex page.
-      //     Also support legacy "Сдача дома: ...", "Год постройки: ...".
-      //   • Floors: "<digits>/<digits> этаж" e.g. "4/9 этаж" — second number
-      //     is the building's total floors. Take max across all matches on
-      //     the page so a 25-floor tower with low-apt listings still reports
-      //     correctly.
-
-      const ALMATY_YEAR_MIN = 1950;
-      const ALMATY_YEAR_MAX = new Date().getFullYear() + 5; // off-plan completion years
-
-      // Year: scan all "<year> г.п." occurrences, take the modal one.
-      const yearMatches = Array.from(html.matchAll(/(\d{4})\s*г\.\s*п\./g))
-        .map((m) => parseInt(m[1], 10))
-        .filter((y) => y >= ALMATY_YEAR_MIN && y <= ALMATY_YEAR_MAX);
-      // Fallback: structured "Сдача дома 2024", "Год постройки 2018" — older templates.
-      if (yearMatches.length === 0) {
-        const fallback = html.match(/(?:Сдача дома|Сдан в|Год сдачи|Год постройки)[^<]*?(\d{4})/i);
-        if (fallback) {
-          const y = parseInt(fallback[1], 10);
-          if (y >= ALMATY_YEAR_MIN && y <= ALMATY_YEAR_MAX) yearMatches.push(y);
-        }
-      }
-      const yearBuilt = yearMatches.length > 0 ? this.modal(yearMatches) : null;
-
-      // Floors: scan all "X/Y этаж" patterns, take max Y.
-      const floorTotals = Array.from(html.matchAll(/\d+\s*\/\s*(\d+)\s*этаж/g))
-        .map((m) => parseInt(m[1], 10))
-        .filter((n) => n > 0 && n < 200);
-      const floorsMax = floorTotals.length > 0 ? Math.max(...floorTotals) : null;
-
-      return {
-        lat: latMatch ? parseFloat(latMatch[1]) : null,
-        lng: lngMatch ? parseFloat(lngMatch[1]) : null,
-        address: addressParts[0] || null,
-        district: districtMatch ? `${districtMatch[1]} р-н` : null,
-        developer: developer || null,
-        floorsMax,
-        yearBuilt,
-      };
+      const { labeled: _labeled, ...detail } = parseComplexDetail(await this.fetchPage(krishaUrl));
+      return { ...detail, ok: true };
     } catch (err) {
       this.logger.warn(`Failed to fetch detail for ${krishaUrl}: ${err}`);
-      return {
-        lat: null, lng: null, address: null, district: null, developer: null,
-        floorsMax: null, yearBuilt: null,
-      };
+      return { ...EMPTY_DETAIL, ok: false };
     }
   }
 
-  /** Modal value (most-common). Used for yearBuilt where listings agree
-   *  on "г.п." but a few stragglers report a different year. */
-  private modal<T>(arr: T[]): T {
-    const counts = new Map<T, number>();
-    for (const v of arr) counts.set(v, (counts.get(v) || 0) + 1);
-    let best = arr[0], bestCount = 0;
-    for (const [v, c] of counts) { if (c > bestCount) { best = v; bestCount = c; } }
-    return best;
+  /** Detail parse plus the raw label candidates — admin preview only.
+   *  Unlike fetchComplexDetail, fetch errors propagate to the caller. */
+  async inspectComplexDetail(krishaUrl: string): Promise<ComplexDetail & DetailDebug> {
+    return parseComplexDetail(await this.fetchPage(krishaUrl));
   }
 
   /** Normalize complex name for deduplication */
-  private normalizeName(name: string): string {
+  normalizeName(name: string): string {
     return name
       .toLowerCase()
       .replace(/["'«»""]/g, "")
@@ -274,6 +202,7 @@ export class KrishaComplexParserService {
         if (!existing.floorsMax && detail.floorsMax) existing.floorsMax = detail.floorsMax;
         if (!existing.yearBuilt && detail.yearBuilt) existing.yearBuilt = detail.yearBuilt;
         if (!existing.photoUrl && pc.photoUrl) existing.photoUrl = pc.photoUrl;
+        Object.assign(existing, constructionFieldsFromDetail(detail));
         await this.complexesRepo.save(existing);
         updated++;
         continue;
@@ -329,6 +258,7 @@ export class KrishaComplexParserService {
         if (!existing.yearBuilt && detail.yearBuilt) {
           existing.yearBuilt = detail.yearBuilt;
         }
+        Object.assign(existing, constructionFieldsFromDetail(detail));
         await this.complexesRepo.save(existing);
         updated++;
       } else {
@@ -349,6 +279,7 @@ export class KrishaComplexParserService {
           shutovCategory: shutovCategory as any,
           floorsMax: detail.floorsMax as any,
           yearBuilt: detail.yearBuilt as any,
+          ...constructionFieldsFromDetail(detail),
           listingsCount: 0,
           groupingMethod: "krisha_catalog",
         });
@@ -460,6 +391,10 @@ export class KrishaComplexParserService {
         } else if (detail.floorsMax !== null && (!c.floorsMax || isJunkFloors(c.floorsMax))) {
           patch.floorsMax = detail.floorsMax;
         }
+
+        // Same page also carries developer / class / «Срок сдачи» — keep
+        // them, so the under-construction sync needn't re-fetch it.
+        Object.assign(patch, constructionFieldsFromDetail(detail));
 
         await this.complexesRepo.update(c.id, patch);
         // Count as "updated" only when we actually changed year or floors;
