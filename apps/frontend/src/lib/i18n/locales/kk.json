@@ -24,10 +24,13 @@
     "logout": "Шығу"
   },
   "map": {
+    "featureNew": "Жаңа үйлер",
+    "featureNewHint": "{{year}} жылдан бері тапсырылған ТК",
+    "popupNewBuilding": "Жаңа үй · {{year}} жылы тапсырылған",
     "featureSeismic": "Сейсмика",
     "featureSeismicHint": "Жарықтар мен сейсмикалық қауіп аймақтары",
     "featureAir": "Ауа",
-    "featureBuilding": "Жаңа құрылыстар",
+    "featureBuilding": "Салынуда",
     "featureBuildingHint": "Тек салынып жатқан ТК-ларды көрсету",
     "featureGenplan": "Бас жоспар",
     "complexesCount_one": "{{count}} ТК",
@@ -77,6 +80,8 @@
     "problematicBadge": "Әкімдік сатып алуды ұсынбайды"
   },
   "sidebar": {
+    "stageNew": "🏠 Жаңа үйлер",
+    "badgeNew": "Жаңа үй",
     "searchPlaceholder": "ТК іздеу…",
     "filtersHide": "Сүзгілерді жасыру",
     "filtersShow": "Сүзгілер",
