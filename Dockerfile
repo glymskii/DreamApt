@@ -1,4 +1,4 @@
-FROM node:20-alpine AS base
+FROM node:24-alpine AS base
 
 RUN corepack enable && corepack prepare pnpm@9 --activate
 
@@ -18,7 +18,7 @@ COPY apps/backend/src ./apps/backend/src
 RUN cd packages/shared && pnpm run build && cd /app/apps/backend && pnpm run build
 
 # Production stage
-FROM node:20-alpine AS production
+FROM node:24-alpine AS production
 
 RUN corepack enable && corepack prepare pnpm@9 --activate
 
