@@ -37,6 +37,9 @@ export interface CatalogCard {
   priceText: string;
   state: string;
   photoUrl: string | null;
+  // «Алматы, Медеуский р-н, ул. …» as printed on the card.
+  address: string | null;
+  district: string | null;
   // What the card itself says. The under-construction import trusts the
   // catalog filter instead, but uses this to skip a card that plainly
   // says «сдан» (filter leak).
@@ -46,10 +49,13 @@ export interface CatalogCard {
 
 export interface CatalogPage {
   cards: CatalogCard[];
-  // Raw [data-complex-id] count — 0 means the page has no catalog at all
-  // (end of pagination, captcha, or a layout change).
+  // Search results found on the page, before validation — 0 means the
+  // page has no catalog at all (end of pagination, captcha, or a layout
+  // change).
   cardElements: number;
   hasNextPage: boolean;
+  // Highest page the paginator links to (null: no paginator).
+  lastPage: number | null;
   // <title> + <h1>, used to verify a filter was actually applied.
   heading: string;
 }
@@ -73,7 +79,8 @@ export interface ComplexDetail {
 // ── Small text helpers ──────────────────────────────────────────────────
 
 function clean(s: string | null | undefined): string {
-  return (s || "").replace(/ /g, " ").replace(/\s+/g, " ").trim();
+  // Zero-width spaces turn up inside Krisha addresses («ул. \u200bПриканальная»).
+  return (s || "").replace(/[\u200B-\u200D\u2060\uFEFF]/g, "").replace(/\s+/g, " ").trim();
 }
 
 /** Text of the element's own text nodes, children excluded. */
@@ -361,56 +368,114 @@ function firstParsed<T>(occurrences: string[][], parse: (s: string) => T | null)
 
 // ── Catalog page ────────────────────────────────────────────────────────
 
+// Link lists that are not search results. Every catalog page ends with
+// «Популярные новостройки в Алматы» (.seo-links): ~200 ЖК links, the same
+// on every page and NOT narrowed by the search filter.
+const NOT_RESULTS = "[class*='seo-'], nav, footer";
+const CARD_NAME_PREFIX = /^(?:ЖК|жилой\s+(?:комплекс|квартал)|клубный\s+дом|бигвилль)\s+/iu;
+
+const DISTRICT_RE =
+  /(Алмалинский|Ауэзовский|Бостандыкский|Медеуский|Наурызбайский|Турксибский|Жетысуский|Алатауский)\s*(?:р-н|район)/i;
+
+/** «Алматы, Медеуский р-н, ул. …» → «Медеуский р-н». */
+function districtOf(text: string | null | undefined): string | null {
+  const m = clean(text).match(DISTRICT_RE);
+  return m ? `${m[1]} р-н` : null;
+}
+
+/** Text of the first match of the first selector that finds non-empty text. */
+function textOf($root: Cheerio<any>, ...selectors: string[]): string {
+  for (const sel of selectors) {
+    const t = clean($root.find(sel).first().text());
+    if (t) return t;
+  }
+  return "";
+}
+
+/**
+ * One element per search result: the outermost [data-complex-id] outside
+ * the link lists. Today that's div.complex-card, whose main link repeats
+ * the card's id; should Krisha drop the wrapper, the link takes its place.
+ */
+function resultRoots($: CheerioAPI): Cheerio<any>[] {
+  return $("[data-complex-id]")
+    .toArray()
+    .filter((el) => {
+      const $el = $(el);
+      if ($el.closest(NOT_RESULTS).length > 0) return false;
+      const id = $el.attr("data-complex-id");
+      return !$el
+        .parents("[data-complex-id]")
+        .toArray()
+        .some((p) => $(p).attr("data-complex-id") === id);
+    })
+    .map((el) => $(el));
+}
+
+/** Page a pagination link points to (data-page or ?page=N), 0 if neither. */
+function linkedPage($a: Cheerio<any>): number {
+  const raw = $a.attr("data-page") || ($a.attr("href") || "").match(/[?&]page=(\d+)/)?.[1] || "";
+  const n = parseInt(raw, 10);
+  return n > 0 ? n : 0;
+}
+
 /** Parse one page of the ЖК catalog (`/complex/search/<city>/`). */
 export function parseCatalogPage(html: string, page: number, now = new Date()): CatalogPage {
   const $ = cheerio.load(html);
+  const roots = resultRoots($);
   const cards: CatalogCard[] = [];
   const seenIds = new Set<string>();
 
-  // a[data-complex-id] is the reliable hook: one per card.
-  $("a[data-complex-id]").each((_i, el) => {
-    const $card = $(el);
+  for (const $card of roots) {
     const id = $card.attr("data-complex-id");
-    if (!id || seenIds.has(id)) return;
+    if (!id || seenIds.has(id)) continue;
+
+    const $link = $card.is("a") ? $card : $card.find("a[href*='/complex/show/']").first();
+    const alias = $card.attr("data-complex-alias"); // "almaty/dreamcityart"
+    let href = $link.attr("href") || "";
+    if (!href.includes("/complex/show/")) href = alias ? `/complex/show/${alias}/` : "";
+    // Developer pages, banners and the like carry the attribute too.
+    if (!href) continue;
+
+    const $img = $card.find("img").first();
+    const name = clean(
+      $card.attr("data-name") ||
+        $img.attr("alt") ||
+        textOf($card, ".complex-card__title") ||
+        href.match(/\/complex\/show\/[^/]+\/([^/?#]+)/)?.[1],
+    ).replace(CARD_NAME_PREFIX, "");
+    if (!name) continue;
     seenIds.add(id);
 
-    const href = $card.attr("href") || "";
-    if (!href.includes("/complex/show/")) return;
-
-    // Extract name: try img alt first, then ЖК text pattern, then URL slug
-    let name = $card.find("img").first().attr("alt") || "";
-    if (!name) {
-      const allText = $card.text();
-      const jkMatch = allText.match(/ЖК\s+([^\n]+)/);
-      name = jkMatch ? jkMatch[1].trim().split(/\s{2,}/)[0] : "";
-    }
-    if (!name) {
-      const slugMatch = href.match(/\/complex\/show\/almaty\/([^/]+)/);
-      if (slugMatch) name = slugMatch[1];
-    }
-    if (!name) return;
-
-    const priceText = clean($card.find(".complex-card__price-from, [class*=price]").first().text());
-    const state = clean($card.find(".complex-card__state").first().text());
-    const src = $card.find("img").first().attr("src") || "";
-    const cardText = clean($card.text());
-
+    const state = textOf($card, ".complex-card__state");
+    const address = textOf($card, ".complex-card__address") || null;
+    const src = $img.attr("src") || "";
     cards.push({
       krishaComplexId: id,
-      name: name.replace(/^ЖК\s+/i, "").trim(),
+      name,
       krishaUrl: href.startsWith("http") ? href : `${BASE_URL}${href}`,
-      priceText,
+      priceText: textOf($card, ".complex-card__square-price", ".complex-card__price-from", "[class*=price]"),
       state,
       photoUrl: src && !src.startsWith("data:") ? src : null,
+      address,
+      district: districtOf(address),
       status: parseConstructionStatus(state),
-      completion: findCompletionInText(`${state} ${cardText}`, now),
+      completion: findCompletionInText(`${state} ${clean($card.text())}`, now),
     });
-  });
+  }
+
+  // «‹ Предыдущая 1 2 … 52 Дальше ›» — every link carries data-page.
+  let pagerLinks = $(".paginator a");
+  if (pagerLinks.length === 0) {
+    pagerLinks = $("a[href*='page=']").filter((_i, el) => $(el).closest("[class*='seo-']").length === 0);
+  }
+  const maxLinked = Math.max(0, ...pagerLinks.toArray().map((el) => linkedPage($(el))));
 
   return {
     cards,
-    cardElements: $("[data-complex-id]").length,
-    hasNextPage: $(`a[href*="page=${page + 1}"]`).length > 0,
+    cardElements: roots.length,
+    hasNextPage: maxLinked > page,
+    lastPage: maxLinked > 0 ? Math.max(maxLinked, page) : null,
     heading: clean(`${$("title").first().text()} ${$("h1").first().text()}`),
   };
 }
@@ -437,10 +502,6 @@ export function parseComplexDetail(html: string, now = new Date()): ComplexDetai
     const text = $(el).text().trim();
     if (text && !addressParts.includes(text)) addressParts.push(text);
   });
-
-  // Extract district from address
-  const allText = addressParts.join(" ");
-  const districtMatch = allText.match(/(Алмалинский|Ауэзовский|Бостандыкский|Медеуский|Наурызбайский|Турксибский|Жетысуский|Алатауский)\s*р-н/i);
 
   // Extract floors + year built. Krisha's current ЖК page format embeds
   // building meta inline in apartment listing descriptions, not in any
@@ -492,7 +553,7 @@ export function parseComplexDetail(html: string, now = new Date()): ComplexDetai
     lat: latMatch ? parseFloat(latMatch[1]) : null,
     lng: lngMatch ? parseFloat(lngMatch[1]) : null,
     address: addressParts[0] || null,
-    district: districtMatch ? `${districtMatch[1]} р-н` : null,
+    district: districtOf(addressParts.join(" ")),
     developer,
     floorsMax,
     yearBuilt,

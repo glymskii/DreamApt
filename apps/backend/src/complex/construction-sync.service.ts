@@ -21,6 +21,10 @@ import { COMPLETED, UNDER_CONSTRUCTION, floorSegmentFor } from "./krisha-complex
 const DETAIL_REFRESH_MS = 30 * 24 * 60 * 60 * 1000;
 const DETAIL_DELAY_MS = 1500; // same gentle Krisha pace as the full scraper
 const MAX_PAGES = 100;
+// Krisha shows 12 ЖК per catalog page. Far more means the parser is
+// reading links that aren't search results (the ~200-link SEO footer
+// once got imported as «строящиеся»).
+const MAX_CARDS_PER_PAGE = 60;
 // Same bounds parseAndSaveAll uses to reject non-Almaty catalog entries.
 const ALMATY_BOUNDS = { minLat: 43.0, maxLat: 43.6, minLng: 76.3, maxLng: 77.6 };
 // Public-map bounds (ComplexService.buildMapData) — for the "on map" stat.
@@ -37,6 +41,8 @@ export interface ImportPageReport {
   // Cards that themselves say «сдан» despite the filter — left alone.
   skippedCompleted: number;
   hasNextPage: boolean;
+  // Highest page Krisha's paginator links to — progress only.
+  lastPage: number | null;
   // Last page only: ЖК flagged before but absent from this pass.
   expired: number | null;
   expirySkipped: boolean;
@@ -65,7 +71,8 @@ export interface ConstructionStats {
 type MatchRow = Pick<
   ResidentialComplexEntity,
   "id" | "name" | "displayName" | "krishaComplexId" | "krishaUrl" | "photoUrl" |
-  "isStub" | "completionYear" | "lat" | "lng"
+  "isStub" | "completionYear" | "lat" | "lng" | "address" | "district" |
+  "constructionCheckedAt"
 >;
 
 /**
@@ -113,13 +120,19 @@ export class ConstructionSyncService {
         `Krisha returned no ЖК cards on ${result.url} — captcha, ban or a layout change`,
       );
     }
+    if (result.cards.length > MAX_CARDS_PER_PAGE) {
+      throw new BadGatewayException(
+        `${result.cards.length} ЖК on ${result.url}, expected about 12 — the catalog layout changed`,
+      );
+    }
 
     const now = new Date();
     const globals = (await this.complexesRepo.find({
       where: { projectId: IsNull() },
       select: [
         "id", "name", "displayName", "krishaComplexId", "krishaUrl",
-        "photoUrl", "isStub", "completionYear", "lat", "lng",
+        "photoUrl", "isStub", "completionYear", "lat", "lng", "address",
+        "district", "constructionCheckedAt",
       ],
     })) as MatchRow[];
     const byKrishaId = new Map<string, MatchRow>();
@@ -133,6 +146,26 @@ export class ConstructionSyncService {
         // Prefer the row that already has coordinates.
         if (!prev || (!prev.lat && c.lat)) byName.set(norm, c);
       }
+    }
+
+    // A page with more to come whose every ЖК this pass already stamped is
+    // page 1 again: Krisha ignored `page`, and the client would re-import
+    // the same cards up to MAX_PAGES times without ever reaching the last
+    // page. The last page is exempt — it may hold a single card that an
+    // unstable sort order showed earlier.
+    const importable = result.cards.filter((card) => card.status !== COMPLETED);
+    if (
+      page > 1 &&
+      result.hasNextPage &&
+      importable.length > 0 &&
+      importable.every((card) => {
+        const checked = byKrishaId.get(card.krishaComplexId)?.constructionCheckedAt;
+        return checked != null && checked >= since;
+      })
+    ) {
+      throw new BadGatewayException(
+        `Page ${page} repeats ЖК already imported in this pass — Krisha ignored the page parameter`,
+      );
     }
 
     let created = 0, updated = 0, skippedCompleted = 0;
@@ -160,6 +193,8 @@ export class ConstructionSyncService {
         if (!existing.krishaComplexId) patch.krishaComplexId = card.krishaComplexId;
         if (!existing.krishaUrl) patch.krishaUrl = card.krishaUrl;
         if (!existing.photoUrl && card.photoUrl) patch.photoUrl = card.photoUrl;
+        if (!existing.address && card.address) patch.address = card.address;
+        if (!existing.district && card.district) patch.district = card.district;
         // The ЖК page (enrichBatch) knows every phase; the card is only
         // a fallback until it has been read.
         if (existing.completionYear == null && card.completion) {
@@ -182,6 +217,8 @@ export class ConstructionSyncService {
             krishaComplexId: card.krishaComplexId,
             krishaUrl: card.krishaUrl,
             photoUrl: card.photoUrl as any,
+            address: card.address as any,
+            district: card.district as any,
             listingsCount: 0,
             groupingMethod: "krisha_catalog",
             constructionStatus: UNDER_CONSTRUCTION,
@@ -217,6 +254,7 @@ export class ConstructionSyncService {
       updated,
       skippedCompleted,
       hasNextPage: result.hasNextPage,
+      lastPage: result.lastPage,
       expired,
       expirySkipped,
       newNames,

@@ -112,6 +112,108 @@ function catalogTests() {
   assert.equal(parseCatalogPage("<html><body>Проверка, что вы не робот</body></html>", 1, NOW).cardElements, 0);
 }
 
+// Trimmed from a real krisha.kz/complex/search/almaty/?state[]=1&page=2
+// (October 2026): 12 div.complex-card per page, then the «Популярные
+// новостройки» SEO block — 200 ЖК links, identical on every page and not
+// narrowed by the filter.
+const SEO_BLOCK = `<div class="seo-links">
+  <h5 class="seo-links__header seo-links__header--thin">Популярные новостройки в Алматы</h5>
+  <div class="seo-links__list seo-links__list--with-margin seo-links__complex_list"><ul class="seo-links__sublist">
+    <li class="seo-links__item"><a data-complex-id="21784895" class="js-seo-search-list__complex-link" href="/complex/show/almaty/diamond/"> ЖК Diamond </a></li>
+    <li class="seo-links__item"><a data-complex-id="12521845" class="js-seo-search-list__complex-link" href="/complex/show/almaty/estet/"> ЖК Estet </a></li>
+    <li class="seo-links__item"><a data-complex-id="22276249" class="js-seo-search-list__complex-link" href="/complex/show/almaty/dreamcityart/"> ЖК Dream City. Art </a></li>
+  </ul></div>
+</div>`;
+
+function realCatalogTests() {
+  const html = `<html><head><title>Продажа 🏘 квартир в строящемся доме в Алматы - Крыша</title></head>
+  <body class="complex-search"><main class="container">
+    <h1>Квартиры в строящемся доме в Алматы</h1>
+    <div class="complex-cards complex-cards--search">
+      <div class="complex-card complex-card--not-empty complex-card--with-result" data-complex-id="22276249"
+           data-complex-alias="almaty/dreamcityart" data-complex-region="Алматы" data-name="Dream City. Art">
+        <div class="complex-card__state"> Строящийся </div>
+        <a href="/complex/show/almaty/dreamcityart/" target="_blank" data-complex-id="22276249" class="complex-card__main-block">
+          <div class="complex-card__header"><picture>
+            <img src="https://krisha-photos.kcdn.online/04/d250/photo-750x470.jpg" alt="Dream City. Art" loading="lazy">
+          </picture></div>
+          <div class="complex-card__content">
+            <span class="credit-badge credit-badge--hypothec"> Ипотека </span>
+            <div class="complex-card__price-wrapper">
+              <p class="complex-card__square-price"> от 690 000 ₸ за м² </p>
+              <button class="complex-card__favorite-btn" type="button" data-id="22276249"></button>
+            </div>
+            <p class="complex-card__title"> ЖК Dream City. Art </p>
+            <p class="complex-card__address"> Алматы, Медеуский р-н, ул. ​Приканальная БАК, 99а </p>
+            <p class="complex-card__layout-nb"> 3 квартиры </p>
+            <div class="complex-card__price-item"><span>1-комн. 38.01 м²</span><span>37.6 – 37.6 млн ₸</span></div>
+          </div>
+        </a>
+        <div class="complex-card__phone"><button class="complex-card__order-call" data-name="Dream City. Art" data-id="22276249"> Заказать обратный звонок </button></div>
+      </div>
+      <div class="complex-card " data-complex-id="19798742" data-complex-alias="almaty/arenacitysport" data-complex-region="Алматы">
+        <div class="complex-card__state"> Строящийся </div>
+        <a href="/complex/show/almaty/arenacitysport/" target="_blank" data-complex-id="19798742" class="complex-card__main-block ">
+          <p class="complex-card__square-price"> Нет данных </p>
+          <p class="complex-card__title"> Бигвилль Arena City. Sport </p>
+          <p class="complex-card__address"> Алматы, просп. Рыскулова / ул. Онгарсыновой </p>
+        </a>
+      </div>
+    </div>
+    <nav class="paginator">
+      <a class="paginator__btn paginator__btn--prev" href="/complex/search/almaty/?state[]=1" data-page="1"><div class="paginator__btn-text">Предыдущая</div></a>
+      <a class="paginator__btn " href="/complex/search/almaty/?state[]=1" data-page="1"> 1 </a>
+      <a class="paginator__btn paginator__btn--active" href="/complex/search/almaty/?state[]=1&amp;page=2" data-page="2"> 2 </a>
+      <a class="paginator__btn " href="/complex/search/almaty/?state[]=1&amp;page=3" data-page="3"> 3 </a>
+      <span class="paginator__btn">...</span>
+      <a class="paginator__btn " href="/complex/search/almaty/?state[]=1&amp;page=52" data-page="52"> 52 </a>
+      <a class="paginator__btn paginator__btn--next" href="/complex/search/almaty/?state[]=1&amp;page=3" data-page="3"><div class="paginator__btn-text">Дальше</div></a>
+    </nav>
+  </main>
+  ${SEO_BLOCK}
+  <footer><a href="https://m.krisha.kz/complex/search/almaty/?state%5B%5D=1&page=2">Мобильная версия</a></footer>
+  </body></html>`;
+
+  const page = parseCatalogPage(html, 2, NOW);
+  assert.deepEqual(
+    page.cards.map((c) => c.krishaComplexId),
+    ["22276249", "19798742"],
+    "SEO links are not search results",
+  );
+  assert.equal(page.cardElements, 2);
+  assert.equal(page.hasNextPage, true);
+  assert.equal(page.lastPage, 52);
+  assert.match(page.heading, /строящ/i);
+
+  const [art, sport] = page.cards;
+  assert.equal(art.name, "Dream City. Art");
+  assert.equal(art.krishaUrl, "https://krisha.kz/complex/show/almaty/dreamcityart/");
+  assert.equal(art.photoUrl, "https://krisha-photos.kcdn.online/04/d250/photo-750x470.jpg");
+  assert.equal(art.priceText, "от 690 000 ₸ за м²");
+  assert.equal(art.state, "Строящийся");
+  assert.equal(art.status, "under_construction");
+  assert.equal(art.address, "Алматы, Медеуский р-н, ул. Приканальная БАК, 99а", "zero-width space dropped");
+  assert.equal(art.district, "Медеуский р-н");
+  assert.equal(art.completion, null, "«3 квартиры», prices and areas are not a deadline");
+
+  assert.equal(sport.name, "Arena City. Sport", "no data-name/alt: title minus its «Бигвилль» prefix");
+  assert.equal(sport.priceText, "Нет данных");
+  assert.equal(sport.photoUrl, null);
+  assert.equal(sport.district, null);
+  assert.equal(sport.status, "under_construction");
+
+  const lastPage = parseCatalogPage(html.replace(/data-page="3"/g, 'data-page="1"').replace(/data-page="52"/g, 'data-page="2"'), 2, NOW);
+  assert.equal(lastPage.hasNextPage, false, "no paginator link past this page");
+  assert.equal(lastPage.lastPage, 2);
+
+  // Past the end Krisha renders an empty result list — the SEO block alone
+  // must not pass for a catalog page.
+  const empty = parseCatalogPage(`<html><body><h1>Квартиры в строящемся доме</h1>${SEO_BLOCK}</body></html>`, 53, NOW);
+  assert.equal(empty.cardElements, 0);
+  assert.equal(empty.cards.length, 0);
+  assert.equal(empty.lastPage, null);
+}
+
 function detailTests() {
   // Shape 1: <dl> label/value pairs, multi-phase deadline, developer with
   // link noise, embedded coordinates, apartment cards with floors + year.
@@ -189,6 +291,7 @@ function main() {
   completionTests();
   statusAndClassTests();
   catalogTests();
+  realCatalogTests();
   detailTests();
   console.log("Krisha ЖК HTML parser tests passed");
 }
