@@ -35,6 +35,23 @@ function inheritConstructionStage(
   if (!target.housingClass && source.housingClass) target.housingClass = source.housingClass;
 }
 
+/**
+ * The akimat «проблемный» flag is written on one row per normalised name
+ * (ProblematicComplexesService.runSync) — the catalog row, a stub or a
+ * project copy, whichever it matched first. Copy it onto another row of
+ * the same ЖК so the map marker and the slide-over banner agree.
+ */
+function inheritProblematic(
+  target: ResidentialComplexEntity,
+  source: Partial<ResidentialComplexEntity> | null | undefined,
+) {
+  if (target.isProblematic || !source?.isProblematic) return;
+  target.isProblematic = true;
+  target.problematicReason = source.problematicReason ?? null;
+  target.problematicSourceUrl = source.problematicSourceUrl ?? null;
+  target.problematicUpdatedAt = source.problematicUpdatedAt ?? null;
+}
+
 @Injectable()
 export class ComplexService {
   // Single-process caches. Render runs one Node instance, so this is fine.
@@ -92,21 +109,24 @@ export class ComplexService {
 
     // Indexed over ALL rows, before the bounds/coords filter: the catalog
     // row holding the stage may still be waiting for its coordinates while
-    // a listing-built copy of the same ЖК is already on the map.
+    // a listing-built copy of the same ЖК is already on the map. Same for
+    // the akimat flag: it often sits on a stub or an unscored row that
+    // loses the dedup, and a stub whose geocode failed has no coordinates
+    // at all — the marker must not silently drop the warning. If several
+    // rows are flagged, the newest flag wins, as in findOneForCard.
     const stageByName = new Map<string, ResidentialComplexEntity>();
+    const flaggedByName = new Map<string, ResidentialComplexEntity>();
+    const flagTime = (c: ResidentialComplexEntity) => c.problematicUpdatedAt?.getTime() ?? -Infinity;
     for (const c of all) {
-      if (c.constructionStatus) stageByName.set(c.name.toLowerCase().trim(), c);
+      const key = c.name.toLowerCase().trim();
+      if (c.constructionStatus) stageByName.set(key, c);
+      if (!c.isProblematic) continue;
+      const prev = flaggedByName.get(key);
+      if (!prev || flagTime(c) > flagTime(prev)) flaggedByName.set(key, c);
     }
 
     // Deduplicate by normalized name — keep the one with highest score
     // Also filter to Almaty bounds only.
-    //
-    // When picking the survivor we OR the isProblematic flag across
-    // duplicates: a stub may share its normalized name with a later-
-    // discovered real complex; the real one usually has a higher score
-    // and wins the dedup, but we must not silently drop the akimat
-    // warning. Same for the metadata columns — admin would lose the
-    // source link otherwise.
     const dedupMap = new Map<string, ResidentialComplexEntity>();
     for (const c of all) {
       if (!c.lat || !c.lng) continue;
@@ -115,18 +135,7 @@ export class ComplexService {
       const key = c.name.toLowerCase().trim();
       const existing = dedupMap.get(key);
       if (!existing || (Number(c.scoreTotal) || 0) > (Number(existing.scoreTotal) || 0)) {
-        if (existing?.isProblematic && !c.isProblematic) {
-          c.isProblematic = true;
-          c.problematicReason = existing.problematicReason;
-          c.problematicSourceUrl = existing.problematicSourceUrl;
-          c.problematicUpdatedAt = existing.problematicUpdatedAt;
-        }
         dedupMap.set(key, c);
-      } else if (c.isProblematic && !existing.isProblematic) {
-        existing.isProblematic = true;
-        existing.problematicReason = c.problematicReason;
-        existing.problematicSourceUrl = c.problematicSourceUrl;
-        existing.problematicUpdatedAt = c.problematicUpdatedAt;
       }
     }
 
@@ -163,7 +172,9 @@ export class ComplexService {
     // doesn't write to DB — keeps map-data fast and self-healing)
     const complexes = Array.from(dedupMap.values());
     for (const c of complexes) {
-      inheritConstructionStage(c, stageByName.get(c.name.toLowerCase().trim()));
+      const key = c.name.toLowerCase().trim();
+      inheritConstructionStage(c, stageByName.get(key));
+      inheritProblematic(c, flaggedByName.get(key));
     }
 
     // Attach the latest comment per complex — the map hover uses it as a
@@ -314,11 +325,14 @@ export class ComplexService {
     return complex;
   }
 
-  /** findOne for the public ЖК card: a project copy (from someone's
-   *  search) also shows the construction stage of its catalog row, the
-   *  same hand-off the map dedup does. */
-  async findOneWithStage(id: string) {
+  /** findOne for the public ЖК card. The map shows a ЖК through one of its
+   *  rows (usually a scored project copy from someone's search) and hands
+   *  it the construction stage and the akimat flag of the other rows; the
+   *  card opens that row, so it gets the same hand-offs (response only,
+   *  nothing is written back). */
+  async findOneForCard(id: string) {
     const complex = await this.findOne(id);
+    const name = complex.name.toLowerCase().trim();
     if (!complex.constructionStatus && complex.projectId) {
       const source = await this.complexesRepo
         .createQueryBuilder("c")
@@ -326,11 +340,26 @@ export class ComplexService {
           "c.id", "c.constructionStatus", "c.completionYear", "c.completionQuarter",
           "c.developer", "c.housingClass",
         ])
-        .where("LOWER(TRIM(c.name)) = :name", { name: complex.name.toLowerCase().trim() })
+        .where("LOWER(TRIM(c.name)) = :name", { name })
         .andWhere("c.constructionStatus IS NOT NULL")
         .orderBy("c.constructionCheckedAt", "DESC", "NULLS LAST")
         .getOne();
       inheritConstructionStage(complex, source);
+    }
+    // Unlike the stage, the flag can sit on any row of the ЖК (catalog,
+    // stub or another project copy), so global rows look too.
+    if (!complex.isProblematic) {
+      const flagged = await this.complexesRepo
+        .createQueryBuilder("c")
+        .select([
+          "c.id", "c.isProblematic", "c.problematicReason",
+          "c.problematicSourceUrl", "c.problematicUpdatedAt",
+        ])
+        .where("LOWER(TRIM(c.name)) = :name", { name })
+        .andWhere("c.isProblematic = true")
+        .orderBy("c.problematicUpdatedAt", "DESC", "NULLS LAST")
+        .getOne();
+      inheritProblematic(complex, flagged);
     }
     return complex;
   }
