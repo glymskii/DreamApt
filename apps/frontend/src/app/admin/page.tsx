@@ -821,6 +821,7 @@ function ProblematicTab() {
 interface SyncProgress {
   phase: "catalog" | "details" | "done" | "stopped";
   page: number;
+  lastPage: number | null;
   cards: number;
   created: number;
   updated: number;
@@ -836,7 +837,7 @@ interface SyncProgress {
 }
 
 // Hard stops for the client-driven loops — far above the real catalog
-// (~30 pages, ~600 ЖК) so they only ever catch a runaway.
+// (~52 pages of 12, ~600 ЖК) so they only ever catch a runaway.
 const MAX_CATALOG_PAGES = 100;
 const MAX_DETAIL_BATCHES = 400;
 
@@ -866,7 +867,7 @@ function ConstructionTab() {
     setError("");
     const p: SyncProgress = {
       phase: mode === "sync" ? "catalog" : "details",
-      page: 0, cards: 0, created: 0, updated: 0, skippedCompleted: 0,
+      page: 0, lastPage: null, cards: 0, created: 0, updated: 0, skippedCompleted: 0,
       expired: null, expirySkipped: false, newNames: [],
       detailsProcessed: 0, detailsUpdated: 0, detailsFailed: 0, detailsDeleted: 0,
       detailsRemaining: null,
@@ -882,6 +883,7 @@ function ConstructionTab() {
           const r = await constructionSync.importPage(page, since);
           since = r.since;
           p.page = r.page;
+          p.lastPage = r.lastPage;
           p.cards += r.cards;
           p.created += r.created;
           p.updated += r.updated;
@@ -1007,7 +1009,10 @@ function ConstructionTab() {
           </p>
           {progress.page > 0 && (
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-muted-foreground">
-              <span>Каталог: стр. {progress.page} · {progress.cards} ЖК</span>
+              <span>
+                Каталог: стр. {progress.page}
+                {progress.lastPage ? ` из ${progress.lastPage}` : ""} · {progress.cards} ЖК
+              </span>
               <span>+ {progress.created} новых</span>
               <span>↻ {progress.updated} обновлено</span>
               {progress.skippedCompleted > 0 && (

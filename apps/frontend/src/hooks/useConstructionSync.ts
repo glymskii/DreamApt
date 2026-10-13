@@ -21,6 +21,7 @@ export interface ImportPageReport {
   updated: number;
   skippedCompleted: number;
   hasNextPage: boolean;
+  lastPage: number | null;
   expired: number | null;
   expirySkipped: boolean;
   newNames: string[];
