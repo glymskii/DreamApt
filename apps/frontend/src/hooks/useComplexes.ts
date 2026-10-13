@@ -50,6 +50,14 @@ export interface ResidentialComplex {
   // не нашлось ничего похожего). Used by the slide-over to suppress
   // empty Krisha sections (no listings/scores to show).
   isStub?: boolean;
+  // Construction stage from Krisha's «Новостройки» catalog. Null =
+  // unknown (most secondary-market ЖК); completion = «Срок сдачи», the
+  // last phase for multi-phase projects.
+  constructionStatus?: "under_construction" | null;
+  completionYear?: number | null;
+  completionQuarter?: number | null;
+  developer?: string | null;
+  housingClass?: "economy" | "comfort" | "business" | "premium" | null;
   createdAt: string;
 }
 
@@ -238,6 +246,9 @@ export interface MapData {
     problematicSourceUrl?: string | null;
     problematicUpdatedAt?: string | null;
     isStub?: boolean;
+    constructionStatus?: "under_construction" | null;
+    completionYear?: number | null;
+    completionQuarter?: number | null;
     // Latest comment breadcrumb for the map hover. Absent when the ЖК
     // has no comments yet (hover then shows a "be first" nudge).
     lastComment?: { text: string; author: string; count: number } | null;

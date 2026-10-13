@@ -71,12 +71,42 @@ export class ResidentialComplexEntity {
   @Column({ name: "year_built", nullable: true })
   yearBuilt: number;
 
-  // Timestamp of the last Krisha-detail enrichment attempt for yearBuilt /
-  // floorsMax. Set on every attempt — successful or not — so the chunked
-  // backfill endpoint can skip ЖК it already tried recently and avoid
-  // looping forever on pages with no extractable floor/year data.
+  // Timestamp of the last Krisha detail-page fetch attempt (yearBuilt /
+  // floorsMax backfill and the under-construction sync both stamp it).
+  // Set on every attempt — successful or not — so the chunked endpoints
+  // can skip ЖК they already tried recently and avoid looping forever on
+  // pages with no extractable data.
   @Column({ name: "enrichment_attempted_at", type: "timestamp", nullable: true })
   enrichmentAttemptedAt: Date;
+
+  // ── Construction stage (Krisha «Новостройки» catalog) ──
+  //
+  // "under_construction" — set by ConstructionSyncService from
+  // krisha.kz/complex/search/almaty/ filtered to «строящийся дом». NULL =
+  // unknown (most secondary-market ЖК never pass through that catalog) or
+  // dropped out of it since (commissioned or delisted).
+  @Column({ name: "construction_status", type: "varchar", length: 32, nullable: true })
+  constructionStatus: string | null;
+
+  // Planned completion («Срок сдачи») from the ЖК page. For multi-phase
+  // projects this is the LAST phase; quarter is null when Krisha only
+  // publishes a year.
+  @Column({ name: "completion_year", type: "int", nullable: true })
+  completionYear: number | null;
+
+  @Column({ name: "completion_quarter", type: "smallint", nullable: true })
+  completionQuarter: number | null;
+
+  @Column({ name: "developer", type: "text", nullable: true })
+  developer: string | null;
+
+  @Column({ name: "housing_class", type: "varchar", length: 16, nullable: true })
+  housingClass: string | null; // economy | comfort | business | premium
+
+  // Last time the under-construction catalog listed this ЖК. A complete
+  // sync pass clears the status of rows it no longer sees.
+  @Column({ name: "construction_checked_at", type: "timestamp", nullable: true })
+  constructionCheckedAt: Date | null;
 
   // Scores
   @Column({ name: "score_total", type: "decimal", precision: 5, scale: 2, nullable: true })

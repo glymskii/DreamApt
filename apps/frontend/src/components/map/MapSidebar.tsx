@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { MapPin, Clock, Search, Activity, Building, Star, AlertTriangle } from "lucide-react";
 import { formatPrice } from "@/lib/utils";
 import { matchesSearch } from "@/lib/transliterate";
+import { formatCompletion, isUnderConstruction } from "@/lib/construction";
 import type { MapData } from "@/hooks/useComplexes";
 
 interface MapSidebarProps {
@@ -72,7 +73,13 @@ export function MapSidebar({ data, selectedId, onSelect, onHover, isMobile }: Ma
   const [districtFilter, setDistrictFilter] = useState("");
   const [riskFilter, setRiskFilter] = useState<string[]>([]);
   const [floorFilter, setFloorFilter] = useState<string[]>([]);
+  const [onlyUnderConstruction, setOnlyUnderConstruction] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+
+  const underConstructionCount = useMemo(
+    () => data.complexes.filter(isUnderConstruction).length,
+    [data.complexes],
+  );
 
   const filtered = useMemo(() => {
     let result = data.complexes;
@@ -97,8 +104,15 @@ export function MapSidebar({ data, selectedId, onSelect, onHover, isMobile }: Ma
       result = result.filter((c) => c.floorSegment && floorFilter.includes(c.floorSegment));
     }
 
+    if (onlyUnderConstruction) {
+      result = result.filter(isUnderConstruction);
+    }
+
     return result.sort((a, b) => (Number(b.scoreTotal) || 0) - (Number(a.scoreTotal) || 0));
-  }, [data.complexes, search, districtFilter, riskFilter]);
+  }, [data.complexes, search, districtFilter, riskFilter, floorFilter, onlyUnderConstruction]);
+
+  const activeFilters =
+    (districtFilter ? 1 : 0) + riskFilter.length + floorFilter.length + (onlyUnderConstruction ? 1 : 0);
 
   const toggleRisk = (risk: string) => {
     setRiskFilter((prev) =>
@@ -131,10 +145,8 @@ export function MapSidebar({ data, selectedId, onSelect, onHover, isMobile }: Ma
           className="text-xs text-muted-foreground hover:text-foreground transition-colors"
         >
           {showFilters ? t("sidebar.filtersHide") : t("sidebar.filtersShow")}
-          {(districtFilter || riskFilter.length > 0 || floorFilter.length > 0) && (
-            <span className="ml-1 text-primary">
-              ({(districtFilter ? 1 : 0) + riskFilter.length + floorFilter.length})
-            </span>
+          {activeFilters > 0 && (
+            <span className="ml-1 text-primary">({activeFilters})</span>
           )}
         </button>
 
@@ -188,12 +200,28 @@ export function MapSidebar({ data, selectedId, onSelect, onHover, isMobile }: Ma
                 ))}
               </div>
             </div>
+
+            {underConstructionCount > 0 && (
+              <div>
+                <p className="text-[10px] text-muted-foreground mb-1">{t("sidebar.stage")}</p>
+                <button
+                  onClick={() => setOnlyUnderConstruction((v) => !v)}
+                  className={`px-2 py-0.5 rounded-full text-[10px] border transition-colors ${
+                    onlyUnderConstruction
+                      ? "bg-sky-600 text-white border-transparent"
+                      : "border-border hover:border-primary/50"
+                  }`}
+                >
+                  {t("sidebar.stageBuilding")} ({underConstructionCount})
+                </button>
+              </div>
+            )}
           </div>
         )}
 
         <p className="text-[10px] text-muted-foreground">
           {t("sidebar.complexesCount", { count: filtered.length })}
-          {(search || districtFilter || riskFilter.length > 0 || floorFilter.length > 0) && ` ${t("sidebar.filtered")}`}
+          {(search || activeFilters > 0) && ` ${t("sidebar.filtered")}`}
         </p>
       </div>
 
@@ -243,6 +271,16 @@ export function MapSidebar({ data, selectedId, onSelect, onHover, isMobile }: Ma
                     </Badge>
                   )}
                 </div>
+
+                {isUnderConstruction(complex) && (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-medium text-sky-700 dark:text-sky-300">
+                    🏗 {t("sidebar.badgeBuilding")}
+                    {(() => {
+                      const date = formatCompletion(complex, t);
+                      return date ? ` · ${date}` : "";
+                    })()}
+                  </span>
+                )}
 
                 <p className="text-xs text-muted-foreground truncate">
                   {complex.priceMin

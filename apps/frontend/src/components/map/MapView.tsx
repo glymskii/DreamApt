@@ -9,6 +9,7 @@ import type { MapData } from "@/hooks/useComplexes";
 import { formatPrice } from "@/lib/utils";
 import { useTheme } from "@/components/theme-provider";
 import { generateInterpolatedGrid } from "@/lib/airquality-interpolation";
+import { formatCompletion, isUnderConstruction } from "@/lib/construction";
 
 interface MapViewProps {
   data: MapData;
@@ -28,6 +29,26 @@ const PDP_OVERLAYS: { key: string; labelKey: string }[] = [
   { key: "pdp-sairan", labelKey: "map.pdpSairan" },
 ];
 const PDP_OVERLAY_KEYS = PDP_OVERLAYS.map((o) => o.key);
+
+type CirclePaint = NonNullable<
+  Extract<maplibregl.LayerSpecification, { type: "circle" }>["paint"]
+>;
+
+// ЖК marker ring: crimson for akimat-flagged (trumps everything), sky for
+// «строится», white otherwise. The hover highlight wraps these instead of
+// resetting to a flat white ring, which used to wipe both accents.
+const COMPLEX_STROKE_WIDTH: CirclePaint["circle-stroke-width"] = [
+  "case",
+  ["==", ["get", "problematic"], 1], 3,
+  ["==", ["get", "underConstruction"], 1], 3,
+  2,
+];
+const COMPLEX_STROKE_COLOR: CirclePaint["circle-stroke-color"] = [
+  "case",
+  ["==", ["get", "problematic"], 1], "#7f1d1d", // dark crimson ring
+  ["==", ["get", "underConstruction"], 1], "#0284c7", // sky-600 — строится
+  "#fff",
+];
 
 /** Minimum live sensors before an interpolated PM2.5 surface is honest.
  *  The normal aggregator returns ~380; the emergency fallbacks return ~3. */
@@ -149,6 +170,11 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
   const view3dRef = useRef(false);
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
+
+  const underConstructionCount = useMemo(
+    () => data.complexes.filter(isUnderConstruction).length,
+    [data.complexes],
+  );
 
   const riskCounts = useMemo(() => {
     const counts: Record<string, number> = { critical: 0, high: 0, moderate: 0, low: 0, safe: 0 };
@@ -665,6 +691,11 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
           // override the colour — the "не покупайте" signal trumps
           // everything else on the map.
           problematic: c.isProblematic ? 1 : 0,
+          // Krisha «строящийся дом» — sky ring + popup line. Year/quarter
+          // travel raw so the popup formats them in the current language.
+          underConstruction: isUnderConstruction(c) ? 1 : 0,
+          completionYear: c.completionYear || 0,
+          completionQuarter: c.completionQuarter || 0,
           // Latest-comment breadcrumb. MapLibre flattens feature props to
           // primitives, so pass the fields separately (not a nested obj).
           lastCommentText: c.lastComment?.text || "",
@@ -697,16 +728,8 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
             ["get", "seismicColor"],
           ],
           "circle-opacity": 0.85,
-          "circle-stroke-width": [
-            "case",
-            ["==", ["get", "problematic"], 1], 3,
-            2,
-          ],
-          "circle-stroke-color": [
-            "case",
-            ["==", ["get", "problematic"], 1], "#7f1d1d", // dark crimson ring
-            "#fff",
-          ],
+          "circle-stroke-width": COMPLEX_STROKE_WIDTH,
+          "circle-stroke-color": COMPLEX_STROKE_COLOR,
         },
       });
 
@@ -784,6 +807,29 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
                 // it actually maps to their interview answers.
               ],
             }),
+            props.underConstruction
+              ? el("div", {
+                  css: "display:flex;align-items:center;gap:6px;margin-top:6px;padding:4px 6px;border-radius:6px;font-size:11px;font-weight:600;background:#f0f9ff;color:#075985;border:1px solid #bae6fd",
+                  children: [
+                    el("span", { text: "🏗" }),
+                    el("span", {
+                      text: (() => {
+                        const label = tRef.current("map.popupUnderConstruction");
+                        const date = formatCompletion(
+                          {
+                            completionYear: Number(props.completionYear) || null,
+                            completionQuarter: Number(props.completionQuarter) || null,
+                          },
+                          tRef.current,
+                        );
+                        return date
+                          ? `${label} · ${tRef.current("map.popupCompletion", { date })}`
+                          : label;
+                      })(),
+                    }),
+                  ],
+                })
+              : null,
             seismicDist
               ? el("div", {
                   css: `display:flex;align-items:center;gap:6px;margin-top:6px;padding:4px 6px;border-radius:6px;font-size:11px;background:${seismicBg}`,
@@ -890,16 +936,16 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
       map.setPaintProperty("complexes-circles", "circle-stroke-width", [
         "case",
         ["==", ["get", "id"], hoveredComplexId], 4,
-        2,
+        COMPLEX_STROKE_WIDTH,
       ]);
       map.setPaintProperty("complexes-circles", "circle-stroke-color", [
         "case",
         ["==", ["get", "id"], hoveredComplexId], "#3b82f6",
-        "#fff",
+        COMPLEX_STROKE_COLOR,
       ]);
     } else {
-      map.setPaintProperty("complexes-circles", "circle-stroke-width", 2);
-      map.setPaintProperty("complexes-circles", "circle-stroke-color", "#fff");
+      map.setPaintProperty("complexes-circles", "circle-stroke-width", COMPLEX_STROKE_WIDTH);
+      map.setPaintProperty("complexes-circles", "circle-stroke-color", COMPLEX_STROKE_COLOR);
     }
   }, [hoveredComplexId]);
 
@@ -1111,6 +1157,12 @@ export default function MapView({ data, onComplexClick, hoveredComplexId, select
             <span className="w-2.5 h-2.5 rounded-full bg-muted-foreground" />
             {t("map.markerComplex")}
           </div>
+          {underConstructionCount > 0 && (
+            <div className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-muted-foreground ring-2 ring-sky-600" />
+              {t("map.markerUnderConstruction")} ({underConstructionCount})
+            </div>
+          )}
           {showAirQuality && (
             <div className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-full bg-background border-2 border-muted-foreground" />

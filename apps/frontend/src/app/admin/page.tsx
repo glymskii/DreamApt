@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
@@ -33,10 +33,14 @@ import {
 } from "@/hooks/useProblematicComplexes";
 import { useAdminComments } from "@/hooks/useAdminComments";
 import {
+  useConstructionStats,
+  constructionSync,
+} from "@/hooks/useConstructionSync";
+import {
   ArrowLeft, Phone, CheckCircle2, XCircle, Copy, Loader2, Clock,
   Shield, BarChart3, Users, KeyRound, MessageCircle, Search,
   ChevronLeft, ChevronRight, AlertTriangle, Plus, Trash2, RefreshCcw,
-  ExternalLink, Heart, MessageSquare,
+  ExternalLink, Heart, MessageSquare, Construction, Square,
 } from "lucide-react";
 
 // ── Legacy (password-flow) leads ────────────────────────────────────
@@ -61,7 +65,7 @@ const LEAD_STATUS: Record<string, { label: string; className: string }> = {
 
 // ──────────────────────────────────────────────────────────────────────
 
-type Tab = "users" | "requests" | "problematic" | "comments" | "leads";
+type Tab = "users" | "requests" | "problematic" | "construction" | "comments" | "leads";
 
 export default function AdminPage() {
   const router = useRouter();
@@ -139,6 +143,9 @@ export default function AdminPage() {
           <TabButton active={tab === "problematic"} onClick={() => setTab("problematic")} icon={<AlertTriangle className="h-3.5 w-3.5" />}>
             Проблемные ЖК
           </TabButton>
+          <TabButton active={tab === "construction"} onClick={() => setTab("construction")} icon={<Construction className="h-3.5 w-3.5" />}>
+            Новостройки
+          </TabButton>
           <TabButton active={tab === "comments"} onClick={() => setTab("comments")} icon={<MessageSquare className="h-3.5 w-3.5" />}>
             Комментарии
           </TabButton>
@@ -150,6 +157,7 @@ export default function AdminPage() {
         {tab === "users" && <UsersTab />}
         {tab === "requests" && <AccessRequestsTab />}
         {tab === "problematic" && <ProblematicTab />}
+        {tab === "construction" && <ConstructionTab />}
         {tab === "comments" && <CommentsActivityTab />}
         {tab === "leads" && <LeadsTab />}
       </main>
@@ -808,7 +816,301 @@ function ProblematicTab() {
   );
 }
 
-// ── Tab 4: Comment activity (site-wide moderation feed) ───────────────
+// ── Tab 4: Новостройки (Krisha «строящийся дом») ──────────────────────
+
+interface SyncProgress {
+  phase: "catalog" | "details" | "done" | "stopped";
+  page: number;
+  cards: number;
+  created: number;
+  updated: number;
+  skippedCompleted: number;
+  expired: number | null;
+  expirySkipped: boolean;
+  newNames: string[];
+  detailsProcessed: number;
+  detailsUpdated: number;
+  detailsFailed: number;
+  detailsDeleted: number;
+  detailsRemaining: number | null;
+}
+
+// Hard stops for the client-driven loops — far above the real catalog
+// (~30 pages, ~600 ЖК) so they only ever catch a runaway.
+const MAX_CATALOG_PAGES = 100;
+const MAX_DETAIL_BATCHES = 400;
+
+const PHASE_LABEL: Record<SyncProgress["phase"], string> = {
+  catalog: "Читаю каталог Krisha…",
+  details: "Подгружаю страницы ЖК…",
+  done: "Синхронизация завершена",
+  stopped: "Остановлено",
+};
+
+function ConstructionTab() {
+  const qc = useQueryClient();
+  const { data: stats, isLoading } = useConstructionStats();
+  const [running, setRunning] = useState(false);
+  const [progress, setProgress] = useState<SyncProgress | null>(null);
+  const [error, setError] = useState("");
+  const [rereadAll, setRereadAll] = useState(false);
+  const stopRef = useRef(false);
+  const [previewUrl, setPreviewUrl] = useState("");
+  const [preview, setPreview] = useState<{ loading: boolean; result?: unknown; error?: string }>({
+    loading: false,
+  });
+
+  const run = async (mode: "sync" | "details") => {
+    stopRef.current = false;
+    setRunning(true);
+    setError("");
+    const p: SyncProgress = {
+      phase: mode === "sync" ? "catalog" : "details",
+      page: 0, cards: 0, created: 0, updated: 0, skippedCompleted: 0,
+      expired: null, expirySkipped: false, newNames: [],
+      detailsProcessed: 0, detailsUpdated: 0, detailsFailed: 0, detailsDeleted: 0,
+      detailsRemaining: null,
+    };
+    setProgress({ ...p });
+    try {
+      // Step 1: catalog, one page per request. `since` comes from the
+      // server on page 1 and is echoed back so the last page can clear
+      // ЖК that dropped out of the catalog.
+      let since: string | undefined;
+      if (mode === "sync") {
+        for (let page = 1; page <= MAX_CATALOG_PAGES && !stopRef.current; page++) {
+          const r = await constructionSync.importPage(page, since);
+          since = r.since;
+          p.page = r.page;
+          p.cards += r.cards;
+          p.created += r.created;
+          p.updated += r.updated;
+          p.skippedCompleted += r.skippedCompleted;
+          p.newNames.push(...r.newNames);
+          if (r.expired !== null) {
+            p.expired = r.expired;
+            p.expirySkipped = r.expirySkipped;
+          }
+          setProgress({ ...p });
+          if (!r.hasNextPage) break;
+          await new Promise((res) => setTimeout(res, 1000));
+        }
+      }
+
+      // Step 2: ЖК pages, a few per request, until the queue is empty.
+      // «Перечитать все» re-reads pages fetched before this pass started.
+      if (!stopRef.current) {
+        p.phase = "details";
+        setProgress({ ...p });
+        const refreshBefore = mode === "sync" && rereadAll ? since : undefined;
+        for (let i = 0; i < MAX_DETAIL_BATCHES && !stopRef.current; i++) {
+          const r = await constructionSync.enrichBatch(refreshBefore);
+          p.detailsProcessed += r.processed;
+          p.detailsUpdated += r.updated;
+          p.detailsFailed += r.failed;
+          p.detailsDeleted += r.deleted;
+          p.detailsRemaining = r.remaining;
+          setProgress({ ...p });
+          if (r.processed === 0 || r.remaining === 0) break;
+        }
+      }
+      p.phase = stopRef.current ? "stopped" : "done";
+      setProgress({ ...p });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Синхронизация прервалась");
+    } finally {
+      setRunning(false);
+      qc.invalidateQueries({ queryKey: ["admin", "construction", "stats"] });
+      qc.invalidateQueries({ queryKey: ["global-map-data"] });
+      qc.invalidateQueries({ queryKey: ["global-complexes"] });
+    }
+  };
+
+  const runPreview = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!previewUrl.trim()) return;
+    setPreview({ loading: true });
+    try {
+      setPreview({ loading: false, result: await constructionSync.preview(previewUrl.trim()) });
+    } catch (err) {
+      setPreview({
+        loading: false,
+        error: err instanceof Error ? err.message : "Не удалось прочитать страницу",
+      });
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Action bar */}
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-card p-3">
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium">Строящиеся ЖК с Krisha.kz</p>
+          <p className="text-[11px] text-muted-foreground">
+            Каталог «квартиры в строящемся доме»: новые ЖК добавляются в базу,
+            существующие помечаются «строится», выбывшие из каталога — снимаются.
+            Затем подгружаются страницы ЖК: координаты, срок сдачи, застройщик,
+            класс. Не закрывайте вкладку до конца — при повторном запуске
+            детали догружаются с того места, где остановились.
+          </p>
+          <label className="mt-2 flex items-center gap-2 text-[11px] text-muted-foreground cursor-pointer">
+            <input
+              type="checkbox"
+              checked={rereadAll}
+              disabled={running}
+              onChange={(e) => setRereadAll(e.target.checked)}
+              className="w-3.5 h-3.5"
+            />
+            Перечитать страницы всех ЖК (по умолчанию — только новых и не
+            обновлявшихся 30 дней)
+          </label>
+        </div>
+        <div className="flex gap-2 shrink-0">
+          {running ? (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8"
+              onClick={() => {
+                stopRef.current = true;
+              }}
+            >
+              <Square className="h-3.5 w-3.5 mr-1" />
+              Стоп
+            </Button>
+          ) : (
+            <>
+              <Button size="sm" variant="outline" className="h-8" onClick={() => run("details")}>
+                Только детали
+              </Button>
+              <Button size="sm" className="h-8" onClick={() => run("sync")}>
+                <RefreshCcw className="h-3.5 w-3.5 mr-1" />
+                Синхронизировать
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {error && (
+        <p className="rounded-lg border border-rose-200 bg-rose-50 dark:border-rose-900 dark:bg-rose-950/40 p-3 text-xs text-rose-700 dark:text-rose-300">
+          {error}
+        </p>
+      )}
+
+      {/* Live progress */}
+      {progress && (
+        <div className="rounded-lg border bg-muted/40 p-3 text-xs space-y-1.5">
+          <p className="font-medium flex items-center gap-1.5">
+            {running && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            {PHASE_LABEL[progress.phase]}
+          </p>
+          {progress.page > 0 && (
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-muted-foreground">
+              <span>Каталог: стр. {progress.page} · {progress.cards} ЖК</span>
+              <span>+ {progress.created} новых</span>
+              <span>↻ {progress.updated} обновлено</span>
+              {progress.skippedCompleted > 0 && (
+                <span>{progress.skippedCompleted} пропущено (уже сданы)</span>
+              )}
+              {progress.expired !== null && !progress.expirySkipped && (
+                <span>− {progress.expired} больше не строятся</span>
+              )}
+              {progress.expirySkipped && (
+                <span className="text-amber-700 dark:text-amber-300">
+                  флаги не сняты: проход увидел слишком мало ЖК
+                </span>
+              )}
+            </div>
+          )}
+          {(progress.phase !== "catalog" || progress.detailsProcessed > 0) && (
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-muted-foreground">
+              <span>Страницы ЖК: {progress.detailsProcessed} прочитано</span>
+              <span>✓ {progress.detailsUpdated} дополнено</span>
+              {progress.detailsRemaining !== null && <span>осталось {progress.detailsRemaining}</span>}
+              {progress.detailsFailed > 0 && (
+                <span className="text-rose-600">✕ {progress.detailsFailed} не открылись</span>
+              )}
+              {progress.detailsDeleted > 0 && (
+                <span>{progress.detailsDeleted} удалено (не Алматы)</span>
+              )}
+            </div>
+          )}
+          {progress.newNames.length > 0 && (
+            <details>
+              <summary className="cursor-pointer">Новые ЖК ({progress.newNames.length})</summary>
+              <p className="mt-1 text-muted-foreground">{progress.newNames.join(", ")}</p>
+            </details>
+          )}
+        </div>
+      )}
+
+      {/* Current state of the catalog */}
+      {isLoading ? (
+        <div className="text-center py-8">
+          <Loader2 className="h-6 w-6 mx-auto animate-spin text-muted-foreground" />
+        </div>
+      ) : stats ? (
+        <div className="space-y-2">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <StatCard label="Строится (в базе)" value={stats.underConstruction} />
+            <StatCard label="С координатами" value={stats.onMap} />
+            <StatCard label="Со сроком сдачи" value={stats.withCompletion} />
+            <StatCard label="Ждут страницы ЖК" value={stats.pendingDetails} />
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Последняя синхронизация:{" "}
+            {stats.lastSyncAt
+              ? new Date(stats.lastSyncAt).toLocaleString("ru-RU")
+              : "ещё не запускалась"}
+            {" · "}застройщик известен у {stats.withDeveloper}
+          </p>
+          {stats.byCompletionYear.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {stats.byCompletionYear.map((row) => (
+                <span
+                  key={row.year ?? "none"}
+                  className="px-2 py-0.5 rounded-full border text-[11px] bg-card"
+                >
+                  {row.year ?? "без срока"}: {row.count}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      {/* Parser check against live markup */}
+      <form onSubmit={runPreview} className="rounded-lg border bg-card p-3 space-y-2">
+        <p className="text-sm font-medium">Проверка парсера</p>
+        <p className="text-[11px] text-muted-foreground">
+          Ссылка на страницу ЖК — покажет, что прочитал парсер, ничего не
+          сохраняя. Пригодится, если у ЖК пустой срок сдачи или застройщик.
+        </p>
+        <div className="flex gap-2">
+          <Input
+            placeholder="https://krisha.kz/complex/show/almaty/…"
+            value={previewUrl}
+            onChange={(e) => setPreviewUrl(e.target.value)}
+            className="h-9 text-sm"
+          />
+          <Button type="submit" size="sm" className="h-9" disabled={preview.loading}>
+            {preview.loading && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
+            Проверить
+          </Button>
+        </div>
+        {preview.error && <p className="text-xs text-rose-600">{preview.error}</p>}
+        {preview.result !== undefined && (
+          <pre className="text-[10px] leading-snug bg-muted/50 rounded p-2 overflow-auto max-h-80">
+            {JSON.stringify(preview.result, null, 2)}
+          </pre>
+        )}
+      </form>
+    </div>
+  );
+}
+
+// ── Tab 5: Comment activity (site-wide moderation feed) ───────────────
 
 function CommentsActivityTab() {
   const { data, isLoading, error } = useAdminComments(50);
@@ -900,7 +1202,7 @@ function CommentsActivityTab() {
   );
 }
 
-// ── Tab 5: Legacy leads (password-flow) ───────────────────────────────
+// ── Tab 6: Legacy leads (password-flow) ───────────────────────────────
 
 function LeadsTab() {
   const queryClient = useQueryClient();

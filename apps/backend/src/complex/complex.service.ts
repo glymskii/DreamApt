@@ -18,6 +18,23 @@ import { findShutovRating, findNearestFault, SHUTOV_CATEGORY_COLORS, SHUTOV_CATE
 const MAP_DATA_TTL_MS = 60_000;
 const GLOBAL_LIST_TTL_MS = 60_000;
 
+/**
+ * Construction stage (Krisha «строящийся» catalog) is stored on the global
+ * catalog row of a ЖК only. Copy it onto another row of the same ЖК — the
+ * map dedup and the slide-over often land on a scored project copy.
+ */
+function inheritConstructionStage(
+  target: ResidentialComplexEntity,
+  source: Partial<ResidentialComplexEntity> | null | undefined,
+) {
+  if (target.constructionStatus || !source?.constructionStatus) return;
+  target.constructionStatus = source.constructionStatus;
+  target.completionYear = source.completionYear ?? null;
+  target.completionQuarter = source.completionQuarter ?? null;
+  if (!target.developer && source.developer) target.developer = source.developer;
+  if (!target.housingClass && source.housingClass) target.housingClass = source.housingClass;
+}
+
 @Injectable()
 export class ComplexService {
   // Single-process caches. Render runs one Node instance, so this is fine.
@@ -68,8 +85,18 @@ export class ComplexService {
         // isStub=true and no Krisha aggregates.
         "isProblematic", "problematicReason", "problematicSourceUrl",
         "problematicUpdatedAt", "isStub",
+        // «Строится · сдача III кв. 2026» marker ring + popup line.
+        "constructionStatus", "completionYear", "completionQuarter",
       ],
     });
+
+    // Indexed over ALL rows, before the bounds/coords filter: the catalog
+    // row holding the stage may still be waiting for its coordinates while
+    // a listing-built copy of the same ЖК is already on the map.
+    const stageByName = new Map<string, ResidentialComplexEntity>();
+    for (const c of all) {
+      if (c.constructionStatus) stageByName.set(c.name.toLowerCase().trim(), c);
+    }
 
     // Deduplicate by normalized name — keep the one with highest score
     // Also filter to Almaty bounds only.
@@ -135,6 +162,9 @@ export class ComplexService {
     // Backfill missing air quality on complexes from nearest station (in-memory only,
     // doesn't write to DB — keeps map-data fast and self-healing)
     const complexes = Array.from(dedupMap.values());
+    for (const c of complexes) {
+      inheritConstructionStage(c, stageByName.get(c.name.toLowerCase().trim()));
+    }
 
     // Attach the latest comment per complex — the map hover uses it as a
     // breadcrumb ("кто-то уже обсуждает этот ЖК" / nudge to be first). One
@@ -281,6 +311,27 @@ export class ComplexService {
   async findOne(id: string) {
     const complex = await this.complexesRepo.findOne({ where: { id } });
     if (!complex) throw new NotFoundException("Complex not found");
+    return complex;
+  }
+
+  /** findOne for the public ЖК card: a project copy (from someone's
+   *  search) also shows the construction stage of its catalog row, the
+   *  same hand-off the map dedup does. */
+  async findOneWithStage(id: string) {
+    const complex = await this.findOne(id);
+    if (!complex.constructionStatus && complex.projectId) {
+      const source = await this.complexesRepo
+        .createQueryBuilder("c")
+        .select([
+          "c.id", "c.constructionStatus", "c.completionYear", "c.completionQuarter",
+          "c.developer", "c.housingClass",
+        ])
+        .where("LOWER(TRIM(c.name)) = :name", { name: complex.name.toLowerCase().trim() })
+        .andWhere("c.constructionStatus IS NOT NULL")
+        .orderBy("c.constructionCheckedAt", "DESC", "NULLS LAST")
+        .getOne();
+      inheritConstructionStage(complex, source);
+    }
     return complex;
   }
 

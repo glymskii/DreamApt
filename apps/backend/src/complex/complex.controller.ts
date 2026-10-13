@@ -57,7 +57,7 @@ export class ComplexController {
   @Get("complexes/:id")
   @Header("Cache-Control", "public, max-age=0, s-maxage=60, stale-while-revalidate=120")
   async findOne(@Param("id") id: string) {
-    return this.complexService.findOne(id);
+    return this.complexService.findOneWithStage(id);
   }
 
   @Get("complexes/:id/seismic")
