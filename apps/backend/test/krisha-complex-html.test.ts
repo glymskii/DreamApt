@@ -5,6 +5,7 @@ import {
   parseConstructionStatus,
   parseHousingClass,
   parseCatalogPage,
+  completedLongAgo,
   parseComplexDetail,
   floorSegmentFor,
 } from "../src/complex/krisha-complex-html";
@@ -68,6 +69,15 @@ function statusAndClassTests() {
   assert.equal(floorSegmentFor(18), "high_rise");
   assert.equal(floorSegmentFor(30), "skyscraper");
   assert.equal(floorSegmentFor(null), null);
+
+  // Krisha's stale «строящийся»: deadlines before last year are history.
+  assert.equal(completedLongAgo(2008, NOW), true);
+  assert.equal(completedLongAgo(2024, NOW), true);
+  assert.equal(completedLongAgo(2025, NOW), false, "last year's overdue ЖК still count");
+  assert.equal(completedLongAgo(2026, NOW), false);
+  assert.equal(completedLongAgo(2028, NOW), false);
+  assert.equal(completedLongAgo(null, NOW), false, "unknown deadline is not evidence");
+  assert.equal(completedLongAgo(2025, new Date("2027-01-05T00:00:00Z")), true, "the boundary moves every January");
 }
 
 function catalogTests() {

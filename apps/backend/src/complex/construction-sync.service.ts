@@ -14,7 +14,12 @@ import {
   type ComplexPatch,
 } from "./krisha-complex-parser.service";
 import { ComplexService } from "./complex.service";
-import { COMPLETED, UNDER_CONSTRUCTION, floorSegmentFor } from "./krisha-complex-html";
+import {
+  COMPLETED,
+  UNDER_CONSTRUCTION,
+  completedLongAgo,
+  floorSegmentFor,
+} from "./krisha-complex-html";
 
 // A ЖК page is re-read at most this often: «Срок сдачи» moves slowly and
 // every fetch is one more request against Krisha.
@@ -40,6 +45,9 @@ export interface ImportPageReport {
   updated: number;
   // Cards that themselves say «сдан» despite the filter — left alone.
   skippedCompleted: number;
+  // Listed as «строящийся», but the ЖК page's deadline is long past
+  // (completedLongAgo): flag cleared, no new row created.
+  longCompleted: number;
   hasNextPage: boolean;
   // Highest page Krisha's paginator links to — progress only.
   lastPage: number | null;
@@ -52,6 +60,8 @@ export interface ImportPageReport {
 export interface EnrichBatchReport {
   processed: number;
   updated: number;
+  // ЖК pages whose deadline turned out long past — flag cleared.
+  longCompleted: number;
   failed: number;
   outsideAlmaty: number;
   deleted: number;
@@ -168,7 +178,7 @@ export class ConstructionSyncService {
       );
     }
 
-    let created = 0, updated = 0, skippedCompleted = 0;
+    let created = 0, updated = 0, skippedCompleted = 0, longCompleted = 0;
     const newNames: string[] = [];
     for (const card of result.cards) {
       if (card.status === COMPLETED) {
@@ -185,9 +195,12 @@ export class ConstructionSyncService {
         }
       }
 
+      // Krisha's label lags years behind; the deadline enrichBatch read
+      // from the ЖК page decides. Still stamped: the catalog did list it.
+      const builtLongAgo = completedLongAgo(existing?.completionYear ?? card.completion?.year, now);
       if (existing) {
         const patch: ComplexPatch = {
-          constructionStatus: UNDER_CONSTRUCTION,
+          constructionStatus: builtLongAgo ? null : UNDER_CONSTRUCTION,
           constructionCheckedAt: now,
         };
         if (!existing.krishaComplexId) patch.krishaComplexId = card.krishaComplexId;
@@ -207,7 +220,10 @@ export class ConstructionSyncService {
         await this.complexesRepo.update(existing.id, patch);
         Object.assign(existing, patch);
         byKrishaId.set(card.krishaComplexId, existing);
-        updated++;
+        if (builtLongAgo) longCompleted++;
+        else updated++;
+      } else if (builtLongAgo) {
+        longCompleted++;
       } else {
         const saved = await this.complexesRepo.save(
           this.complexesRepo.create({
@@ -242,7 +258,8 @@ export class ConstructionSyncService {
 
     this.complexService.invalidateMapCache();
     this.logger.log(
-      `Under-construction page ${page}: ${result.cards.length} cards, +${created} new, ${updated} updated` +
+      `Under-construction page ${page}: ${result.cards.length} cards, +${created} new, ${updated} updated, ` +
+        `${longCompleted} long completed` +
         (expired !== null ? `, ${expired} expired` : "") +
         (expirySkipped ? ", expiry skipped" : ""),
     );
@@ -253,6 +270,7 @@ export class ConstructionSyncService {
       created,
       updated,
       skippedCompleted,
+      longCompleted,
       hasNextPage: result.hasNextPage,
       lastPage: result.lastPage,
       expired,
@@ -326,7 +344,7 @@ export class ConstructionSyncService {
       .take(limit)
       .getMany();
 
-    let updated = 0, failed = 0, outsideAlmaty = 0, deleted = 0;
+    let updated = 0, failed = 0, outsideAlmaty = 0, deleted = 0, longCompleted = 0;
     for (const c of batch) {
       await this.delay(DETAIL_DELAY_MS);
       const detail = await this.krisha.fetchComplexDetail(c.krishaUrl);
@@ -340,6 +358,10 @@ export class ConstructionSyncService {
       }
 
       Object.assign(patch, constructionFieldsFromDetail(detail));
+      if (completedLongAgo(patch.completionYear ?? c.completionYear)) {
+        patch.constructionStatus = null;
+        longCompleted++;
+      }
 
       if ((c.lat == null || c.lng == null) && detail.lat && detail.lng) {
         const inAlmaty =
@@ -385,8 +407,8 @@ export class ConstructionSyncService {
     }
 
     const remaining = await pending().getCount();
-    if (updated > 0 || deleted > 0) this.complexService.invalidateMapCache();
-    return { processed: batch.length, updated, failed, outsideAlmaty, deleted, remaining };
+    if (updated > 0 || deleted > 0 || longCompleted > 0) this.complexService.invalidateMapCache();
+    return { processed: batch.length, updated, longCompleted, failed, outsideAlmaty, deleted, remaining };
   }
 
   async stats(): Promise<ConstructionStats> {

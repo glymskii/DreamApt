@@ -227,6 +227,16 @@ export function parseConstructionStatus(text: string | null | undefined): Constr
   return null;
 }
 
+/**
+ * Krisha never moves old ЖК out of «строящийся»: in October 2026 its
+ * filter still held ~500 ЖК whose own «Срок сдачи» was 2001–2024. A
+ * deadline before last year means the house stands. Last year's and this
+ * year's overdue ЖК stay under construction — the ЖК card warns instead.
+ */
+export function completedLongAgo(completionYear: number | null | undefined, now = new Date()): boolean {
+  return completionYear != null && completionYear < now.getFullYear() - 1;
+}
+
 export function parseHousingClass(text: string | null | undefined): HousingClass | null {
   const t = clean(text).toLowerCase();
   if (!t) return null;

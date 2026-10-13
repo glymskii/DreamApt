@@ -20,6 +20,7 @@ export interface ImportPageReport {
   created: number;
   updated: number;
   skippedCompleted: number;
+  longCompleted: number;
   hasNextPage: boolean;
   lastPage: number | null;
   expired: number | null;
@@ -30,6 +31,7 @@ export interface ImportPageReport {
 export interface EnrichBatchReport {
   processed: number;
   updated: number;
+  longCompleted: number;
   failed: number;
   outsideAlmaty: number;
   deleted: number;

@@ -826,6 +826,7 @@ interface SyncProgress {
   created: number;
   updated: number;
   skippedCompleted: number;
+  longCompleted: number;
   expired: number | null;
   expirySkipped: boolean;
   newNames: string[];
@@ -833,6 +834,7 @@ interface SyncProgress {
   detailsUpdated: number;
   detailsFailed: number;
   detailsDeleted: number;
+  detailsLongCompleted: number;
   detailsRemaining: number | null;
 }
 
@@ -867,9 +869,9 @@ function ConstructionTab() {
     setError("");
     const p: SyncProgress = {
       phase: mode === "sync" ? "catalog" : "details",
-      page: 0, lastPage: null, cards: 0, created: 0, updated: 0, skippedCompleted: 0,
+      page: 0, lastPage: null, cards: 0, created: 0, updated: 0, skippedCompleted: 0, longCompleted: 0,
       expired: null, expirySkipped: false, newNames: [],
-      detailsProcessed: 0, detailsUpdated: 0, detailsFailed: 0, detailsDeleted: 0,
+      detailsProcessed: 0, detailsUpdated: 0, detailsFailed: 0, detailsDeleted: 0, detailsLongCompleted: 0,
       detailsRemaining: null,
     };
     setProgress({ ...p });
@@ -888,6 +890,7 @@ function ConstructionTab() {
           p.created += r.created;
           p.updated += r.updated;
           p.skippedCompleted += r.skippedCompleted;
+          p.longCompleted += r.longCompleted;
           p.newNames.push(...r.newNames);
           if (r.expired !== null) {
             p.expired = r.expired;
@@ -911,6 +914,7 @@ function ConstructionTab() {
           p.detailsUpdated += r.updated;
           p.detailsFailed += r.failed;
           p.detailsDeleted += r.deleted;
+          p.detailsLongCompleted += r.longCompleted;
           p.detailsRemaining = r.remaining;
           setProgress({ ...p });
           if (r.processed === 0 || r.remaining === 0) break;
@@ -952,8 +956,10 @@ function ConstructionTab() {
             Каталог «квартиры в строящемся доме»: новые ЖК добавляются в базу,
             существующие помечаются «строится», выбывшие из каталога — снимаются.
             Затем подгружаются страницы ЖК: координаты, срок сдачи, застройщик,
-            класс. Не закрывайте вкладку до конца — при повторном запуске
-            детали догружаются с того места, где остановились.
+            класс. ЖК со сроком сдачи раньше {new Date().getFullYear() - 1} года
+            строящимися не считаются: Krisha годами не снимает с них этот статус.
+            Не закрывайте вкладку до конца — при повторном запуске детали
+            догружаются с того места, где остановились.
           </p>
           <label className="mt-2 flex items-center gap-2 text-[11px] text-muted-foreground cursor-pointer">
             <input
@@ -1018,6 +1024,9 @@ function ConstructionTab() {
               {progress.skippedCompleted > 0 && (
                 <span>{progress.skippedCompleted} пропущено (уже сданы)</span>
               )}
+              {progress.longCompleted > 0 && (
+                <span>{progress.longCompleted} давно сданы — не строятся</span>
+              )}
               {progress.expired !== null && !progress.expirySkipped && (
                 <span>− {progress.expired} больше не строятся</span>
               )}
@@ -1038,6 +1047,9 @@ function ConstructionTab() {
               )}
               {progress.detailsDeleted > 0 && (
                 <span>{progress.detailsDeleted} удалено (не Алматы)</span>
+              )}
+              {progress.detailsLongCompleted > 0 && (
+                <span>{progress.detailsLongCompleted} оказались давно сданы</span>
               )}
             </div>
           )}
