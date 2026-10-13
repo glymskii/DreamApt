@@ -3,11 +3,11 @@
 import { useMemo, useState } from "react";
 import type { MapData } from "@/hooks/useComplexes";
 import { matchesSearch } from "@/lib/transliterate";
-import { isUnderConstruction } from "@/lib/construction";
+import { isNewBuilding, isUnderConstruction, matchesStages, type Stage } from "@/lib/construction";
 
 export type MapComplex = MapData["complexes"][number];
 
-function toggled(list: string[], value: string): string[] {
+function toggled<T>(list: T[], value: T): T[] {
   return list.includes(value) ? list.filter((v) => v !== value) : [...list, value];
 }
 
@@ -21,10 +21,15 @@ export function useComplexFilters(complexes: MapComplex[]) {
   const [district, setDistrict] = useState("");
   const [risks, setRisks] = useState<string[]>([]);
   const [floors, setFloors] = useState<string[]>([]);
-  const [onlyUnderConstruction, setOnlyUnderConstruction] = useState(false);
+  // «Строящиеся» and «Новостройки»; both selected = either.
+  const [stages, setStages] = useState<Stage[]>([]);
 
   const underConstructionCount = useMemo(
     () => complexes.filter(isUnderConstruction).length,
+    [complexes],
+  );
+  const newBuildingCount = useMemo(
+    () => complexes.filter((c) => isNewBuilding(c)).length,
     [complexes],
   );
 
@@ -44,15 +49,14 @@ export function useComplexFilters(complexes: MapComplex[]) {
     if (floors.length > 0) {
       result = result.filter((c) => c.floorSegment && floors.includes(c.floorSegment));
     }
-    if (onlyUnderConstruction) {
-      result = result.filter(isUnderConstruction);
+    if (stages.length > 0) {
+      result = result.filter((c) => matchesStages(c, stages));
     }
     // Copy before sorting: `complexes` is the react-query cache.
     return [...result].sort((a, b) => (Number(b.scoreTotal) || 0) - (Number(a.scoreTotal) || 0));
-  }, [complexes, search, district, risks, floors, onlyUnderConstruction]);
+  }, [complexes, search, district, risks, floors, stages]);
 
-  const activeFilters =
-    (district ? 1 : 0) + risks.length + floors.length + (onlyUnderConstruction ? 1 : 0);
+  const activeFilters = (district ? 1 : 0) + risks.length + floors.length + stages.length;
 
   // ЖК the map should draw; null while nothing narrows the list.
   const visibleIds = useMemo(
@@ -69,9 +73,11 @@ export function useComplexFilters(complexes: MapComplex[]) {
     toggleRisk: (risk: string) => setRisks((prev) => toggled(prev, risk)),
     floors,
     toggleFloor: (floor: string) => setFloors((prev) => toggled(prev, floor)),
-    onlyUnderConstruction,
-    setOnlyUnderConstruction,
+    stages,
+    setStages,
+    toggleStage: (stage: Stage) => setStages((prev) => toggled(prev, stage)),
     underConstructionCount,
+    newBuildingCount,
     filtered,
     activeFilters,
     visibleIds,

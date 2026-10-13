@@ -191,8 +191,8 @@ export default function DashboardPage() {
               hoveredComplexId={hoveredComplexId}
               selectedComplexId={selectedComplexId}
               visibleIds={filters.visibleIds}
-              onlyUnderConstruction={filters.onlyUnderConstruction}
-              onOnlyUnderConstructionChange={filters.setOnlyUnderConstruction}
+              stages={filters.stages}
+              onStagesChange={filters.setStages}
             />
           )}
         </div>

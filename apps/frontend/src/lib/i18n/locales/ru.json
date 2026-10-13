@@ -24,10 +24,13 @@
     "logout": "Выйти"
   },
   "map": {
+    "featureNew": "Новостройки",
+    "featureNewHint": "ЖК, сданные с {{year}} года",
+    "popupNewBuilding": "Новостройка · сдан в {{year}}",
     "featureSeismic": "Сейсмика",
     "featureSeismicHint": "Разломы и зоны сейсмического риска",
     "featureAir": "Воздух",
-    "featureBuilding": "Новостройки",
+    "featureBuilding": "Строящиеся",
     "featureBuildingHint": "Показать только строящиеся ЖК",
     "featureGenplan": "Генплан",
     "complexesCount_one": "{{count}} ЖК",
@@ -78,6 +81,8 @@
     "problematicBadge": "Акимат не рекомендует покупку"
   },
   "sidebar": {
+    "stageNew": "🏠 Новостройки",
+    "badgeNew": "Новостройка",
     "searchPlaceholder": "Поиск ЖК…",
     "filtersHide": "Скрыть фильтры",
     "filtersShow": "Фильтры",
@@ -85,7 +90,7 @@
     "seismicRisk": "Близость к разлому",
     "floors": "Этажность",
     "stage": "Стадия",
-    "stageBuilding": "🏗 Строятся",
+    "stageBuilding": "🏗 Строящиеся",
     "badgeBuilding": "Строится",
     "filtered": "(отфильтровано)",
     "noResults": "ЖК не найдены",

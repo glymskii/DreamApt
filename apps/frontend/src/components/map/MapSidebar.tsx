@@ -6,7 +6,13 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { MapPin, Clock, Search, Activity, Building, Star, AlertTriangle } from "lucide-react";
 import { formatPrice } from "@/lib/utils";
-import { formatCompletion, isUnderConstruction } from "@/lib/construction";
+import {
+  completedYear,
+  formatCompletion,
+  isNewBuilding,
+  isUnderConstruction,
+  type Stage,
+} from "@/lib/construction";
 import type { ComplexFilters } from "@/hooks/useComplexFilters";
 
 interface MapSidebarProps {
@@ -35,6 +41,11 @@ const FLOOR_FILTERS = [
   { value: "mid_rise", labelKey: "sidebar.floorMid" },
   { value: "high_rise", labelKey: "sidebar.floorHigh" },
   { value: "skyscraper", labelKey: "sidebar.floorSky" },
+];
+
+const STAGE_FILTERS: { value: Stage; labelKey: string; color: string }[] = [
+  { value: "building", labelKey: "sidebar.stageBuilding", color: "bg-sky-600" },
+  { value: "new", labelKey: "sidebar.stageNew", color: "bg-violet-600" },
 ];
 
 const RISK_FILTERS = [
@@ -72,8 +83,12 @@ export function MapSidebar({ filters, selectedId, onSelect, onHover, isMobile }:
   const [showFilters, setShowFilters] = useState(false);
   const {
     search, setSearch, district, setDistrict, risks, toggleRisk, floors, toggleFloor,
-    onlyUnderConstruction, setOnlyUnderConstruction, underConstructionCount, filtered, activeFilters,
+    stages, toggleStage, underConstructionCount, newBuildingCount, filtered, activeFilters,
   } = filters;
+  const stageCounts: Record<Stage, number> = {
+    building: underConstructionCount,
+    new: newBuildingCount,
+  };
 
   return (
     <div className={`${isMobile ? "w-full" : "w-[340px] hidden lg:flex"} h-full bg-card border-r flex flex-col shrink-0`}>
@@ -150,19 +165,24 @@ export function MapSidebar({ filters, selectedId, onSelect, onHover, isMobile }:
               </div>
             </div>
 
-            {underConstructionCount > 0 && (
+            {(underConstructionCount > 0 || newBuildingCount > 0) && (
               <div>
                 <p className="text-[10px] text-muted-foreground mb-1">{t("sidebar.stage")}</p>
-                <button
-                  onClick={() => setOnlyUnderConstruction((v) => !v)}
-                  className={`px-2 py-0.5 rounded-full text-[10px] border transition-colors ${
-                    onlyUnderConstruction
-                      ? "bg-sky-600 text-white border-transparent"
-                      : "border-border hover:border-primary/50"
-                  }`}
-                >
-                  {t("sidebar.stageBuilding")} ({underConstructionCount})
-                </button>
+                <div className="flex flex-wrap gap-1">
+                  {STAGE_FILTERS.filter((sf) => stageCounts[sf.value] > 0).map((sf) => (
+                    <button
+                      key={sf.value}
+                      onClick={() => toggleStage(sf.value)}
+                      className={`px-2 py-0.5 rounded-full text-[10px] border transition-colors ${
+                        stages.includes(sf.value)
+                          ? `${sf.color} text-white border-transparent`
+                          : "border-border hover:border-primary/50"
+                      }`}
+                    >
+                      {t(sf.labelKey)} ({stageCounts[sf.value]})
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
           </div>
@@ -228,6 +248,11 @@ export function MapSidebar({ filters, selectedId, onSelect, onHover, isMobile }:
                       const date = formatCompletion(complex, t);
                       return date ? ` · ${date}` : "";
                     })()}
+                  </span>
+                )}
+                {isNewBuilding(complex) && (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-medium text-violet-700 dark:text-violet-300">
+                    🏠 {t("sidebar.badgeNew")} · {completedYear(complex)}
                   </span>
                 )}
 

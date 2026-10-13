@@ -4,12 +4,19 @@ import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import maplibregl, { type FilterSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { Activity, Construction, LandPlot, Wind, type LucideIcon } from "lucide-react";
+import { Activity, Construction, House, LandPlot, Wind, type LucideIcon } from "lucide-react";
 import type { MapData } from "@/hooks/useComplexes";
 import { formatPrice } from "@/lib/utils";
 import { useTheme } from "@/components/theme-provider";
 import { generateInterpolatedGrid } from "@/lib/airquality-interpolation";
-import { formatCompletion, isUnderConstruction } from "@/lib/construction";
+import {
+  completedYear,
+  formatCompletion,
+  isNewBuilding,
+  isUnderConstruction,
+  newBuildingSince,
+  type Stage,
+} from "@/lib/construction";
 
 interface MapViewProps {
   data: MapData;
@@ -19,10 +26,10 @@ interface MapViewProps {
   // ЖК the page's own search/filters leave in view (null = all). The
   // markers follow the sidebar list instead of always showing everything.
   visibleIds?: ReadonlySet<string> | null;
-  // «Новостройки» toggle, controlled by a page that also filters its list
-  // by it; without these the map keeps the toggle to itself.
-  onlyUnderConstruction?: boolean;
-  onOnlyUnderConstructionChange?: (value: boolean) => void;
+  // «Строящиеся» / «Новостройки» filters, controlled by a page that also
+  // filters its list by them; without these the map keeps its own.
+  stages?: Stage[];
+  onStagesChange?: (stages: Stage[]) => void;
 }
 
 type CirclePaint = NonNullable<
@@ -192,8 +199,8 @@ export default function MapView({
   hoveredComplexId,
   selectedComplexId,
   visibleIds = null,
-  onlyUnderConstruction,
-  onOnlyUnderConstructionChange,
+  stages: stagesProp,
+  onStagesChange,
 }: MapViewProps) {
   const { t, i18n } = useTranslation();
   const tRef = useRef(t);
@@ -209,10 +216,13 @@ export default function MapView({
   const [showFaults, setShowFaults] = useState(true);
   const [showAirQuality, setShowAirQuality] = useState(true);
   const [showGenplanDetailed, setShowGenplanDetailed] = useState(false);
-  // «Новостройки» filters markers; layers above only show or hide.
-  const [ownOnlyBuilding, setOwnOnlyBuilding] = useState(false);
-  const onlyBuilding = onlyUnderConstruction ?? ownOnlyBuilding;
-  const setOnlyBuilding = onOnlyUnderConstructionChange ?? setOwnOnlyBuilding;
+  // «Строящиеся» / «Новостройки» filter markers; layers above only show
+  // or hide.
+  const [ownStages, setOwnStages] = useState<Stage[]>([]);
+  const stages = stagesProp ?? ownStages;
+  const setStages = onStagesChange ?? setOwnStages;
+  const toggleStage = (stage: Stage) =>
+    setStages(stages.includes(stage) ? stages.filter((s) => s !== stage) : [...stages, stage]);
   // The load handler re-applies toggles and the marker filter, so a map
   // rebuilt by a theme or data change keeps what the user chose.
   const layersRef = useRef({ seismic: showFaults, air: showAirQuality, genplan: showGenplanDetailed });
@@ -228,6 +238,10 @@ export default function MapView({
     () => data.complexes.filter(isUnderConstruction).length,
     [data.complexes],
   );
+  const newBuildingCount = useMemo(
+    () => data.complexes.filter((c) => isNewBuilding(c)).length,
+    [data.complexes],
+  );
 
   // Genplan button only when map-data carries the overlay (the backend
   // seeds it on start; /admin calibrates its corners).
@@ -236,10 +250,16 @@ export default function MapView({
   const markerFilter = useMemo<FilterSpecification | null>(() => {
     const parts: FilterSpecification[] = [];
     if (visibleIds) parts.push(["in", ["get", "id"], ["literal", [...visibleIds]]]);
-    if (onlyBuilding) parts.push(["==", ["get", "underConstruction"], 1]);
+    if (stages.length > 0) {
+      parts.push([
+        "any",
+        ...stages.map((s): FilterSpecification =>
+          ["==", ["get", s === "building" ? "underConstruction" : "newBuilding"], 1]),
+      ] as FilterSpecification);
+    }
     if (parts.length === 0) return null;
     return parts.length === 1 ? parts[0] : (["all", ...parts] as FilterSpecification);
-  }, [visibleIds, onlyBuilding]);
+  }, [visibleIds, stages]);
   const markerFilterRef = useRef(markerFilter);
   markerFilterRef.current = markerFilter;
 
@@ -684,6 +704,9 @@ export default function MapView({
           // Krisha «строящийся дом» — sky ring + popup line. Year/quarter
           // travel raw so the popup formats them in the current language.
           underConstruction: isUnderConstruction(c) ? 1 : 0,
+          // Finished within the last years — «Новостройки» filter + popup.
+          newBuilding: isNewBuilding(c) ? 1 : 0,
+          builtYear: completedYear(c) || 0,
           completionYear: c.completionYear || 0,
           completionQuarter: c.completionQuarter || 0,
           // Latest-comment breadcrumb. MapLibre flattens feature props to
@@ -816,6 +839,17 @@ export default function MapView({
                           ? `${label} · ${tRef.current("map.popupCompletion", { date })}`
                           : label;
                       })(),
+                    }),
+                  ],
+                })
+              : null,
+            props.newBuilding
+              ? el("div", {
+                  css: "display:flex;align-items:center;gap:6px;margin-top:6px;padding:4px 6px;border-radius:6px;font-size:11px;font-weight:600;background:#f5f3ff;color:#5b21b6;border:1px solid #ddd6fe",
+                  children: [
+                    el("span", { text: "🏠" }),
+                    el("span", {
+                      text: tRef.current("map.popupNewBuilding", { year: Number(props.builtYear) }),
                     }),
                   ],
                 })
@@ -968,9 +1002,9 @@ export default function MapView({
     <div className="relative w-full h-full">
       <div ref={mapContainer} className="w-full h-full" />
 
-      {/* Key features, always on screen: three layers and the
-          «Новостройки» filter. Wraps to two rows on phones; the right
-          margin keeps clear of the zoom/compass control. */}
+      {/* Key features, always on screen: three layers and the two stage
+          filters («Строящиеся», «Новостройки»). Wraps on phones; the
+          right margin keeps clear of the zoom/compass control. */}
       <div className="absolute top-2 left-2 right-12 sm:top-3 sm:left-3 z-10 flex flex-wrap gap-1.5">
         <FeatureToggle
           active={showFaults}
@@ -992,14 +1026,26 @@ export default function MapView({
         />
         {underConstructionCount > 0 && (
           <FeatureToggle
-            active={onlyBuilding}
-            onToggle={() => setOnlyBuilding(!onlyBuilding)}
+            active={stages.includes("building")}
+            onToggle={() => toggleStage("building")}
             icon={Construction}
             label={t("map.featureBuilding")}
             title={t("map.featureBuildingHint")}
             count={underConstructionCount}
             activeClass="bg-sky-600 hover:bg-sky-700"
             iconClass="text-sky-600"
+          />
+        )}
+        {newBuildingCount > 0 && (
+          <FeatureToggle
+            active={stages.includes("new")}
+            onToggle={() => toggleStage("new")}
+            icon={House}
+            label={t("map.featureNew")}
+            title={t("map.featureNewHint", { year: newBuildingSince() })}
+            count={newBuildingCount}
+            activeClass="bg-violet-600 hover:bg-violet-700"
+            iconClass="text-violet-600"
           />
         )}
         {hasGenplan && (
