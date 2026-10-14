@@ -945,7 +945,12 @@ export default function MapView({
         ["==", ["get", "id"], hoveredComplexId], 4,
         COMPLEX_STROKE_WIDTH,
       ]);
-      map.setPaintProperty("complexes-circles", "circle-stroke-color", complexStrokeColor());
+      // A thicker white ring alone is lost on the light basemap.
+      map.setPaintProperty("complexes-circles", "circle-stroke-color", [
+        "case",
+        ["==", ["get", "id"], hoveredComplexId], readMapColor("marker-hover"),
+        complexStrokeColor(),
+      ]);
     } else {
       map.setPaintProperty("complexes-circles", "circle-stroke-width", COMPLEX_STROKE_WIDTH);
       map.setPaintProperty("complexes-circles", "circle-stroke-color", complexStrokeColor());
