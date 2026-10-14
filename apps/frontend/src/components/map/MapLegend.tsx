@@ -14,7 +14,7 @@ const riskLabels = ["map.legendSafe", "sidebar.riskLow", "map.legendModerate", "
 const airRings = ["border-risk-safe", "border-risk-moderate", "border-risk-high", "border-risk-critical"];
 const airLabels = ["map.pmGood", "map.pmModerate", "map.pmSensitive", "map.pmUnhealthy"];
 
-export function MapLegend({ seismic, air, genplan, building, newBuilding, stationCount, sparse, riskCounts }: {
+export function MapLegend({ seismic, air, genplan, building, newBuilding, stationCount, sparse, riskCounts, className = "" }: {
   seismic: boolean;
   air: boolean;
   genplan: boolean;
@@ -23,11 +23,13 @@ export function MapLegend({ seismic, air, genplan, building, newBuilding, statio
   stationCount: number;
   sparse: boolean;
   riskCounts: Record<string, number>;
+  /** Placed by the map's bottom row. */
+  className?: string;
 }) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   return (
-    <div className="absolute bottom-10 left-2 z-10 max-w-[calc(100%-76px)] rounded-xl border bg-card text-card-foreground shadow-lg sm:left-3 sm:w-72">
+    <div className={`min-w-0 max-w-[calc(100%-60px)] rounded-xl border bg-card text-card-foreground shadow-lg sm:w-72 sm:shrink-0 ${className}`}>
       <button type="button" onClick={() => setExpanded(!expanded)} aria-expanded={expanded} aria-controls="map-legend-content"
         className="flex min-h-11 w-full items-center gap-2 rounded-xl px-3 text-xs font-semibold hover:bg-muted">
         <Info className="h-4 w-4" />{t("map.legendTitle")}

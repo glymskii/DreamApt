@@ -1,26 +1,22 @@
 /**
  * IDW (Inverse Distance Weighted) interpolation for PM 2.5 air quality.
  *
- * Generates a virtual grid of points covering Almaty bounds where each point's
- * PM 2.5 value is interpolated from the K nearest real stations using
- * `value = Σ(pm25_i / d_i^p) / Σ(1 / d_i^p)`.
+ * Each cell of a grid over Almaty gets a PM 2.5 value interpolated from the
+ * K nearest real stations using `value = Σ(pm25_i / d_i^p) / Σ(1 / d_i^p)`.
  *
- * Output is a list of points (with color) suitable for rendering as a circle
- * layer with circle-blur — produces a smooth heatmap-like field that has
- * coverage everywhere instead of gaps between sensors.
+ * The grid is painted into a small image that MapLibre stretches over the
+ * city with linear resampling: a smooth field instead of overlapping blurred
+ * circles (which streaked, as the old grid's cells were 1.5 km wide but
+ * only 0.9 km tall). Cells far from every sensor fade out rather than
+ * extrapolating one reading across the mountains.
  */
+
+import { classifyPm25 } from "./pm25";
 
 export interface RealStation {
   lat: number;
   lng: number;
   pm25: number;
-}
-
-export interface GridPoint {
-  lat: number;
-  lng: number;
-  pm25: number;
-  color: string;
 }
 
 // Almaty bounds (matches backend filter)
@@ -30,16 +26,6 @@ const ALMATY_BOUNDS = {
   minLng: 76.4,
   maxLng: 77.5,
 };
-
-// PM 2.5 → color (matches backend AirKazService.classifyPm25)
-function pm25Color(pm25: number): string {
-  if (pm25 < 12) return "#22c55e";       // good
-  if (pm25 < 35.5) return "#eab308";      // moderate
-  if (pm25 < 55.5) return "#f97316";      // sensitive
-  if (pm25 < 150.5) return "#dc2626";     // unhealthy
-  if (pm25 < 250.5) return "#9f1239";     // very unhealthy
-  return "#7c2d12";                       // hazardous
-}
 
 /**
  * Approx distance in km between two lat/lng points using equirectangular
@@ -113,9 +99,10 @@ export function interpolatePm25(
   power: number = 2,
 ): number | null {
   if (stations.length === 0) return null;
+  return idw(topKNearest(lat, lng, stations, Math.min(k, stations.length)), power);
+}
 
-  const top = topKNearest(lat, lng, stations, Math.min(k, stations.length));
-
+function idw(top: Array<{ station: RealStation; dist: number }>, power: number = 2): number {
   // Direct hit: a station is right on the query point
   for (const { station, dist } of top) {
     if (dist < 0.05) return station.pm25; // < 50m
@@ -131,45 +118,62 @@ export function interpolatePm25(
   return valueSum / weightSum;
 }
 
+/** Image corners for a MapLibre image source: TL, TR, BR, BL. */
+export const FIELD_COORDINATES: [[number, number], [number, number], [number, number], [number, number]] = [
+  [ALMATY_BOUNDS.minLng, ALMATY_BOUNDS.maxLat],
+  [ALMATY_BOUNDS.maxLng, ALMATY_BOUNDS.maxLat],
+  [ALMATY_BOUNDS.maxLng, ALMATY_BOUNDS.minLat],
+  [ALMATY_BOUNDS.minLng, ALMATY_BOUNDS.minLat],
+];
+
+/** A transparent pixel: the field when there is nothing honest to draw. */
+export const EMPTY_FIELD =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+
+/** Square cells on the ground at Almaty's latitude. */
+const CELL_KM = 0.75;
+/** Fully drawn this close to a sensor, gone at FADE_KM. */
+const SOLID_KM = 2;
+const FADE_KM = 5;
+
 /**
- * Generate a uniform grid of interpolated PM 2.5 points covering Almaty.
+ * Paint the interpolated field into a PNG data URL for FIELD_COORDINATES.
  *
- * @param stations real sensor readings
- * @param cols grid columns (longitude direction)
- * @param rows grid rows (latitude direction)
- * @param k number of nearest neighbors to use in IDW (default 8)
- * @returns array of grid points with interpolated pm25 + color
- *
- * Performance: at 60×60 = 3600 cells × top-8 selection over 384 stations
- * this runs in ~30-50ms in modern browsers. Memoize via useMemo on
- * stations identity.
+ * Performance: ~120×75 cells × top-8 selection over a few hundred stations
+ * runs in a few tens of milliseconds; memoize on the station list.
  */
-export function generateInterpolatedGrid(
-  stations: RealStation[],
-  cols: number = 60,
-  rows: number = 60,
-  k: number = 8,
-): GridPoint[] {
-  if (stations.length === 0) return [];
+export function renderPm25Field(stations: RealStation[], k: number = 8): string {
+  if (stations.length === 0) return EMPTY_FIELD;
 
   const { minLat, maxLat, minLng, maxLng } = ALMATY_BOUNDS;
-  const stepLat = (maxLat - minLat) / rows;
-  const stepLng = (maxLng - minLng) / cols;
+  const kmPerLng = 111.32 * Math.cos((((minLat + maxLat) / 2) * Math.PI) / 180);
+  const rows = Math.round(((maxLat - minLat) * 111.32) / CELL_KM);
+  const cols = Math.round(((maxLng - minLng) * kmPerLng) / CELL_KM);
 
-  const out: GridPoint[] = [];
+  const canvas = document.createElement("canvas");
+  canvas.width = cols;
+  canvas.height = rows;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return EMPTY_FIELD;
+  const image = ctx.createImageData(cols, rows);
+
   for (let r = 0; r < rows; r++) {
-    const lat = minLat + (r + 0.5) * stepLat;
+    // Row 0 is the northern edge.
+    const lat = maxLat - ((r + 0.5) * (maxLat - minLat)) / rows;
     for (let c = 0; c < cols; c++) {
-      const lng = minLng + (c + 0.5) * stepLng;
-      const pm25 = interpolatePm25(lat, lng, stations, k);
-      if (pm25 === null) continue;
-      out.push({
-        lat,
-        lng,
-        pm25,
-        color: pm25Color(pm25),
-      });
+      const lng = minLng + ((c + 0.5) * (maxLng - minLng)) / cols;
+      const top = topKNearest(lat, lng, stations, Math.min(k, stations.length));
+      const nearest = top.reduce((m, x) => Math.min(m, x.dist), Infinity);
+      if (nearest >= FADE_KM) continue;
+      const alpha = nearest <= SOLID_KM ? 1 : (FADE_KM - nearest) / (FADE_KM - SOLID_KM);
+      const [red, green, blue] = classifyPm25(idw(top)).rgb;
+      const i = (r * cols + c) * 4;
+      image.data[i] = red;
+      image.data[i + 1] = green;
+      image.data[i + 2] = blue;
+      image.data[i + 3] = Math.round(alpha * 255);
     }
   }
-  return out;
+  ctx.putImageData(image, 0, 0);
+  return canvas.toDataURL("image/png");
 }

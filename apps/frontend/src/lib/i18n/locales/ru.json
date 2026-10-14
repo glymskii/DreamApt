@@ -216,6 +216,27 @@
     "samplesCount_few": "{{formatted}} замера",
     "samplesCount_many": "{{formatted}} замеров"
   },
+  "airTimeline": {
+    "title": "Воздух по часам суток",
+    "liveTitle": "Воздух сейчас",
+    "now": "Сейчас",
+    "typicalAt": "Обычно в {{time}}",
+    "liveCaption_one": "{{count}} станция на связи",
+    "liveCaption_few": "{{count}} станции на связи",
+    "liveCaption_many": "{{count}} станций на связи",
+    "liveCaption_other": "{{count}} станции на связи",
+    "hourCaption_one": "{{count}} станция · среднее за {{days}} дн.",
+    "hourCaption_few": "{{count}} станции · среднее за {{days}} дн.",
+    "hourCaption_many": "{{count}} станций · среднее за {{days}} дн.",
+    "hourCaption_other": "{{count}} станции · среднее за {{days}} дн.",
+    "noData": "В этот час датчики ещё не писали",
+    "loading": "Загружаем историю…",
+    "empty": "История замеров пока копится",
+    "play": "Прокрутить сутки",
+    "pause": "Остановить",
+    "hour": "Час суток",
+    "popupTypical": "Обычно в {{time}} · среднее за {{days}} дн."
+  },
   "comments": {
     "title": "Обсуждение",
     "sortNew": "Новые",
