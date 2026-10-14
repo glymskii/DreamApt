@@ -15,7 +15,7 @@
     --secondary: 240 4.8% 95.9%;
     --secondary-foreground: 240 5.9% 10%;
     --muted: 240 4.8% 95.9%;
-    --muted-foreground: 240 3.8% 46.1%;
+    --muted-foreground: 240 4% 40%;
     --accent: 240 4.8% 95.9%;
     --accent-foreground: 240 5.9% 10%;
     --destructive: 0 84.2% 60.2%;
@@ -24,6 +24,25 @@
     --input: 240 5.9% 90%;
     --ring: 240 5.9% 10%;
     --radius: 0.5rem;
+    /* Feature identity: readable text colours, shared by every public surface. */
+    --feature-seismic: 133 77 14;
+    --feature-air: 4 120 87;
+    --feature-building: 3 105 161;
+    --feature-new: 109 40 217;
+    --feature-genplan: 71 85 105;
+    --problematic: 157 23 77;
+    --problematic-surface: 253 242 248;
+    /* Data colours stay stable between themes. Never use them for small text. */
+    --risk-safe: 34 197 94;
+    --risk-low: 132 204 22;
+    --risk-moderate: 234 179 8;
+    --risk-high: 249 115 22;
+    --risk-critical: 220 38 38;
+    --marker-building: 2 132 199;
+    --marker-problematic: 219 39 119;
+    --marker-problematic-ring: 80 7 36;
+    --map-label: 31 41 55;
+    --map-label-halo: 255 255 255;
     /* App-specific surfaces */
     --surface: 210 20% 98%;        /* page bg (was slate-50) */
     --surface-elevated: 0 0% 100%; /* card bg on surface */
@@ -49,6 +68,15 @@
     --border: 240 3.7% 15.9%;
     --input: 240 3.7% 15.9%;
     --ring: 240 4.9% 83.9%;
+    --feature-seismic: 252 211 77;
+    --feature-air: 110 231 183;
+    --feature-building: 125 211 252;
+    --feature-new: 196 181 253;
+    --feature-genplan: 203 213 225;
+    --problematic: 251 207 232;
+    --problematic-surface: 67 16 43;
+    --map-label: 241 245 249;
+    --map-label-halo: 15 23 42;
     --surface: 240 10% 5%;
     --surface-elevated: 240 6% 10%;
   }
@@ -89,4 +117,37 @@
 .dark .maplibregl-ctrl-attrib {
   background: hsla(var(--card) / 0.7);
   color: hsl(var(--muted-foreground));
+}
+
+/* Public map controls: touch-sized, with the same surfaces as the toolbar. */
+.dreamapt-map .maplibregl-ctrl-group {
+  overflow: hidden;
+  border: 1px solid hsl(var(--border));
+  border-radius: 12px;
+  background: hsl(var(--card));
+}
+.dreamapt-map .maplibregl-ctrl-group button {
+  width: 40px;
+  height: 40px;
+}
+.dark .dreamapt-map .maplibregl-ctrl-icon { filter: invert(1); }
+.maplibregl-popup-content {
+  background: hsl(var(--card));
+  color: hsl(var(--card-foreground));
+  border-radius: 12px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.maplibregl-popup-close-button { min-width: 40px; min-height: 40px; }
+.public-map-ui :is(button, a, select, summary):focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 3px;
+}
+.public-map-ui button { touch-action: manipulation; }
+@media (prefers-reduced-motion: reduce) {
+  .public-map-ui *, .public-map-ui *::before, .public-map-ui *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

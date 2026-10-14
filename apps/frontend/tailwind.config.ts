@@ -10,6 +10,27 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        feature: {
+          seismic: "rgb(var(--feature-seismic) / <alpha-value>)",
+          air: "rgb(var(--feature-air) / <alpha-value>)",
+          building: "rgb(var(--feature-building) / <alpha-value>)",
+          new: "rgb(var(--feature-new) / <alpha-value>)",
+          genplan: "rgb(var(--feature-genplan) / <alpha-value>)",
+        },
+        problematic: {
+          DEFAULT: "rgb(var(--problematic) / <alpha-value>)",
+          surface: "rgb(var(--problematic-surface) / <alpha-value>)",
+          marker: "rgb(var(--marker-problematic) / <alpha-value>)",
+          ring: "rgb(var(--marker-problematic-ring) / <alpha-value>)",
+        },
+        construction: "rgb(var(--marker-building) / <alpha-value>)",
+        risk: {
+          safe: "rgb(var(--risk-safe) / <alpha-value>)",
+          low: "rgb(var(--risk-low) / <alpha-value>)",
+          moderate: "rgb(var(--risk-moderate) / <alpha-value>)",
+          high: "rgb(var(--risk-high) / <alpha-value>)",
+          critical: "rgb(var(--risk-critical) / <alpha-value>)",
+        },
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
