@@ -1,12 +1,14 @@
 import { Activity, Wind, Construction, House, LandPlot } from "lucide-react";
 
 /** Shared identity for the toolbar, onboarding, legend, list and detail card. */
+// `activeClassName`: solid fill of a switched-on toggle. Text takes the page
+// background colour, which contrasts with the feature colour in both themes.
 export const mapFeatures = {
-  seismic: { icon: Activity, label: "map.featureSeismic", hint: "map.featureSeismicHint", className: "text-feature-seismic" },
-  air: { icon: Wind, label: "map.featureAir", hint: "map.featureAirHint", className: "text-feature-air" },
-  building: { icon: Construction, label: "map.featureBuilding", hint: "map.featureBuildingHint", className: "text-feature-building" },
-  new: { icon: House, label: "map.featureNew", hint: "map.featureNewHint", className: "text-feature-new" },
-  genplan: { icon: LandPlot, label: "map.featureGenplan", hint: "map.featureGenplanHint", className: "text-feature-genplan" },
+  seismic: { icon: Activity, label: "map.featureSeismic", hint: "map.featureSeismicHint", className: "text-feature-seismic", activeClassName: "border-feature-seismic bg-feature-seismic text-background" },
+  air: { icon: Wind, label: "map.featureAir", hint: "map.featureAirHint", className: "text-feature-air", activeClassName: "border-feature-air bg-feature-air text-background" },
+  building: { icon: Construction, label: "map.featureBuilding", hint: "map.featureBuildingHint", className: "text-feature-building", activeClassName: "border-feature-building bg-feature-building text-background" },
+  new: { icon: House, label: "map.featureNew", hint: "map.featureNewHint", className: "text-feature-new", activeClassName: "border-feature-new bg-feature-new text-background" },
+  genplan: { icon: LandPlot, label: "map.featureGenplan", hint: "map.featureGenplanHint", className: "text-feature-genplan", activeClassName: "border-feature-genplan bg-feature-genplan text-background" },
 } as const;
 
 export type MapFeature = keyof typeof mapFeatures;
