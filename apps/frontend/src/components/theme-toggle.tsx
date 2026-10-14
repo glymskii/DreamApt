@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslation } from "react-i18next";
 import { Sun, Moon, Monitor } from "lucide-react";
 import { useTheme } from "./theme-provider";
 import { Button } from "@/components/ui/button";
@@ -9,6 +10,7 @@ import { Button } from "@/components/ui/button";
  * (not the resolved theme), so users can tell when "system" is on.
  */
 export function ThemeToggle({ size = "sm" }: { size?: "sm" | "icon" }) {
+  const { t } = useTranslation();
   const { theme, toggleTheme, resolvedTheme } = useTheme();
 
   const icon =
@@ -20,12 +22,7 @@ export function ThemeToggle({ size = "sm" }: { size?: "sm" | "icon" }) {
       <Monitor className="h-4 w-4" />
     );
 
-  const label =
-    theme === "light"
-      ? "Светлая тема"
-      : theme === "dark"
-      ? "Тёмная тема"
-      : `Системная (${resolvedTheme === "dark" ? "тёмная" : "светлая"})`;
+  const label = t(`theme.${theme}`, { resolved: t(`theme.${resolvedTheme}`) });
 
   return (
     <Button
@@ -34,7 +31,7 @@ export function ThemeToggle({ size = "sm" }: { size?: "sm" | "icon" }) {
       onClick={toggleTheme}
       title={label}
       aria-label={label}
-      className={size === "icon" ? "h-8 w-8" : "h-8 px-2"}
+      className={size === "icon" ? "h-10 w-10" : "h-10 min-w-10 px-2"}
     >
       {icon}
     </Button>

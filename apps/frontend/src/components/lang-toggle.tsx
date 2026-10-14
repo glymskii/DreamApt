@@ -10,16 +10,17 @@ import { Languages } from "lucide-react";
  * Label shows the current language code (RU / KK).
  */
 export function LangToggle() {
-  const { i18n } = useTranslation();
+  const { t, i18n } = useTranslation();
   const current = (i18n.language?.slice(0, 2) || "ru") as Locale;
   const next: Locale = current === "ru" ? "kk" : "ru";
   return (
     <Button
       variant="ghost"
       size="sm"
-      className="h-8 px-2 text-xs font-medium uppercase"
+      className="h-10 min-w-10 px-2 text-xs font-medium uppercase"
       onClick={() => setStoredLocale(next)}
-      title={`Switch to ${next.toUpperCase()}`}
+      title={t("lang.switchTo", { language: t(`lang.${next}`) })}
+      aria-label={t("lang.switchTo", { language: t(`lang.${next}`) })}
     >
       <Languages className="h-3.5 w-3.5 mr-1" />
       {current}
