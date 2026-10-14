@@ -40,6 +40,10 @@ export type AirQualityLevel =
 const AIR_API_URL = "https://api.air.org.kz/api/pm25/hourly/latest";
 const AIRKAZ_HTML_URL = "https://airkaz.org/";
 const SENSOR_COMMUNITY_URL = "https://data.sensor.community/static/v2/data.json";
+// AirGradient's open world feed (no key; ~1.5 MB, the latest reading of
+// every public monitor). Most of the AAI network in Almaty is AirGradient.
+const AIRGRADIENT_WORLD_URL =
+  "https://api.airgradient.com/public/api/v1/world/locations/measures/current";
 const CACHE_TTL_MS = 15 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 10_000;
 /** Almaty bounding box — shared by every source's coordinate filter. */
@@ -59,6 +63,7 @@ export type AirSource =
   | "backend.air.org.kz"
   | "mixed"
   | "airkaz.org"
+  | "airgradient"
   | "sensor.community"
   | "archive"
   | "none";
@@ -75,6 +80,11 @@ export interface AirStationsResult {
 /**
  * Uses the current keyed AAI API, the legacy endpoint, then combined
  * independent public feeds. Replayed archive data is explicitly stale.
+ *
+ * Since October 2026 the legacy api.air.org.kz answers with another
+ * site's certificate, and backend.air.org.kz needs AAI_API_KEY. Without
+ * the key the map runs on the public feeds: AirGradient (~150 Almaty
+ * monitors), airkaz.org (~50) and sensor.community (a few).
  */
 @Injectable()
 export class AirKazService {
@@ -139,6 +149,7 @@ export class AirKazService {
     }
 
     const fallbackSources = [
+      ["airgradient", () => this.fetchFromAirGradient()],
       ["airkaz.org", () => this.fetchFromAirkazOrg()],
       ["sensor.community", () => this.fetchFromSensorCommunity()],
     ] as const;
@@ -357,6 +368,42 @@ export class AirKazService {
     } finally {
       clearTimeout(timeout);
     }
+  }
+
+  /**
+   * Fallback — AirGradient's public world feed. `pm02` is the monitor's
+   * PM2.5; units reporting `offline` or nothing recent are skipped.
+   */
+  private async fetchFromAirGradient(): Promise<AirKazStation[]> {
+    const res = await this.httpGet(AIRGRADIENT_WORLD_URL);
+    if (!res.ok) throw new Error(`airgradient HTTP ${res.status}`);
+    const raw = (await res.json()) as Array<any>;
+    if (!Array.isArray(raw)) throw new Error("airgradient: invalid payload");
+    const out: AirKazStation[] = [];
+    for (const s of raw) {
+      if (s?.offline) continue;
+      const lat = Number(s?.latitude);
+      const lng = Number(s?.longitude);
+      const pm25 = s?.pm02 == null ? null : Number(s.pm02);
+      const date = this.timestamp(s?.timestamp, "Z");
+      if (!this.isUsable(lat, lng, pm25, date)) continue;
+      out.push({
+        id: `ag-${s.locationId}`,
+        name: String(s.publicLocationName || s.locationName || `AirGradient ${s.locationId}`).trim(),
+        lat,
+        lng,
+        pm25,
+        pm10: s.pm10 == null ? null : Number(s.pm10),
+        aqi: null,
+        temp: s.atmp == null ? null : Number(s.atmp),
+        humid: s.rhum == null ? null : Number(s.rhum),
+        status: "active",
+        date,
+        district: null,
+        origin: "AirGradient",
+      });
+    }
+    return out;
   }
 
   /**
