@@ -45,7 +45,9 @@ if (!i18n.isInitialized) {
         ru: { translation: ru },
         kk: { translation: kk },
       },
-      lng: typeof window === "undefined" ? DEFAULT_LOCALE : getStoredLocale(),
+      // The first client render must match SSR. The provider restores the
+      // saved locale after hydration, including on a hard reload in Kazakh.
+      lng: DEFAULT_LOCALE,
       fallbackLng: DEFAULT_LOCALE,
       interpolation: { escapeValue: false },
       // Plural rules: use Russian-style for both ru/kk (close enough for our counts)
