@@ -6,6 +6,8 @@ import { Activity, Wind, LandPlot, Construction, House, ChevronDown, Info } from
 import { mapFeatures, type MapFeature } from "./feature-style";
 import { newBuildingSince } from "@/lib/construction";
 
+// Sample ЖК dot: any of the risk colours below.
+const markerFill = "bg-gradient-to-br from-risk-safe via-risk-moderate to-risk-critical";
 const riskLevels = ["safe", "low", "moderate", "high", "critical"] as const;
 const riskDots = ["bg-risk-safe", "bg-risk-low", "bg-risk-moderate", "bg-risk-high", "bg-risk-critical"];
 const riskLabels = ["map.legendSafe", "sidebar.riskLow", "map.legendModerate", "map.legendHigh", "map.legendCritical"];
@@ -48,15 +50,17 @@ export function MapLegend({ seismic, air, genplan, building, newBuilding, statio
           </dl>
         </details>
         <div className="space-y-2">
-          <p className="flex items-center gap-2"><span className="h-3 w-3 shrink-0 rounded-full bg-muted-foreground" />{t("map.markerComplex")}</p>
-          <p className="flex items-center gap-2"><span className="h-3 w-3 shrink-0 rounded-full bg-muted-foreground ring-2 ring-construction" />{t("map.markerUnderConstruction")}</p>
+          <p className="flex items-center gap-2"><span className={`h-3 w-3 shrink-0 rounded-full ${markerFill}`} />{t("map.markerComplex")}</p>
+          <p className="flex items-center gap-2"><span className={`h-3 w-3 shrink-0 rounded-full ring-2 ring-construction ${markerFill}`} />{t("map.markerUnderConstruction")}</p>
           <p className="flex items-start gap-2 font-medium text-problematic"><span className="mt-1 h-3 w-3 shrink-0 rounded-full bg-problematic-marker ring-2 ring-problematic-ring" />{t("map.problematicBadge")}</p>
         </div>
-        {seismic && <section className="space-y-1.5 border-t pt-3">
+        {/* ЖК dots are coloured by fault proximity whether or not the
+            «Сейсмика» layer is on, so their key is always shown. */}
+        <section className="space-y-1.5 border-t pt-3">
           <h3 className="flex items-center gap-2 font-semibold text-feature-seismic"><Activity className="h-4 w-4" />{t("map.legend")}</h3>
           {riskLevels.map((level, index) => <p key={level} className="flex items-center gap-2"><span className={`h-3 w-3 shrink-0 rounded-full ${riskDots[index]}`} />{t(riskLabels[index])}<span className="ml-auto tabular-nums text-muted-foreground">{riskCounts[level] || 0}</span></p>)}
-          <p className="flex items-center gap-2 text-muted-foreground"><span className="h-px w-3 bg-risk-critical" />{t("map.faultLabel")}</p>
-        </section>}
+          {seismic && <p className="flex items-center gap-2 text-muted-foreground"><span className="h-px w-3 bg-risk-critical" />{t("map.faultLabel")}</p>}
+        </section>
         {(building || newBuilding) && <section className="space-y-2 border-t pt-3">
           {building && <p className="flex items-center gap-2 text-feature-building"><Construction className="h-4 w-4" />{t("map.featureBuilding")}</p>}
           {newBuilding && <p className="flex items-center gap-2 text-feature-new"><House className="h-4 w-4" />{t("map.featureNew")}</p>}
