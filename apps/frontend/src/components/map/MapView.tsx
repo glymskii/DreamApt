@@ -1,16 +1,18 @@
 "use client";
 
-import { useEffect, useRef, useState, useMemo } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import maplibregl, { type FilterSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { FeaturePanel } from "./FeaturePanel";
 import { MapLegend } from "./MapLegend";
+import { AirTimeline, formatHour } from "./AirTimeline";
 import { readMapColor, popupIcon } from "./feature-style";
-import type { MapData } from "@/hooks/useComplexes";
+import { useAirDailyProfile, type AirStation, type MapData } from "@/hooks/useComplexes";
 import { formatPrice } from "@/lib/utils";
 import { useTheme } from "@/components/theme-provider";
-import { generateInterpolatedGrid } from "@/lib/airquality-interpolation";
+import { EMPTY_FIELD, FIELD_COORDINATES, renderPm25Field } from "@/lib/airquality-interpolation";
+import { classifyPm25 } from "@/lib/pm25";
 import {
   completedYear,
   formatCompletion,
@@ -73,6 +75,35 @@ function setLayersVisible(map: maplibregl.Map, ids: string[], visible: boolean) 
 /** Minimum live sensors before an interpolated PM2.5 surface is honest.
  *  The normal aggregator returns ~380; the emergency fallbacks return ~3. */
 const MIN_STATIONS_FOR_HEATMAP = 10;
+
+/** Below this map width the air timeline gets a row of its own. */
+const WIDE_MAP_PX = 900;
+
+/** A station as the air layer draws it: live, or typical for `hour`. */
+type AirStationView = Omit<AirStation, "updatedAt"> & { updatedAt: string | null; hour: number | null };
+
+function airStationFeatures(stations: AirStationView[]) {
+  return {
+    type: "FeatureCollection" as const,
+    features: stations.map((s) => ({
+      type: "Feature" as const,
+      geometry: { type: "Point" as const, coordinates: [s.lng, s.lat] },
+      properties: {
+        id: s.id,
+        name: s.name,
+        pm25: s.pm25,
+        origin: s.origin || "",
+        district: s.district || "",
+        level: s.level,
+        levelLabel: s.levelLabel,
+        color: s.color,
+        updatedAt: s.updatedAt || "",
+        // -1 = live reading; MapLibre properties can't hold null.
+        hour: s.hour ?? -1,
+      },
+    })),
+  };
+}
 
 function getSeismicLabelKey(risk: string | null): string | null {
   const keys: Record<string, string> = {
@@ -216,23 +247,58 @@ export default function MapView({
     return counts;
   }, [data.complexes]);
 
-  // Virtual grid of IDW-interpolated PM 2.5 points covering Almaty.
-  // Recomputed only when station readings change. ~30-50ms for 60×60 grid.
-  const airGrid = useMemo(() => {
-    if (!data.airStations || data.airStations.length === 0) return [];
-    // IDW over a handful of sensors is not a citywide picture — it just
-    // smears one reading across whole districts. When the aggregator is
-    // down we fall back to sources with only a few Almaty units, so below
-    // this threshold we show the station markers alone and skip the
-    // heatmap rather than imply knowledge we don't have.
-    if (data.airStations.length < MIN_STATIONS_FOR_HEATMAP) return [];
-    return generateInterpolatedGrid(
-      data.airStations.map((s) => ({ lat: s.lat, lng: s.lng, pm25: s.pm25 })),
-      60,  // cols
-      60,  // rows
-      8,   // top-K nearest neighbors
-    );
-  }, [data.airStations]);
+  // Air timeline: null = live readings, else an Almaty hour of the typical
+  // day built from our archive.
+  const [airHour, setAirHour] = useState<number | null>(null);
+  const airProfile = useAirDailyProfile(showAirQuality);
+
+  const liveAir = useMemo<AirStationView[]>(
+    () => (data.airStations || []).map((s) => ({ ...s, hour: null })),
+    [data.airStations],
+  );
+  const airStations = useMemo<AirStationView[]>(() => {
+    const profile = airProfile.data;
+    if (airHour === null || !profile) return liveAir;
+    return profile.stations.flatMap((s) => {
+      const pm25 = s.pm25[airHour];
+      if (pm25 === null) return [];
+      const band = classifyPm25(pm25);
+      return [{ id: s.id, name: s.name, lat: s.lat, lng: s.lng, pm25, origin: s.origin, district: null,
+        level: band.level, levelLabel: "", color: band.color, updatedAt: null, hour: airHour }];
+    });
+  }, [liveAir, airProfile.data, airHour]);
+
+  // IDW over a handful of sensors is not a citywide picture — it just smears
+  // one reading across whole districts. Below the threshold we show the
+  // station markers alone rather than imply knowledge we don't have.
+  const airField = useMemo(
+    () => airStations.length < MIN_STATIONS_FOR_HEATMAP ? EMPTY_FIELD : renderPm25Field(airStations),
+    [airStations],
+  );
+  const airRef = useRef({ stations: airStations, field: airField });
+  airRef.current = { stations: airStations, field: airField };
+  const airDaysRef = useRef(0);
+  airDaysRef.current = airProfile.data?.daysCovered ?? 0;
+
+  const liveAirAvg = useMemo(
+    () => liveAir.length === 0 ? null : liveAir.reduce((sum, s) => sum + s.pm25, 0) / liveAir.length,
+    [liveAir],
+  );
+
+  // The timeline shares the bottom row with the legend and the 3D switch
+  // only when the map is wide enough for all three.
+  const mapAreaRef = useRef<HTMLDivElement>(null);
+  const [wideMap, setWideMap] = useState(false);
+  // Layout effect: measured before the first paint, so no layout jump.
+  useLayoutEffect(() => {
+    const area = mapAreaRef.current;
+    if (!area) return;
+    const update = () => setWideMap(area.clientWidth >= WIDE_MAP_PX);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(area);
+    return () => observer.disconnect();
+  }, []);
 
   const onComplexClickRef = useRef(onComplexClick);
   onComplexClickRef.current = onComplexClick;
@@ -476,71 +542,30 @@ export default function MapView({
       }
 
       // === AIR QUALITY (PM 2.5) — IDW-INTERPOLATED FIELD + STATION MARKERS ===
-      if (data.airStations && data.airStations.length > 0) {
-        // 1) IDW-interpolated grid (covers Almaty uniformly, no gaps).
-        //    Each grid cell is a virtual point colored by interpolated PM 2.5.
-        //    Rendered as blurred circles so adjacent cells blend smoothly.
-        const gridFeatures = airGrid.map((g) => ({
-          type: "Feature" as const,
-          geometry: { type: "Point" as const, coordinates: [g.lng, g.lat] },
-          properties: { pm25: g.pm25, color: g.color },
-        }));
-
+      // Always created: the timeline and live updates swap their data in
+      // place (see the airStations effect), so the map is never rebuilt.
+      {
+        // 1) Interpolated field, painted into one image (renderPm25Field).
         map.addSource("air-grid", {
-          type: "geojson",
-          data: { type: "FeatureCollection", features: gridFeatures },
+          type: "image",
+          url: airRef.current.field,
+          coordinates: FIELD_COORDINATES,
         });
-
-        // Heatmap-like field via blurred circles.
-        // - radius scales with zoom so adjacent grid points overlap
-        // - circle-blur > 1 produces smooth gradient between cells
-        // - opacity is moderate so basemap stays readable
         map.addLayer({
           id: "air-heatmap",
-          type: "circle",
+          type: "raster",
           source: "air-grid",
-          // Default visible — matches showAirQuality state default (true).
-          // Toggling is handled by the showAirQuality useEffect below.
           paint: {
-            "circle-radius": [
-              "interpolate", ["linear"], ["zoom"],
-              9, 22,
-              11, 28,
-              13, 38,
-              15, 60,
-              17, 90,
-            ],
-            "circle-color": ["get", "color"],
-            "circle-blur": 1.6,
-            "circle-opacity": [
-              "interpolate", ["linear"], ["zoom"],
-              9, 0.55,
-              13, 0.5,
-              16, 0.4,
-            ],
+            "raster-opacity": 0.5,
+            "raster-resampling": "linear",
+            "raster-fade-duration": 0,
           },
         });
 
         // 2) Real station markers — interactive layer with popup.
-        const stationFeatures = data.airStations.map((s) => ({
-          type: "Feature" as const,
-          geometry: { type: "Point" as const, coordinates: [s.lng, s.lat] },
-          properties: {
-            id: s.id,
-            name: s.name,
-            pm25: s.pm25,
-            origin: s.origin || "",
-            district: s.district || "",
-            level: s.level,
-            levelLabel: s.levelLabel,
-            color: s.color,
-            updatedAt: s.updatedAt,
-          },
-        }));
-
         map.addSource("air-stations", {
           type: "geojson",
-          data: { type: "FeatureCollection", features: stationFeatures },
+          data: airStationFeatures(airRef.current.stations),
         });
 
         // Station marker dots — only at higher zoom (otherwise too cluttered)
@@ -586,9 +611,11 @@ export default function MapView({
           if (f.geometry.type !== "Point") return;
           const coords = f.geometry.coordinates.slice() as [number, number];
           const dateLocale = langRef.current?.startsWith("kk") ? "kk-KZ" : "ru-RU";
-          const date = p.updatedAt ? new Date(p.updatedAt).toLocaleString(dateLocale, {
-            day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
-          }) : "";
+          const date = p.hour >= 0
+            ? tRef.current("airTimeline.popupTypical", { time: formatHour(p.hour), days: airDaysRef.current })
+            : p.updatedAt ? new Date(p.updatedAt).toLocaleString(dateLocale, {
+              day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
+            }) : "";
           // Color is read from our backend's airKaz.classifyPm25 — bounded to a
           // known palette, but we still pass it through CSS-only context. Name,
           // origin, district come straight from upstream JSON: untrusted, so
@@ -916,7 +943,18 @@ export default function MapView({
       map.remove();
       mapRef.current = null;
     };
-  }, [data, airGrid]);
+  }, [data]);
+
+  // Live readings or the timeline's hour: swap the air layer's data in place.
+  // During a basemap swap the sources are missing; style.load uses airRef.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    (map.getSource("air-stations") as maplibregl.GeoJSONSource | undefined)
+      ?.setData(airStationFeatures(airStations));
+    (map.getSource("air-grid") as maplibregl.ImageSource | undefined)
+      ?.updateImage({ url: airField, coordinates: FIELD_COORDINATES });
+  }, [airStations, airField]);
 
   useEffect(() => {
     if (appliedThemeRef.current === isDark) return;
@@ -988,12 +1026,31 @@ export default function MapView({
           else toggleStage(feature);
         }}
       />
-      <div className="relative min-h-0 flex-1">
+      <div ref={mapAreaRef} className="relative min-h-0 flex-1">
         {/* MapLibre sets position:relative on its own container. Keep the
             absolute sizing on a separate wrapper so CSS order cannot collapse it. */}
         <div className="absolute inset-0">
           <div ref={mapContainer} className="dreamapt-map h-full w-full" />
         </div>
+
+      {/* Bottom row: legend, air timeline, 2D/3D switch. A narrow map moves
+          the timeline to a row of its own above the other two. */}
+      <div className={`pointer-events-none absolute inset-x-2 bottom-10 z-10 flex items-end gap-2 sm:inset-x-3 ${
+        wideMap ? "" : "flex-wrap"
+      }`}>
+      <MapLegend className="pointer-events-auto" seismic={showFaults} air={showAirQuality} genplan={showGenplanDetailed}
+        building={stages.includes("building")} newBuilding={stages.includes("new")}
+        stationCount={airStations.length}
+        sparse={airStations.length < MIN_STATIONS_FOR_HEATMAP}
+        riskCounts={riskCounts} />
+
+      {showAirQuality && (
+        <AirTimeline
+          className={`pointer-events-auto ${wideMap ? "mx-auto min-w-0 max-w-xl flex-1" : "order-first basis-full"}`}
+          profile={airProfile.data} loading={airProfile.isLoading}
+          hour={airHour} onHourChange={setAirHour}
+          liveCount={liveAir.length} liveAvg={liveAirAvg} />
+      )}
 
       {/* View-mode toggle — вид сверху (по умолчанию) ↔ объёмный.
           Bottom-right, above the attribution; sized for thumb tap on
@@ -1013,7 +1070,7 @@ export default function MapView({
         }}
         title={view3d ? t("map.view2d") : t("map.view3d")}
         aria-label={view3d ? t("map.view2d") : t("map.view3d")}
-        className="absolute min-h-11 min-w-11 bottom-10 right-2 sm:right-3 z-10 flex items-center gap-1.5 bg-card/95 text-card-foreground border border-border backdrop-blur rounded-lg shadow-lg px-2.5 py-2 hover:bg-muted transition-colors"
+        className="pointer-events-auto ml-auto flex min-h-11 min-w-11 shrink-0 items-center gap-1.5 bg-card/95 text-card-foreground border border-border backdrop-blur rounded-lg shadow-lg px-2.5 py-2 hover:bg-muted transition-colors"
       >
         <span className="text-[11px] font-bold w-5 text-center">{t(view3d ? "map.mode2d" : "map.mode3d")}</span>
         <span className="hidden sm:inline text-xs font-medium">
@@ -1021,11 +1078,7 @@ export default function MapView({
         </span>
       </button>
 
-      <MapLegend seismic={showFaults} air={showAirQuality} genplan={showGenplanDetailed}
-        building={stages.includes("building")} newBuilding={stages.includes("new")}
-        stationCount={data.airStations?.length ?? 0}
-        sparse={!data.airStations || data.airStations.length < MIN_STATIONS_FOR_HEATMAP}
-        riskCounts={riskCounts} />
+      </div>
       </div>
     </div>
   );

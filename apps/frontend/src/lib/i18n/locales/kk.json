@@ -211,6 +211,23 @@
     "samplesCount_one": "{{formatted}} өлшем",
     "samplesCount_other": "{{formatted}} өлшем"
   },
+  "airTimeline": {
+    "title": "Тәулік сағаттары бойынша ауа",
+    "liveTitle": "Қазіргі ауа",
+    "now": "Қазір",
+    "typicalAt": "Әдетте сағат {{time}}",
+    "liveCaption_one": "{{count}} станция байланыста",
+    "liveCaption_other": "{{count}} станция байланыста",
+    "hourCaption_one": "{{count}} станция · {{days}} күндік орташа",
+    "hourCaption_other": "{{count}} станция · {{days}} күндік орташа",
+    "noData": "Бұл сағатта датчиктер әлі жазбаған",
+    "loading": "Тарих жүктелуде…",
+    "empty": "Өлшемдер тарихы әлі жиналуда",
+    "play": "Тәулікті айналдыру",
+    "pause": "Тоқтату",
+    "hour": "Тәулік сағаты",
+    "popupTypical": "Әдетте сағат {{time}} · {{days}} күндік орташа"
+  },
   "comments": {
     "title": "Талқылау",
     "sortNew": "Жаңа",

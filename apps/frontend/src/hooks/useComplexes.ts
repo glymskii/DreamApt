@@ -199,6 +199,35 @@ export function useComplexAirHistory(complexId: string) {
   });
 }
 
+/** A typical day from our archive: each sensor's mean PM2.5 per Almaty hour. */
+export interface AirDailyProfile {
+  timezone: string;
+  days: number;
+  daysCovered: number;
+  firstDay: string | null;
+  lastDay: string | null;
+  hours: Array<{ hour: number; avgPm25: number | null; stations: number }>;
+  stations: Array<{
+    id: string;
+    name: string;
+    lat: number;
+    lng: number;
+    origin: string | null;
+    /** 24 values, index = local hour; null when never measured then. */
+    pm25: (number | null)[];
+  }>;
+}
+
+/** Powers the map's time-of-day slider; fetched once the air layer is on. */
+export function useAirDailyProfile(enabled: boolean) {
+  return useQuery({
+    queryKey: ["air-daily-profile"],
+    queryFn: () => api.get<AirDailyProfile>("/air-quality/daily-profile?days=14"),
+    enabled,
+    staleTime: 30 * 60 * 1000,
+  });
+}
+
 export interface AirStation {
   id: string;
   name: string;
