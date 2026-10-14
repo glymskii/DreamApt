@@ -66,16 +66,16 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="h-[100dvh] flex flex-col">
+    <div className="public-map-ui h-[100dvh] flex flex-col" onKeyDown={(event) => { if (event.key === "Escape") setShowMobileSidebar(false); }}>
       {/* Compact header */}
       <header className="border-b bg-card shrink-0 z-30">
-        <div className="flex h-11 sm:h-12 items-center justify-between px-3 sm:px-4">
-          <div className="flex items-center gap-2 sm:gap-4">
-            <Link href="/dashboard" className="flex items-center gap-1.5 font-semibold text-sm">
+        <div className="flex h-14 items-center justify-between px-3 sm:px-4">
+          <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+            <Link href="/dashboard" aria-label={t("header.home")} className="flex min-h-10 items-center gap-1.5 font-semibold text-sm">
               <Building2 className="h-4 w-4" />
               <span className="hidden sm:inline">DreamApt</span>
             </Link>
-            <span className="text-[10px] sm:text-xs text-muted-foreground">
+            <span className="text-xs text-muted-foreground">
               {mapData
                 ? t("map.complexesCount", {
                     count: filters.visibleIds ? filters.filtered.length : mapData.complexes.length,
@@ -89,7 +89,10 @@ export default function DashboardPage() {
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8 lg:hidden"
+              className="h-10 w-10 lg:hidden"
+              aria-label={t(showMobileSidebar ? "header.closeList" : "header.openList")}
+              aria-expanded={showMobileSidebar}
+              aria-controls="mobile-complex-list"
               onClick={() => setShowMobileSidebar(!showMobileSidebar)}
             >
               {showMobileSidebar ? <X className="h-4 w-4" /> : <Search className="h-4 w-4" />}
@@ -97,16 +100,17 @@ export default function DashboardPage() {
 
             <Button
               size="sm"
+              aria-label={t("header.newSearch")}
               onClick={handleNewSearch}
               disabled={createProject.isPending}
-              className="h-8 text-xs px-2 sm:px-3"
+              className="h-10 min-w-10 text-xs px-2 sm:px-3"
             >
               <Plus className="h-3.5 w-3.5 sm:mr-1" />
               <span className="hidden sm:inline">{t("header.newSearch")}</span>
             </Button>
             {user && (
               <Link href="/projects">
-                <Button variant="ghost" size="sm" className="h-8 text-xs hidden sm:flex">
+                <Button variant="ghost" size="sm" className="h-10 text-xs hidden sm:flex">
                   <List className="h-3.5 w-3.5 mr-1" />
                   {t("header.mySearches")}
                 </Button>
@@ -114,7 +118,7 @@ export default function DashboardPage() {
             )}
             {isAdmin && (
               <Link href="/admin">
-                <Button variant="ghost" size="sm" className="h-8 text-xs hidden sm:flex">
+                <Button variant="ghost" size="sm" className="h-10 text-xs hidden sm:flex">
                   <Shield className="h-3.5 w-3.5 mr-1" />
                   {t("header.admin")}
                 </Button>
@@ -126,8 +130,9 @@ export default function DashboardPage() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-8 w-8"
+                className="h-10 w-10"
                 onClick={logout}
+                aria-label={t("header.logout")}
                 title={t("header.logout")}
               >
                 <LogOut className="h-3.5 w-3.5" />
@@ -136,7 +141,8 @@ export default function DashboardPage() {
               <Button
                 size="sm"
                 variant="outline"
-                className="h-8 text-xs px-2 sm:px-3"
+                className="h-10 min-w-10 text-xs px-2 sm:px-3"
+                aria-label={t("header.login")}
                 onClick={() => authDialog.open("login")}
               >
                 <LogIn className="h-3.5 w-3.5 sm:mr-1" />
@@ -166,7 +172,7 @@ export default function DashboardPage() {
               className="absolute inset-0 bg-black/30 z-30 lg:hidden"
               onClick={() => setShowMobileSidebar(false)}
             />
-            <div className="absolute top-0 left-0 bottom-0 w-[300px] bg-card z-40 lg:hidden shadow-xl overflow-y-auto">
+            <div id="mobile-complex-list" className="absolute inset-0 bg-card z-40 lg:hidden shadow-xl min-h-0">
               <MapSidebar
                 filters={filters}
                 selectedId={selectedComplexId}
@@ -179,7 +185,7 @@ export default function DashboardPage() {
         )}
 
         {/* Map */}
-        <div className="flex-1 relative">
+        <div className="min-w-0 flex-1 relative">
           {isLoading || !mapData ? (
             <div className="w-full h-full flex items-center justify-center bg-muted">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
