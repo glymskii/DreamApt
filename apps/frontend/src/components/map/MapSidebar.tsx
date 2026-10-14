@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { MapPin, Clock, Search, Activity, Building, Star, AlertTriangle } from "lucide-react";
+import { Clock, Search, Activity, Building, AlertTriangle, Construction, House, SlidersHorizontal, RotateCcw, Check } from "lucide-react";
 import { formatPrice } from "@/lib/utils";
 import {
   completedYear,
@@ -44,27 +44,24 @@ const FLOOR_FILTERS = [
 ];
 
 const STAGE_FILTERS: { value: Stage; labelKey: string; color: string }[] = [
-  { value: "building", labelKey: "sidebar.stageBuilding", color: "bg-sky-600" },
-  { value: "new", labelKey: "sidebar.stageNew", color: "bg-violet-600" },
+  { value: "building", labelKey: "map.featureBuilding", color: "text-feature-building" },
+  { value: "new", labelKey: "map.featureNew", color: "text-feature-new" },
 ];
 
 const RISK_FILTERS = [
-  { value: "critical", labelKey: "sidebar.riskCritical", color: "bg-red-500" },
-  { value: "high", labelKey: "sidebar.riskHigh", color: "bg-orange-500" },
-  { value: "moderate", labelKey: "sidebar.riskModerate", color: "bg-yellow-500" },
-  { value: "low", labelKey: "sidebar.riskLow", color: "bg-lime-500" },
-  { value: "safe", labelKey: "sidebar.riskSafe", color: "bg-green-500" },
+  { value: "critical", labelKey: "sidebar.riskCritical", color: "bg-risk-critical" },
+  { value: "high", labelKey: "sidebar.riskHigh", color: "bg-risk-high" },
+  { value: "moderate", labelKey: "sidebar.riskModerate", color: "bg-risk-moderate" },
+  { value: "low", labelKey: "sidebar.riskLow", color: "bg-risk-low" },
+  { value: "safe", labelKey: "sidebar.riskSafe", color: "bg-risk-safe" },
 ];
 
 function getSeismicColor(risk: string | null): string {
   const colors: Record<string, string> = {
-    critical: "text-red-600",
-    high: "text-orange-600",
-    moderate: "text-yellow-600",
-    low: "text-lime-600",
-    safe: "text-green-600",
+    critical: "bg-risk-critical", high: "bg-risk-high", moderate: "bg-risk-moderate",
+    low: "bg-risk-low", safe: "bg-risk-safe",
   };
-  return colors[risk || ""] || "text-gray-400";
+  return colors[risk || ""] || "bg-muted-foreground";
 }
 
 function getSeismicLabelKey(risk: string | null): string | null {
@@ -90,24 +87,35 @@ export function MapSidebar({ filters, selectedId, onSelect, onHover, isMobile }:
     new: newBuildingCount,
   };
 
+  const resetFilters = () => {
+    setSearch("");
+    setDistrict("");
+    risks.forEach(toggleRisk);
+    floors.forEach(toggleFloor);
+    filters.setStages([]);
+  };
+
   return (
-    <div className={`${isMobile ? "w-full" : "w-[340px] hidden lg:flex"} h-full bg-card border-r flex flex-col shrink-0`}>
+    <div className={`${isMobile ? "w-full" : "w-[360px] hidden lg:flex"} min-h-0 h-full bg-card border-r flex flex-col shrink-0`}>
       {/* Search */}
-      <div className="p-3 border-b space-y-2">
+      <div className="max-h-[55%] shrink-0 overflow-y-auto p-3 border-b space-y-2">
         <div className="relative">
-          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+          <Search className="absolute left-3 top-3.5 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder={t("sidebar.searchPlaceholder")}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-8 h-9 text-sm"
+            aria-label={t("sidebar.searchPlaceholder")}
+            className="pl-9 h-11 text-base sm:text-sm"
           />
         </div>
 
         <button
           onClick={() => setShowFilters(!showFilters)}
-          className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+          aria-expanded={showFilters}
+          className="inline-flex min-h-10 items-center gap-2 rounded-lg px-2 text-xs font-medium hover:bg-muted transition-colors"
         >
+          <SlidersHorizontal className="h-4 w-4" />
           {showFilters ? t("sidebar.filtersHide") : t("sidebar.filtersShow")}
           {activeFilters > 0 && (
             <span className="ml-1 text-primary">({activeFilters})</span>
@@ -119,7 +127,8 @@ export function MapSidebar({ filters, selectedId, onSelect, onHover, isMobile }:
             <select
               value={district}
               onChange={(e) => setDistrict(e.target.value)}
-              className="w-full text-xs border rounded-md px-2 py-1.5"
+              aria-label={t("sidebar.districts")}
+              className="min-h-11 w-full bg-card text-sm border rounded-lg px-2 py-2"
             >
               <option value="">{t("sidebar.districts")}</option>
               {DISTRICTS.map((d) => (
@@ -128,18 +137,20 @@ export function MapSidebar({ filters, selectedId, onSelect, onHover, isMobile }:
             </select>
 
             <div>
-              <p className="text-[10px] text-muted-foreground mb-1">{t("sidebar.seismicRisk")}</p>
-              <div className="flex flex-wrap gap-1">
+              <p className="text-xs text-muted-foreground mb-1">{t("sidebar.seismicRisk")}</p>
+              <div className="flex flex-wrap gap-2">
                 {RISK_FILTERS.map((rf) => (
                   <button
                     key={rf.value}
+                    aria-pressed={risks.includes(rf.value)}
                     onClick={() => toggleRisk(rf.value)}
-                    className={`px-2 py-0.5 rounded-full text-[10px] border transition-colors ${
+                    className={`inline-flex min-h-10 min-w-10 items-center gap-1.5 px-3 py-2 rounded-lg text-xs border transition-colors ${
                       risks.includes(rf.value)
-                        ? `${rf.color} text-white border-transparent`
+                        ? "bg-muted border-foreground text-foreground"
                         : "border-border hover:border-primary/50"
                     }`}
                   >
+                    <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${rf.color}`} />
                     {t(rf.labelKey)}
                   </button>
                 ))}
@@ -147,15 +158,16 @@ export function MapSidebar({ filters, selectedId, onSelect, onHover, isMobile }:
             </div>
 
             <div>
-              <p className="text-[10px] text-muted-foreground mb-1">{t("sidebar.floors")}</p>
-              <div className="flex flex-wrap gap-1">
+              <p className="text-xs text-muted-foreground mb-1">{t("sidebar.floors")}</p>
+              <div className="flex flex-wrap gap-2">
                 {FLOOR_FILTERS.map((ff) => (
                   <button
                     key={ff.value}
+                    aria-pressed={floors.includes(ff.value)}
                     onClick={() => toggleFloor(ff.value)}
-                    className={`px-2 py-0.5 rounded-full text-[10px] border transition-colors ${
+                    className={`inline-flex min-h-10 min-w-10 items-center gap-1.5 px-3 py-2 rounded-lg text-xs border transition-colors ${
                       floors.includes(ff.value)
-                        ? "bg-blue-500 text-white border-transparent"
+                        ? "bg-primary text-primary-foreground border-transparent"
                         : "border-border hover:border-primary/50"
                     }`}
                   >
@@ -167,18 +179,21 @@ export function MapSidebar({ filters, selectedId, onSelect, onHover, isMobile }:
 
             {(underConstructionCount > 0 || newBuildingCount > 0) && (
               <div>
-                <p className="text-[10px] text-muted-foreground mb-1">{t("sidebar.stage")}</p>
-                <div className="flex flex-wrap gap-1">
+                <p className="text-xs text-muted-foreground mb-1">{t("sidebar.stage")}</p>
+                <div className="flex flex-wrap gap-2">
                   {STAGE_FILTERS.filter((sf) => stageCounts[sf.value] > 0).map((sf) => (
                     <button
                       key={sf.value}
+                      aria-pressed={stages.includes(sf.value)}
                       onClick={() => toggleStage(sf.value)}
-                      className={`px-2 py-0.5 rounded-full text-[10px] border transition-colors ${
+                      className={`inline-flex min-h-10 min-w-10 items-center gap-1.5 px-3 py-2 rounded-lg text-xs border transition-colors ${
                         stages.includes(sf.value)
-                          ? `${sf.color} text-white border-transparent`
+                          ? `${sf.color} bg-muted border-current`
                           : "border-border hover:border-primary/50"
                       }`}
                     >
+                      {sf.value === "building" ? <Construction className="h-4 w-4 text-feature-building" /> : <House className="h-4 w-4 text-feature-new" />}
+                      {stages.includes(sf.value) && <Check className="h-3 w-3" />}
                       {t(sf.labelKey)} ({stageCounts[sf.value]})
                     </button>
                   ))}
@@ -188,27 +203,31 @@ export function MapSidebar({ filters, selectedId, onSelect, onHover, isMobile }:
           </div>
         )}
 
-        <p className="text-[10px] text-muted-foreground">
+        <p aria-live="polite" className="text-xs text-muted-foreground">
           {t("sidebar.complexesCount", { count: filtered.length })}
           {(search || activeFilters > 0) && ` ${t("sidebar.filtered")}`}
         </p>
       </div>
 
       {/* Complex list */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2 space-y-2">
         {filtered.map((complex) => {
           const isSelected = complex.id === selectedId;
           const isHighRisk =
             complex.seismicRiskLevel === "critical" || complex.seismicRiskLevel === "high";
 
           return (
-            <div
+            <button
+              type="button"
+              aria-pressed={isSelected}
               key={complex.id}
-              className={`flex gap-3 p-3 border-b cursor-pointer transition-colors ${
+              className={`flex w-full gap-3 rounded-xl border p-3 text-left cursor-pointer transition-colors ${
                 isSelected
-                  ? "bg-blue-50 dark:bg-blue-950/40"
+                  ? "bg-muted border-foreground shadow-sm"
+                  : complex.isProblematic
+                  ? "border-problematic/40 bg-problematic-surface"
                   : isHighRisk
-                  ? "hover:bg-red-50/50 dark:hover:bg-red-950/30"
+                  ? "hover:bg-muted"
                   : "hover:bg-muted/50"
               }`}
               onClick={() => onSelect(complex.id)}
@@ -229,21 +248,22 @@ export function MapSidebar({ filters, selectedId, onSelect, onHover, isMobile }:
               {/* Info */}
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5 mb-0.5">
-                  <h4 className="text-sm font-medium truncate">{complex.displayName}</h4>
+                  <h4 className="text-sm font-semibold leading-5 break-words">{complex.displayName}</h4>
                   {complex.scoreTotal != null && complex.scoreTotal > 0 && (
                     <Badge
-                      className={`text-[10px] px-1.5 py-0 shrink-0 ${
+                      className={`text-xs px-1.5 py-0 shrink-0 ${
                         complex.scoreTotal >= 85 ? "bg-green-500" : complex.scoreTotal >= 70 ? "bg-yellow-500" : "bg-orange-500"
-                      } text-white border-0`}
+                      } text-zinc-950 border-0`}
                     >
                       {Math.round(complex.scoreTotal)}%
                     </Badge>
                   )}
                 </div>
 
+                {complex.isProblematic && <span className="my-1 flex items-start gap-1.5 text-xs font-semibold text-problematic"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />{t("map.problematicBadge")}</span>}
                 {isUnderConstruction(complex) && (
-                  <span className="inline-flex items-center gap-1 text-[10px] font-medium text-sky-700 dark:text-sky-300">
-                    🏗 {t("sidebar.badgeBuilding")}
+                  <span className="inline-flex items-center gap-1 text-xs font-medium text-feature-building">
+                    <Construction className="h-3.5 w-3.5 shrink-0" /> {t("sidebar.badgeBuilding")}
                     {(() => {
                       const date = formatCompletion(complex, t);
                       return date ? ` · ${date}` : "";
@@ -251,12 +271,12 @@ export function MapSidebar({ filters, selectedId, onSelect, onHover, isMobile }:
                   </span>
                 )}
                 {isNewBuilding(complex) && (
-                  <span className="inline-flex items-center gap-1 text-[10px] font-medium text-violet-700 dark:text-violet-300">
-                    🏠 {t("sidebar.badgeNew")} · {completedYear(complex)}
+                  <span className="inline-flex items-center gap-1 text-xs font-medium text-feature-new">
+                    <House className="h-3.5 w-3.5 shrink-0" /> {t("sidebar.badgeNew")} · {completedYear(complex)}
                   </span>
                 )}
 
-                <p className="text-xs text-muted-foreground truncate">
+                <p className="text-xs leading-5 text-muted-foreground">
                   {complex.priceMin
                     ? complex.priceMin === complex.priceMax
                       ? formatPrice(complex.priceMin as number)
@@ -264,31 +284,35 @@ export function MapSidebar({ filters, selectedId, onSelect, onHover, isMobile }:
                     : ""}
                 </p>
 
-                <div className="flex items-center gap-2 mt-0.5">
+                <div className="flex flex-wrap items-center gap-2 mt-1">
                   {complex.seismicRiskLevel && (() => {
                     const labelKey = getSeismicLabelKey(complex.seismicRiskLevel);
                     return labelKey ? (
-                      <span className={`text-[10px] flex items-center gap-0.5 ${getSeismicColor(complex.seismicRiskLevel)}`}>
-                        <Activity className="h-3 w-3" />
+                      <span className="text-xs flex items-center gap-1 text-foreground">
+                        <Activity className="h-3.5 w-3.5 shrink-0 text-feature-seismic" />
+                        <span className={`h-2 w-2 shrink-0 rounded-full ${getSeismicColor(complex.seismicRiskLevel)}`} />
                         {t(labelKey)}
                       </span>
                     ) : null;
                   })()}
                   {complex.commuteMinutes != null && complex.commuteMinutes > 0 && (
-                    <span className="text-[10px] text-muted-foreground flex items-center gap-0.5">
+                    <span className="text-xs text-muted-foreground flex items-center gap-0.5">
                       <Clock className="h-3 w-3" />
                       {complex.commuteMinutes} {t("complex.minutes")}
                     </span>
                   )}
                 </div>
               </div>
-            </div>
+            </button>
           );
         })}
 
         {filtered.length === 0 && (
           <div className="p-8 text-center text-sm text-muted-foreground">
-            {t("sidebar.noResults")}
+            <Search className="mx-auto mb-3 h-7 w-7" />
+            <p className="font-semibold text-foreground">{t("sidebar.noResults")}</p>
+            <p className="mt-2 text-xs leading-relaxed">{t("sidebar.noResultsHint")}</p>
+            <button onClick={resetFilters} className="mt-4 inline-flex min-h-11 items-center gap-2 rounded-lg border px-3 text-xs font-medium text-foreground hover:bg-muted"><RotateCcw className="h-4 w-4" />{t("sidebar.resetFilters")}</button>
           </div>
         )}
       </div>
