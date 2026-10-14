@@ -28,16 +28,33 @@ export interface TwoGisReviewsResult {
 
 interface CatalogItem {
   id: string;
-  type: "building" | "branch" | string;
+  /** "adm_div" (subtype "place") is 2GIS's newer object for a whole ЖК. */
+  type: "building" | "branch" | "adm_div" | string;
   name: string;
   reviews?: { general_rating: number; general_review_count: number };
   address_name?: string;
   building_name?: string;
   full_name?: string;
   rubrics?: { name: string }[];
+  point?: { lat: number; lon: number };
 }
 
+/** Where a ЖК's reviews live: its organisation, its buildings, its area. */
+interface ReviewSource {
+  kind: "geo" | "branches";
+  id: string;
+}
+
+type CatalogMatch = Omit<TwoGisReviewsResult, "reviews"> & { sources: ReviewSource[] };
+
 const TWOGIS_KEY = "rubnkm7490"; // Public demo key
+/** Object types whose reviews the Reviews API serves. */
+const REVIEWABLE_TYPES = ["branch", "building", "adm_div"];
+/** Cap on objects read per ЖК: bounds API calls per card. */
+const MAX_SOURCES = 4;
+/** Same-named objects farther than this from the ЖК belong to another one. */
+const MAX_DISTANCE_KM = 3;
+const MAX_REVIEWS = 8;
 const REVIEWS_HEADERS = {
   Accept: "application/json",
   "User-Agent":
@@ -52,12 +69,12 @@ export class TwoGisReviewsService {
 
   /**
    * Search for a residential complex on 2GIS and return rating + actual reviews.
-   * Strategy:
-   *   1. Search catalog (both buildings and branches) — get rating, address, item ID & type
-   *   2. Fetch reviews using the correct endpoint:
-   *      - building → /geo/{buildingId}/reviews
-   *      - branch  → /branches/{branchId}/reviews
-   *   3. If building reviews are empty, try finding a branch and vice versa
+   *
+   * One ЖК is several 2GIS objects: the developer's sales office (branch),
+   * each building, and lately the complex itself as an area (adm_div). New
+   * reviews land on any of them, so reading just one shows a stale, partial
+   * picture. We read every object that matches the name and has reviews,
+   * then merge newest first.
    */
   async getReviews(
     complexName: string,
@@ -72,59 +89,39 @@ export class TwoGisReviewsService {
         .replace(/жилой комплекс/i, "")
         .trim();
 
-      // Step 1: Search catalog for the complex (any type)
-      const catalogResult = await this.searchCatalog(query);
-      if (!catalogResult) return null;
+      const near = lat != null && lng != null ? { lat, lng } : undefined;
+      const match = await this.searchCatalog(query, near);
+      if (!match) return null;
 
-      // Step 2: Fetch reviews using the best available method
-      let reviews: TwoGisReview[] = [];
+      let reviews = this.mergeReviews(
+        await Promise.all(match.sources.map((s) => this.fetchReviews(s.kind, s.id))),
+      );
 
-      // Try building reviews first (most ЖК are listed as buildings)
-      if (catalogResult.buildingId) {
-        reviews = await this.fetchReviews("geo", catalogResult.buildingId);
-        if (reviews.length > 0) {
-          this.logger.log(
-            `Fetched ${reviews.length} building reviews for "${query}" (building: ${catalogResult.buildingId})`,
-          );
-        }
-      }
-
-      // If no building reviews, try branch reviews
-      if (reviews.length === 0 && catalogResult.branchId) {
-        reviews = await this.fetchReviews("branches", catalogResult.branchId);
-        if (reviews.length > 0) {
-          this.logger.log(
-            `Fetched ${reviews.length} branch reviews for "${query}" (branch: ${catalogResult.branchId})`,
-          );
-        }
-      }
-
-      // If still nothing, try finding a branch via separate search
+      // Last resort: an organisation the main search didn't surface.
       if (reviews.length === 0) {
         const branchId = await this.findBranchId(query);
-        if (branchId) {
-          reviews = await this.fetchReviews("branches", branchId);
-          if (reviews.length > 0) {
-            this.logger.log(
-              `Fetched ${reviews.length} branch reviews for "${query}" (found branch: ${branchId})`,
-            );
-          }
-        }
+        if (branchId) reviews = this.mergeReviews([await this.fetchReviews("branches", branchId)]);
       }
+      this.logger.log(
+        `2GIS "${query}": ${reviews.length} reviews from ${match.sources.length} objects`,
+      );
 
-      return {
-        complexName: catalogResult.complexName,
-        totalReviews: catalogResult.totalReviews,
-        averageRating: catalogResult.averageRating,
-        twogisUrl: catalogResult.twogisUrl,
-        address: catalogResult.address,
-        buildingName: catalogResult.buildingName,
-        reviews,
-      };
+      const { sources: _sources, ...meta } = match;
+      return { ...meta, reviews };
     } catch (err) {
       this.logger.error(`Failed to get 2GIS data for ${complexName}: ${err}`);
       return null;
     }
+  }
+
+  /** Newest first, each review once. */
+  private mergeReviews(lists: TwoGisReview[][]): TwoGisReview[] {
+    const seen = new Set<string>();
+    return lists
+      .flat()
+      .filter((r) => !seen.has(r.id) && seen.add(r.id))
+      .sort((a, b) => (Date.parse(b.dateCreated) || 0) - (Date.parse(a.dateCreated) || 0))
+      .slice(0, MAX_REVIEWS);
   }
 
   /**
@@ -139,17 +136,56 @@ export class TwoGisReviewsService {
   }
 
   /**
-   * Search the catalog for complex info (rating, address, name) and extract IDs
+   * The complex's name with 2GIS's decorations removed: «Magnit Alatau,
+   * строящийся жилой комплекс» and «Жилой комплекс Magnit Alatau» both
+   * become «magnit alatau».
+   */
+  private label(text: string): string {
+    return this.normalize(text)
+      .replace(/[«»"]/g, "")
+      .replace(/^(жк|(строящийся )?жилой комплекс)\s+/, "")
+      .replace(/,?\s*(строящийся )?жилой комплекс.*$/, "")
+      .trim();
+  }
+
+  /**
+   * Catalog items that are this ЖК. An exact name match wins: «Alatau City
+   * 2.0» must not pull in «Alatau City». Only without one do we accept a
+   * name that contains the other. With the ЖК's coordinates, objects
+   * farther than MAX_DISTANCE_KM are a same-named complex elsewhere.
+   */
+  private matchingItems(
+    items: CatalogItem[],
+    query: string,
+    near?: { lat: number; lng: number },
+  ): CatalogItem[] {
+    const q = this.label(query);
+    if (!q) return [];
+    const candidates = items.filter(
+      (i) =>
+        REVIEWABLE_TYPES.includes(i.type) &&
+        (!near || !i.point || this.distanceKm(near, i.point) <= MAX_DISTANCE_KM),
+    );
+    const labels = (i: CatalogItem) =>
+      [i.name, i.building_name].filter((t): t is string => !!t).map((t) => this.label(t));
+
+    const exact = candidates.filter((i) => labels(i).includes(q));
+    if (exact.length > 0) return exact;
+    return candidates.filter(
+      (i) =>
+        labels(i).some((l) => l.length >= 3 && (l.includes(q) || q.includes(l))) ||
+        this.normalize(i.full_name || "").includes(q),
+    );
+  }
+
+  /**
+   * Search the catalog for the complex: rating, address and every object
+   * that holds its reviews.
    */
   private async searchCatalog(
     query: string,
-  ): Promise<
-    | (Omit<TwoGisReviewsResult, "reviews"> & {
-        buildingId: string | null;
-        branchId: string | null;
-      })
-    | null
-  > {
+    near?: { lat: number; lng: number },
+  ): Promise<CatalogMatch | null> {
     const searches = [
       `ЖК ${query} Алматы`,
       `${query} жилой комплекс Алматы`,
@@ -157,7 +193,7 @@ export class TwoGisReviewsService {
     ];
 
     for (const searchText of searches) {
-      const result = await this.searchCatalogOnce(searchText, query);
+      const result = await this.searchCatalogOnce(searchText, query, near);
       if (result) return result;
     }
 
@@ -167,15 +203,10 @@ export class TwoGisReviewsService {
   private async searchCatalogOnce(
     searchText: string,
     originalQuery: string,
-  ): Promise<
-    | (Omit<TwoGisReviewsResult, "reviews"> & {
-        buildingId: string | null;
-        branchId: string | null;
-      })
-    | null
-  > {
+    near?: { lat: number; lng: number },
+  ): Promise<CatalogMatch | null> {
     try {
-      const url = `https://catalog.api.2gis.com/3.0/items?q=${encodeURIComponent(searchText)}&fields=items.reviews&key=${TWOGIS_KEY}`;
+      const url = `https://catalog.api.2gis.com/3.0/items?q=${encodeURIComponent(searchText)}&fields=items.reviews,items.point&key=${TWOGIS_KEY}`;
 
       const res = await fetch(url, {
         headers: {
@@ -185,48 +216,26 @@ export class TwoGisReviewsService {
         },
       });
 
-      if (!res.ok) return null;
+      if (!res.ok) {
+        this.logger.warn(`2GIS catalog returned ${res.status} for "${searchText}"`);
+        return null;
+      }
       const data = await res.json();
       const items: CatalogItem[] = data.result?.items;
       if (!items?.length) return null;
 
-      const queryNorm = this.normalize(originalQuery);
-      const relevantItems = items.filter((i) => {
-        const name = this.normalize(i.name || "");
-        const buildingName = this.normalize(i.building_name || "");
-        const fullName = this.normalize(i.full_name || "");
-        return (
-          name.includes(queryNorm) ||
-          buildingName.includes(queryNorm) ||
-          fullName.includes(queryNorm) ||
-          queryNorm.includes(
-            name
-              .replace(/,?\s*(строящийся )?жилой комплекс.*$/i, "")
-              .trim(),
-          )
-        );
-      });
-
+      const relevantItems = this.matchingItems(items, originalQuery, near);
       if (relevantItems.length === 0) return null;
 
-      // Pick the best item for rating info (most reviews)
-      const item =
-        relevantItems.find(
-          (i) =>
-            i.type === "branch" &&
-            (i.reviews?.general_review_count || 0) > 0,
-        ) ||
-        relevantItems
-          .filter((i) => (i.reviews?.general_review_count || 0) > 0)
-          .sort(
-            (a, b) =>
-              (b.reviews?.general_review_count || 0) -
-              (a.reviews?.general_review_count || 0),
-          )[0] ||
-        relevantItems[0];
-
-      const rating = item.reviews?.general_rating || 0;
-      const reviewCount = item.reviews?.general_review_count || 0;
+      const count = (i: CatalogItem) => i.reviews?.general_review_count || 0;
+      const reviewed = relevantItems.filter((i) => count(i) > 0).sort((a, b) => count(b) - count(a));
+      // The object with most reviews names the card; the rating covers all.
+      const item = reviewed[0] || relevantItems[0];
+      const reviewCount = reviewed.reduce((sum, i) => sum + count(i), 0);
+      const rating =
+        reviewCount > 0
+          ? reviewed.reduce((sum, i) => sum + (i.reviews?.general_rating || 0) * count(i), 0) / reviewCount
+          : 0;
 
       const buildingLabel =
         item.building_name || item.name || originalQuery;
@@ -241,39 +250,10 @@ export class TwoGisReviewsService {
         cleanLabel + " жилой комплекс Алматы",
       );
 
-      // Extract IDs by type
-      let buildingId: string | null = null;
-      let branchId: string | null = null;
-
-      // From current item
-      const numericId = this.extractNumericId(item.id);
-      if (item.type === "building" && numericId) {
-        buildingId = numericId;
-      } else if (item.type === "branch" && numericId) {
-        branchId = numericId;
-      }
-
-      // Also try to find the other type from relevant items
-      if (!buildingId) {
-        const building = relevantItems.find(
-          (i) =>
-            i.type === "building" &&
-            (i.reviews?.general_review_count || 0) > 0,
-        );
-        if (building) {
-          buildingId = this.extractNumericId(building.id);
-        }
-      }
-      if (!branchId) {
-        const branch = relevantItems.find(
-          (i) =>
-            i.type === "branch" &&
-            (i.reviews?.general_review_count || 0) > 0,
-        );
-        if (branch) {
-          branchId = this.extractNumericId(branch.id);
-        }
-      }
+      const sources = reviewed.slice(0, MAX_SOURCES).flatMap((i): ReviewSource[] => {
+        const id = this.extractNumericId(i.id);
+        return id ? [{ kind: i.type === "branch" ? "branches" : "geo", id }] : [];
+      });
 
       return {
         complexName: buildingLabel,
@@ -282,8 +262,7 @@ export class TwoGisReviewsService {
         twogisUrl: `https://2gis.kz/almaty/search/${searchTerm}`,
         address: item.address_name || "",
         buildingName: buildingLabel,
-        buildingId,
-        branchId,
+        sources,
       };
     } catch {
       return null;
@@ -354,6 +333,12 @@ export class TwoGisReviewsService {
     return null;
   }
 
+  /** Equirectangular distance; plenty for a few km inside one city. */
+  private distanceKm(a: { lat: number; lng: number }, b: { lat: number; lon: number }): number {
+    const x = (b.lon - a.lng) * Math.cos((((a.lat + b.lat) / 2) * Math.PI) / 180);
+    return Math.hypot(x, b.lat - a.lat) * 111.32;
+  }
+
   /**
    * Extract numeric ID prefix from the full 2GIS item ID
    */
@@ -365,7 +350,7 @@ export class TwoGisReviewsService {
 
   /**
    * Fetch reviews from 2GIS Reviews API.
-   * @param type "geo" for buildings, "branches" for organizations
+   * @param type "geo" for buildings and ЖК areas, "branches" for organizations
    * @param id numeric ID
    */
   private async fetchReviews(
@@ -373,7 +358,8 @@ export class TwoGisReviewsService {
     id: string,
   ): Promise<TwoGisReview[]> {
     try {
-      const url = `https://api.reviews.2gis.com/2.0/${type}/${id}/reviews?limit=10&sort_by=date_created&sort_direction=desc`;
+      // Rating-only reviews are dropped below, so ask for more than we show.
+      const url = `https://api.reviews.2gis.com/2.0/${type}/${id}/reviews?limit=20&sort_by=date_created&sort_direction=desc`;
 
       const res = await fetch(url, { headers: REVIEWS_HEADERS });
 
@@ -388,10 +374,10 @@ export class TwoGisReviewsService {
       const rawReviews = data.reviews || [];
 
       return rawReviews
-        .filter((r: any) => r.text && r.text.trim().length > 5)
-        .slice(0, 8)
+        .filter((r: any) => r.id && r.text && r.text.trim().length > 5)
+        .slice(0, MAX_REVIEWS)
         .map((r: any) => ({
-          id: r.id || "",
+          id: String(r.id),
           rating: r.rating || 0,
           text: r.text || "",
           userName: r.user?.name || "Пользователь",
