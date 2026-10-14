@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Clock, CalendarDays } from "lucide-react";
+import { Wind } from "lucide-react";
 import type { AirHistoryResponse } from "@/hooks/useComplexes";
 
 /**
@@ -18,11 +18,14 @@ import type { AirHistoryResponse } from "@/hooks/useComplexes";
  * the bar colour means the same thing as the live badge above it.
  */
 
+const EMPTY_BUCKETS: NonNullable<AirHistoryResponse["location"]>["byHour"] = [];
+const EMPTY_WEEKDAYS: NonNullable<AirHistoryResponse["location"]>["byWeekday"] = [];
+
 const PM25_COLORS: { max: number; color: string }[] = [
-  { max: 35, color: "#22c55e" },
-  { max: 55, color: "#eab308" },
-  { max: 125, color: "#f97316" },
-  { max: 225, color: "#dc2626" },
+  { max: 35, color: "rgb(var(--risk-safe))" },
+  { max: 55, color: "rgb(var(--risk-moderate))" },
+  { max: 125, color: "rgb(var(--risk-high))" },
+  { max: 225, color: "rgb(var(--risk-critical))" },
   { max: 325, color: "#9f1239" },
   { max: Infinity, color: "#7c2d12" },
 ];
@@ -44,8 +47,8 @@ export function AirHistoryChart({ data, isLoading }: Props) {
   const [mode, setMode] = useState<"hour" | "weekday">("hour");
 
   const loc = data?.location;
-  const byHour = loc?.byHour || [];
-  const byWeekday = loc?.byWeekday || [];
+  const byHour = loc?.byHour || EMPTY_BUCKETS;
+  const byWeekday = loc?.byWeekday || EMPTY_WEEKDAYS;
 
   // Build a dense 24-slot / 7-slot series so gaps stay visible as gaps
   // instead of silently collapsing the axis.
@@ -79,10 +82,10 @@ export function AirHistoryChart({ data, isLoading }: Props) {
     return (
       <div className="rounded-lg border border-dashed bg-muted/10 p-3">
         <div className="flex items-center gap-2 mb-1">
-          <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+          <Wind className="h-4 w-4 text-feature-air" />
           <span className="text-xs font-semibold">{t("airHistory.title")}</span>
         </div>
-        <p className="text-[11px] text-muted-foreground leading-snug">
+        <p className="text-xs text-muted-foreground leading-snug">
           {t("airHistory.notEnough")}
         </p>
       </div>
@@ -93,21 +96,18 @@ export function AirHistoryChart({ data, isLoading }: Props) {
 
   return (
     <div className="rounded-lg border bg-muted/20 p-3 space-y-2">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
-          {mode === "hour" ? (
-            <Clock className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-          ) : (
-            <CalendarDays className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-          )}
-          <span className="text-xs font-semibold truncate">
+          <Wind className="h-4 w-4 text-feature-air shrink-0" />
+          <span className="text-xs font-semibold">
             {t("airHistory.title")}
           </span>
         </div>
-        <div className="flex gap-1 text-[10px] shrink-0">
+        <div className="flex gap-1 text-xs shrink-0">
           <button
+            aria-pressed={mode === "hour"}
             onClick={() => setMode("hour")}
-            className={`px-2 py-0.5 rounded ${
+            className={`min-h-10 min-w-10 px-3 py-2 rounded-lg ${
               mode === "hour"
                 ? "bg-muted font-medium"
                 : "text-muted-foreground hover:text-foreground"
@@ -116,8 +116,9 @@ export function AirHistoryChart({ data, isLoading }: Props) {
             {t("airHistory.byHour")}
           </button>
           <button
+            aria-pressed={mode === "weekday"}
             onClick={() => setMode("weekday")}
-            className={`px-2 py-0.5 rounded ${
+            className={`min-h-10 min-w-10 px-3 py-2 rounded-lg ${
               mode === "weekday"
                 ? "bg-muted font-medium"
                 : "text-muted-foreground hover:text-foreground"
@@ -155,7 +156,7 @@ export function AirHistoryChart({ data, isLoading }: Props) {
       </div>
 
       {/* Axis */}
-      <div className="flex justify-between text-[9px] text-muted-foreground">
+      <div className="flex justify-between text-xs text-muted-foreground">
         {mode === "hour" ? (
           <>
             <span>00</span>
@@ -169,7 +170,7 @@ export function AirHistoryChart({ data, isLoading }: Props) {
         )}
       </div>
 
-      <p className="text-[10px] leading-snug text-muted-foreground/80">
+      <p className="text-xs leading-snug text-muted-foreground">
         {t("airHistory.caption", {
           radius: loc.radiusKm,
           // `count` drives the plural rule, `formatted` carries the
