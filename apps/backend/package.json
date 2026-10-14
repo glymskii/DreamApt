@@ -11,6 +11,7 @@
     "test:air-quality": "ts-node test/airkaz.test.ts",
     "test:air-profile": "ts-node test/air-daily-profile.test.ts",
     "test:krisha-html": "ts-node test/krisha-complex-html.test.ts",
+    "test:twogis-reviews": "ts-node test/twogis-reviews.test.ts",
     "typeorm": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js"
   },
   "dependencies": {

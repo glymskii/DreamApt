@@ -17,6 +17,8 @@ import { findShutovRating, findNearestFault, SHUTOV_CATEGORY_COLORS, SHUTOV_CATE
 // to absorb a viral spike.
 const MAP_DATA_TTL_MS = 60_000;
 const GLOBAL_LIST_TTL_MS = 60_000;
+/** Bump when the 2GIS reviews payload changes; older cached ones refetch. */
+const REVIEWS_PAYLOAD_VERSION = 2;
 
 /**
  * Construction stage (Krisha «строящийся» catalog) is stored on the global
@@ -415,15 +417,16 @@ export class ComplexService {
 
     // Serve from DB cache if fetched within last 24h. "Empty" result is also
     // cached (we record fetched_at even on miss) to avoid retrying complexes
-    // that 2GIS doesn't know about.
+    // that 2GIS doesn't know about. A payload from an older parser version
+    // is refetched at once.
     const FRESH_MS = 24 * 60 * 60 * 1000;
+    const cached = complex.twogisReviewsJson;
     if (
       complex.twogisFetchedAt &&
-      Date.now() - new Date(complex.twogisFetchedAt).getTime() < FRESH_MS
+      Date.now() - new Date(complex.twogisFetchedAt).getTime() < FRESH_MS &&
+      cached?.version === REVIEWS_PAYLOAD_VERSION
     ) {
-      const cached = complex.twogisReviewsJson;
-      if (cached) return cached;
-      return this.emptyReviewsResult();
+      return cached;
     }
 
     const lat = complex.lat ? Number(complex.lat) : undefined;
@@ -432,14 +435,16 @@ export class ComplexService {
     const result = await this.twoGisReviews.getReviews(name, lat, lng);
     if (!result) {
       // Persist the negative result to avoid re-fetching for 24h
+      const empty = this.emptyReviewsResult();
       await this.complexesRepo.update(complex.id, {
         twogisFetchedAt: new Date(),
-        twogisReviewsJson: null as any,
+        twogisReviewsJson: empty as any,
       });
-      return this.emptyReviewsResult();
+      return empty;
     }
 
     const payload = {
+      version: REVIEWS_PAYLOAD_VERSION,
       found: result.totalReviews > 0 || result.reviews.length > 0,
       totalReviews: result.totalReviews,
       averageRating: result.averageRating,
@@ -465,6 +470,7 @@ export class ComplexService {
 
   private emptyReviewsResult() {
     return {
+      version: REVIEWS_PAYLOAD_VERSION,
       found: false,
       totalReviews: 0,
       averageRating: 0,
