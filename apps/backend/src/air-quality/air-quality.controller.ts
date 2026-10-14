@@ -90,6 +90,18 @@ export class AirQualityController {
     );
   }
 
+  /**
+   * Typical day for the map's time-of-day slider: PM2.5 per station by
+   * local (Almaty) hour over the last `days` days. PUBLIC.
+   *   /air-quality/daily-profile?days=14
+   */
+  @Get("air-quality/daily-profile")
+  @Header("Cache-Control", "public, max-age=0, s-maxage=300")
+  async getDailyProfile(@Query("days") daysRaw?: string) {
+    const days = Number(daysRaw);
+    return this.aggregates.getDailyProfile(Number.isFinite(days) && days > 0 ? days : 14);
+  }
+
   /** Same breakdown, addressed by complex id instead of raw coords. */
   @Get("complexes/:id/air-quality/history")
   @Header("Cache-Control", "public, max-age=0, s-maxage=300")
