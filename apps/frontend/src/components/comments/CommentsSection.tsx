@@ -55,8 +55,8 @@ export function CommentsSection({ complexId }: Props) {
     try {
       await postMutation.mutateAsync(body);
       setText("");
-    } catch (err: any) {
-      setPostError(err?.message || t("comments.postFailed"));
+    } catch (err) {
+      setPostError((err as { message?: string } | null)?.message || t("comments.postFailed"));
     }
   };
 
@@ -101,7 +101,7 @@ export function CommentsSection({ complexId }: Props) {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between">
         <div className="flex items-center gap-2">
           <MessageCircle className="h-4 w-4 text-muted-foreground" />
           <span className="text-sm font-semibold">
@@ -114,10 +114,11 @@ export function CommentsSection({ complexId }: Props) {
           </span>
         </div>
         {data && data.total > 1 && (
-          <div className="flex gap-1 text-[11px]">
+          <div className="flex gap-1 text-xs">
             <button
+              aria-pressed={sort === "new"}
               onClick={() => setSort("new")}
-              className={`px-2 py-0.5 rounded ${
+              className={`min-h-10 min-w-10 px-2 py-2 rounded-lg ${
                 sort === "new"
                   ? "bg-muted font-medium"
                   : "text-muted-foreground hover:text-foreground"
@@ -126,8 +127,9 @@ export function CommentsSection({ complexId }: Props) {
               {t("comments.sortNew")}
             </button>
             <button
+              aria-pressed={sort === "top"}
               onClick={() => setSort("top")}
-              className={`px-2 py-0.5 rounded ${
+              className={`min-h-10 min-w-10 px-2 py-2 rounded-lg ${
                 sort === "top"
                   ? "bg-muted font-medium"
                   : "text-muted-foreground hover:text-foreground"
@@ -147,11 +149,11 @@ export function CommentsSection({ complexId }: Props) {
           value={text}
           onChange={(e) => setText(e.target.value.slice(0, 1000))}
           placeholder={t("comments.placeholder")}
-          className="w-full text-sm p-2 border rounded-md bg-background min-h-[60px] resize-y"
+          className="w-full text-base sm:text-sm p-2 border rounded-md bg-background min-h-[60px] resize-y"
           disabled={postMutation.isPending}
         />
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-[10px] text-muted-foreground">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-xs text-muted-foreground">
             {!isVerified && text.trim()
               ? t("comments.guestHint")
               : `${text.length}/1000`}
@@ -159,6 +161,7 @@ export function CommentsSection({ complexId }: Props) {
           <Button
             type="submit"
             size="sm"
+            className="min-h-10"
             disabled={!text.trim() || postMutation.isPending}
           >
             {postMutation.isPending && (
@@ -264,8 +267,8 @@ function CommentRow({
     try {
       await onEdit(trimmed);
       setIsEditing(false);
-    } catch (err: any) {
-      setEditError(err?.message || t("comments.editFailed"));
+    } catch (err) {
+      setEditError((err as { message?: string } | null)?.message || t("comments.editFailed"));
     } finally {
       setIsSaving(false);
     }
@@ -274,7 +277,7 @@ function CommentRow({
   return (
     <div className="flex gap-2 text-xs">
       <div
-        className="w-7 h-7 rounded-full bg-muted shrink-0 flex items-center justify-center text-[11px] font-semibold"
+        className="w-7 h-7 rounded-full bg-muted shrink-0 flex items-center justify-center text-xs font-semibold"
         title={comment.author.displayName}
       >
         {isDeleted ? "·" : initial}
@@ -285,13 +288,13 @@ function CommentRow({
             {comment.author.displayName}
           </span>
           {comment.author.isAdmin && (
-            <span className="text-[9px] uppercase px-1 rounded bg-primary text-primary-foreground font-bold">
+            <span className="text-xs uppercase px-1 rounded bg-primary text-primary-foreground font-bold">
               {t("comments.adminBadge")}
             </span>
           )}
-          <span className="text-[10px] text-muted-foreground">{date}</span>
+          <span className="text-xs text-muted-foreground">{date}</span>
           {comment.editedAt && !isDeleted && (
-            <span className="text-[10px] text-muted-foreground italic">
+            <span className="text-xs text-muted-foreground italic">
               · {t("comments.editedTag")}
             </span>
           )}
@@ -302,12 +305,12 @@ function CommentRow({
             <textarea
               value={draft}
               onChange={(e) => setDraft(e.target.value.slice(0, 1000))}
-              className="w-full text-sm p-2 border rounded-md bg-background min-h-[60px] resize-y"
+              className="w-full text-base sm:text-sm p-2 border rounded-md bg-background min-h-[60px] resize-y"
               disabled={isSaving}
               autoFocus
             />
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-[10px] text-muted-foreground">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-xs text-muted-foreground">
                 {draft.length}/1000
               </span>
               <div className="flex gap-1.5">
@@ -315,7 +318,7 @@ function CommentRow({
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="h-7 px-2 text-xs"
+                  className="h-10 min-w-10 px-2 text-xs"
                   onClick={() => {
                     setDraft(comment.text);
                     setEditError("");
@@ -329,7 +332,7 @@ function CommentRow({
                 <Button
                   type="button"
                   size="sm"
-                  className="h-7 px-2 text-xs"
+                  className="h-10 min-w-10 px-2 text-xs"
                   onClick={handleSave}
                   disabled={isSaving || !draft.trim()}
                 >
@@ -353,10 +356,12 @@ function CommentRow({
         )}
 
         {!isDeleted && !isEditing && (
-          <div className="flex items-center gap-3 mt-1 text-[11px]">
+          <div className="flex items-center gap-3 mt-1 text-xs">
             <button
+              aria-pressed={comment.isLikedByMe}
+              aria-label={t(comment.isLikedByMe ? "comments.unlike" : "comments.like")}
               onClick={onLike}
-              className={`flex items-center gap-0.5 transition-colors ${
+              className={`flex min-h-10 min-w-10 items-center justify-center gap-1 transition-colors ${
                 comment.isLikedByMe
                   ? "text-red-500"
                   : "text-muted-foreground hover:text-red-500"
@@ -375,7 +380,7 @@ function CommentRow({
                   setEditError("");
                   setIsEditing(true);
                 }}
-                className="flex items-center gap-1 text-muted-foreground/70 hover:text-foreground transition-colors"
+                className="flex min-h-10 items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"
                 title={t("comments.editWindowHint", { minutes: minutesLeft })}
               >
                 <Pencil className="h-3 w-3" />
@@ -385,7 +390,8 @@ function CommentRow({
             {(comment.isMine || isAdmin) && (
               <button
                 onClick={onDelete}
-                className="text-muted-foreground/60 hover:text-destructive transition-colors"
+                className="flex h-10 w-10 items-center justify-center text-muted-foreground hover:text-destructive transition-colors"
+                aria-label={t("comments.delete")}
                 title={t("comments.delete")}
               >
                 <Trash2 className="h-3 w-3" />
