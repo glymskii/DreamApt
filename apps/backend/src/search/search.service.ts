@@ -15,6 +15,7 @@ import { UserEntity } from "../database/entities/user.entity";
 import { AIService } from "../ai/ai.service";
 import { ScoringService } from "../scoring/scoring.service";
 import { KrishaParserService, KrishaPropertyDetail } from "./krisha-parser.service";
+import { hasSearchAccess } from "../access-control/search-access";
 import { ALMATY_DEVELOPERS, findShutovRating, findNearestFault } from "@dreamapt/shared";
 
 const MAX_RESULTS = parseInt(process.env.PARSER_MAX_RESULTS || "100");
@@ -52,16 +53,16 @@ export class SearchService {
     projectId: string,
     userId?: string,
   ): Promise<{ jobId: string; status: string }> {
-    // Access gate — only admins and users whose searchEnabled flag was
-    // explicitly granted can launch the paid OpenAI/parser pipeline. The
+    // Access gate — admins, users the admin enabled, and users with a
+    // paid period running can launch the paid OpenAI/parser pipeline. The
     // frontend hides the button for non-eligible users, but we re-check
     // server-side so a forged request can't bypass it.
     if (userId) {
       const user = await this.usersRepo.findOne({ where: { id: userId } });
       if (!user) throw new ForbiddenException("User not found");
-      if (user.role !== "admin" && !user.searchEnabled) {
+      if (!hasSearchAccess(user)) {
         throw new ForbiddenException({
-          message: "Запуск поиска доступен после одобрения администратором.",
+          message: "Поиск доступен по подписке.",
           code: "SEARCH_NOT_ALLOWED",
         });
       }

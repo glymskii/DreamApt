@@ -14,8 +14,9 @@ import { OtpCodeEntity } from "./entities/otp-code.entity";
 import { CommentEntity } from "./entities/comment.entity";
 import { CommentLikeEntity } from "./entities/comment-like.entity";
 import { AccessRequestEntity } from "./entities/access-request.entity";
+import { PaymentEntity } from "./entities/payment.entity";
 
-const entities = [
+export const entities = [
   UserEntity,
   SearchProjectEntity,
   PropertyEntity,
@@ -30,6 +31,7 @@ const entities = [
   CommentEntity,
   CommentLikeEntity,
   AccessRequestEntity,
+  PaymentEntity,
 ];
 
 @Module({

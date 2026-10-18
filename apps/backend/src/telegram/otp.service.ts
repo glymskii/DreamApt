@@ -13,6 +13,7 @@ import * as crypto from "crypto";
 import { OtpCodeEntity } from "../database/entities/otp-code.entity";
 import { UserEntity } from "../database/entities/user.entity";
 import { TelegramService } from "./telegram.service";
+import { hasSearchAccess } from "../access-control/search-access";
 
 /** OTPs live 10 minutes — long enough that a slow user can switch apps,
  *  short enough that a leaked code becomes useless quickly. */
@@ -108,6 +109,8 @@ export class OtpService {
       phoneVerified: boolean;
       searchEnabled: boolean;
       expertEnabled: boolean;
+      searchPaidUntil: string | null;
+      canSearch: boolean;
     };
     isNewUser: boolean;
   }> {
@@ -173,6 +176,12 @@ export class OtpService {
       await this.usersRepo.save(user);
     }
 
+    // Remember the chat the code went to: the bot can then message the
+    // user about payments, and admins about new ones.
+    if (otp.chatId && user!.telegramChatId !== String(otp.chatId)) {
+      await this.usersRepo.update(user!.id, { telegramChatId: String(otp.chatId) });
+    }
+
     const accessToken = this.jwt.sign({
       sub: user!.id,
       username: user!.username,
@@ -189,6 +198,8 @@ export class OtpService {
         phoneVerified: user!.phoneVerified,
         searchEnabled: user!.searchEnabled,
         expertEnabled: user!.expertEnabled,
+        searchPaidUntil: user!.searchPaidUntil ? new Date(user!.searchPaidUntil).toISOString() : null,
+        canSearch: hasSearchAccess(user!),
       },
       isNewUser,
     };
