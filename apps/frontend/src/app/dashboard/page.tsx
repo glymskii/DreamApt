@@ -15,6 +15,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { LangToggle } from "@/components/lang-toggle";
 import { useAuthDialog } from "@/components/auth/auth-dialog";
 import { RequestAccessModal } from "@/components/access/RequestAccessModal";
+import { canSearch } from "@/lib/access";
 import {
   Building2, Plus, LogOut, Loader2, List, Search, X, LogIn, Shield,
 } from "lucide-react";
@@ -51,8 +52,8 @@ export default function DashboardPage() {
       authDialog.open("otp", t("auth.newSearchGate"));
       return;
     }
-    // Admin or explicitly enabled users skip the gate.
-    if (user.role !== "admin" && !user.searchEnabled) {
+    // Admins, granted and paying users skip the gate.
+    if (!canSearch(user)) {
       setRequestSearchOpen(true);
       return;
     }
@@ -222,6 +223,7 @@ export default function DashboardPage() {
         open={requestSearchOpen}
         onClose={() => setRequestSearchOpen(false)}
         type="search"
+        onGranted={handleNewSearch}
       />
     </div>
   );

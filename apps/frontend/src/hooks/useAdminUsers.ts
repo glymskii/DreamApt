@@ -12,6 +12,8 @@ export interface AdminUserDTO {
   phoneVerified: boolean;
   searchEnabled: boolean;
   expertEnabled: boolean;
+  /** End of the paid search period, if the user ever paid. */
+  searchPaidUntil: string | null;
   createdAt: string;
 }
 
@@ -24,11 +26,12 @@ export interface AdminUsersResponse {
     total: number;
     verified: number;
     searchEnabled: number;
+    searchPaid: number;
     expertEnabled: number;
   };
 }
 
-export type UsersFilter = "all" | "verified" | "search" | "expert" | "admin";
+export type UsersFilter = "all" | "verified" | "search" | "paid" | "expert" | "admin";
 
 export function useAdminUsers(opts: {
   page?: number;

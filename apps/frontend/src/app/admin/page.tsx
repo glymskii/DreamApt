@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
@@ -37,10 +37,18 @@ import {
   constructionSync,
 } from "@/hooks/useConstructionSync";
 import {
+  useAdminPayments,
+  useAdminPaymentAction,
+  type AdminPayment,
+  type AdminPaymentsFilter,
+  type PaymentStatus,
+} from "@/hooks/usePayments";
+import { formatTenge } from "@/lib/access";
+import {
   ArrowLeft, Phone, CheckCircle2, XCircle, Copy, Loader2, Clock,
   Shield, BarChart3, Users, KeyRound, MessageCircle, Search,
   ChevronLeft, ChevronRight, AlertTriangle, Plus, Trash2, RefreshCcw,
-  ExternalLink, Heart, MessageSquare, Construction, Square,
+  ExternalLink, Heart, MessageSquare, Construction, Square, Wallet, Receipt,
 } from "lucide-react";
 
 // ── Legacy (password-flow) leads ────────────────────────────────────
@@ -65,13 +73,20 @@ const LEAD_STATUS: Record<string, { label: string; className: string }> = {
 
 // ──────────────────────────────────────────────────────────────────────
 
-type Tab = "users" | "requests" | "problematic" | "construction" | "comments" | "leads";
+const TABS = ["users", "payments", "requests", "problematic", "construction", "comments", "leads"] as const;
+type Tab = (typeof TABS)[number];
 
 export default function AdminPage() {
   const router = useRouter();
   const { user, isAdmin, isLoading } = useAuth();
   const authDialog = useAuthDialog();
   const [tab, setTab] = useState<Tab>("users");
+  // The Telegram notice about a new payment links to /admin?tab=payments.
+  useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get("tab");
+    if (TABS.includes(requested as Tab)) setTab(requested as Tab);
+  }, []);
+  const { data: openPayments } = useAdminPayments("open", isAdmin);
 
   if (isLoading) {
     return (
@@ -133,9 +148,17 @@ export default function AdminPage() {
           </Link>
         </div>
 
-        <div className="flex gap-1 mb-4 border-b">
+        <div className="flex gap-1 mb-4 border-b overflow-x-auto">
           <TabButton active={tab === "users"} onClick={() => setTab("users")} icon={<Users className="h-3.5 w-3.5" />}>
             Пользователи
+          </TabButton>
+          <TabButton active={tab === "payments"} onClick={() => setTab("payments")} icon={<Wallet className="h-3.5 w-3.5" />}>
+            Оплаты
+            {!!openPayments?.length && (
+              <span className="ml-0.5 rounded-full bg-amber-500 px-1.5 text-[10px] font-semibold leading-4 text-white">
+                {openPayments.length}
+              </span>
+            )}
           </TabButton>
           <TabButton active={tab === "requests"} onClick={() => setTab("requests")} icon={<KeyRound className="h-3.5 w-3.5" />}>
             Запросы доступа
@@ -155,6 +178,7 @@ export default function AdminPage() {
         </div>
 
         {tab === "users" && <UsersTab />}
+        {tab === "payments" && <PaymentsTab />}
         {tab === "requests" && <AccessRequestsTab />}
         {tab === "problematic" && <ProblematicTab />}
         {tab === "construction" && <ConstructionTab />}
@@ -173,7 +197,7 @@ function TabButton({
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-1.5 px-3 py-2 text-sm border-b-2 -mb-px transition-colors ${
+      className={`flex items-center gap-1.5 px-3 py-2 text-sm whitespace-nowrap border-b-2 -mb-px transition-colors ${
         active
           ? "border-amber-500 text-foreground font-medium"
           : "border-transparent text-muted-foreground hover:text-foreground"
@@ -198,6 +222,7 @@ function UsersTab() {
     { value: "all", label: "Все" },
     { value: "verified", label: "С подтверждённым номером" },
     { value: "search", label: "С доступом к поиску" },
+    { value: "paid", label: "С подпиской" },
     { value: "expert", label: "С доступом к экспертам" },
     { value: "admin", label: "Админы" },
   ];
@@ -206,10 +231,11 @@ function UsersTab() {
     <div className="space-y-4">
       {/* Stats cards */}
       {data?.stats && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
           <StatCard label="Всего" value={data.stats.total} />
           <StatCard label="Подтв. номер" value={data.stats.verified} />
           <StatCard label="Поиск" value={data.stats.searchEnabled} />
+          <StatCard label="Подписка" value={data.stats.searchPaid} />
           <StatCard label="Эксперты" value={data.stats.expertEnabled} />
         </div>
       )}
@@ -304,6 +330,18 @@ function UsersTab() {
                         disabled={u.role === "admin" || update.isPending}
                         onChange={(v) => update.mutate({ id: u.id, patch: { searchEnabled: v } })}
                       />
+                      {u.searchPaidUntil && (
+                        <div
+                          className={`text-[10px] mt-0.5 whitespace-nowrap ${
+                            Date.parse(u.searchPaidUntil) > Date.now()
+                              ? "text-emerald-700 dark:text-emerald-400"
+                              : "text-muted-foreground line-through"
+                          }`}
+                          title="Оплаченный период"
+                        >
+                          до {formatShortDay(u.searchPaidUntil)}
+                        </div>
+                      )}
                     </td>
                     <td className="p-2 text-center">
                       <Toggle
@@ -381,6 +419,170 @@ function Toggle({
         }`}
       />
     </button>
+  );
+}
+
+// ── Payments: Kaspi invoices issued by hand ──────────────────────────
+
+const PAYMENT_STATUS: Record<PaymentStatus, { label: string; className: string }> = {
+  pending: { label: "Ждёт счёта", className: "text-amber-700 border-amber-300 dark:text-amber-300 dark:border-amber-800" },
+  invoiced: { label: "Счёт выставлен", className: "text-blue-700 border-blue-300 dark:text-blue-300 dark:border-blue-800" },
+  paid: { label: "Оплачен", className: "text-emerald-700 border-emerald-300 dark:text-emerald-300 dark:border-emerald-800" },
+  cancelled: { label: "Отменён", className: "text-slate-600 border-slate-300 dark:text-slate-400 dark:border-slate-700" },
+  expired: { label: "Истёк", className: "text-rose-700 border-rose-300 dark:text-rose-300 dark:border-rose-800" },
+};
+
+const formatShortDay = (iso: string) =>
+  new Date(iso).toLocaleDateString("ru-RU", { day: "numeric", month: "short", timeZone: "Asia/Almaty" });
+
+const formatMoment = (iso: string) =>
+  new Date(iso).toLocaleString("ru-RU", {
+    day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Almaty",
+  });
+
+function PaymentsTab() {
+  const [status, setStatus] = useState<AdminPaymentsFilter>("open");
+  const { data, isLoading, error } = useAdminPayments(status);
+  const action = useAdminPaymentAction();
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // Kaspi Pay's phone field already has +7: copy the ten digits after it.
+  const copyPhone = async (p: AdminPayment) => {
+    try {
+      await navigator.clipboard.writeText(p.phone.replace(/\D+/g, "").slice(-10));
+      setCopiedId(p.id);
+      setTimeout(() => setCopiedId((id) => (id === p.id ? null : id)), 1500);
+    } catch {
+      /* clipboard blocked: the number is on screen */
+    }
+  };
+
+  const run = (p: AdminPayment, act: "invoiced" | "paid" | "cancel") => {
+    if (act === "paid" && !window.confirm(
+      `${formatTenge(p.amount)} от ${formatStoredPhone(p.phone)} пришли в Kaspi?\nДоступ к поиску продлится на ${p.days} дн.`,
+    )) return;
+    if (act === "cancel" && !window.confirm("Отменить платёж?")) return;
+    action.mutate({ id: p.id, action: act });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-lg border bg-card p-3 text-xs text-muted-foreground space-y-1">
+        <p className="font-medium text-foreground">Как провести оплату</p>
+        <p>1. Kaspi Pay → «Удалённая оплата»: введите номер и сумму из заявки, отправьте счёт.</p>
+        <p>2. Нажмите «Счёт выставлен» — пользователь увидит, что счёт ждёт оплаты.</p>
+        <p>3. Когда Kaspi покажет оплату — «Оплачено». Доступ продлится сразу, пользователю придёт сообщение в Telegram.</p>
+      </div>
+
+      <div className="flex gap-1 text-xs">
+        {(["open", "paid", "all"] as const).map((s) => (
+          <button
+            key={s}
+            onClick={() => setStatus(s)}
+            className={`px-2.5 py-1.5 rounded border whitespace-nowrap ${
+              status === s
+                ? "bg-foreground text-background border-foreground"
+                : "bg-card hover:bg-muted border-border"
+            }`}
+          >
+            {s === "open" && "Открытые"}
+            {s === "paid" && "Оплаченные"}
+            {s === "all" && "Все"}
+          </button>
+        ))}
+      </div>
+
+      {action.error && (
+        <p className="text-xs text-destructive">{action.error.message}</p>
+      )}
+
+      {isLoading ? (
+        <div className="text-center py-12">
+          <Loader2 className="h-6 w-6 mx-auto animate-spin text-muted-foreground" />
+        </div>
+      ) : error ? (
+        <p className="text-center py-12 text-sm text-destructive">Не удалось загрузить оплаты</p>
+      ) : !data || data.length === 0 ? (
+        <p className="text-center py-12 text-sm text-muted-foreground">
+          {status === "open" ? "Новых оплат нет" : "Оплат нет"}
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {data.map((p) => {
+            const busy = action.isPending && action.variables?.id === p.id;
+            const open = p.status === "pending" || p.status === "invoiced";
+            return (
+              <div
+                key={p.id}
+                className="flex flex-col sm:flex-row sm:items-start gap-3 p-3 rounded-lg border bg-card"
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-base font-semibold">{formatTenge(p.amount)}</span>
+                    <span className="text-xs text-muted-foreground">· поиск на {p.days} дн.</span>
+                    <Badge variant="outline" className={`text-[10px] py-0 ${PAYMENT_STATUS[p.status].className}`}>
+                      {PAYMENT_STATUS[p.status].label}
+                    </Badge>
+                  </div>
+                  <div className="mt-1 flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-medium">{p.user.displayName || "—"}</span>
+                    <span className="text-sm font-mono">{formatStoredPhone(p.phone)}</span>
+                    <button
+                      type="button"
+                      onClick={() => copyPhone(p)}
+                      className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+                      title="Скопировать номер для Kaspi Pay"
+                    >
+                      <Copy className="h-3 w-3" />
+                      {copiedId === p.id ? "Скопировано" : "Копировать"}
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground mt-1 flex items-center gap-x-1.5 gap-y-0.5 flex-wrap">
+                    <Clock className="h-3 w-3" />
+                    {formatMoment(p.createdAt)}
+                    {p.invoicedAt && <span>· счёт {formatMoment(p.invoicedAt)}</span>}
+                    {p.paidAt && <span>· оплачен {formatMoment(p.paidAt)}</span>}
+                    {p.accessUntil && <span>· доступ до {formatShortDay(p.accessUntil)}</span>}
+                    {open && p.user.searchPaidUntil && Date.parse(p.user.searchPaidUntil) > Date.now() && (
+                      <span>· сейчас открыт до {formatShortDay(p.user.searchPaidUntil)}</span>
+                    )}
+                  </p>
+                  {p.adminNote && (
+                    <p className="mt-2 text-xs text-foreground/80 bg-muted/40 rounded p-2 whitespace-pre-wrap">
+                      {p.adminNote}
+                    </p>
+                  )}
+                </div>
+                {(open || p.status === "expired") && (
+                  <div className="flex flex-wrap gap-2 shrink-0">
+                    {open && (
+                      <Button size="sm" variant="ghost" onClick={() => run(p, "cancel")} disabled={busy}>
+                        <XCircle className="h-3.5 w-3.5 mr-1" />
+                        Отменить
+                      </Button>
+                    )}
+                    {p.status === "pending" && (
+                      <Button size="sm" variant="outline" onClick={() => run(p, "invoiced")} disabled={busy}>
+                        <Receipt className="h-3.5 w-3.5 mr-1" />
+                        Счёт выставлен
+                      </Button>
+                    )}
+                    <Button size="sm" onClick={() => run(p, "paid")} disabled={busy}>
+                      {busy ? (
+                        <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                      ) : (
+                        <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
+                      )}
+                      Оплачено
+                    </Button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 

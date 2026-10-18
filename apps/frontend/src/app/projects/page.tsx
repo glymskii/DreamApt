@@ -11,6 +11,7 @@ import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Search, Home, Clock, ArrowLeft, LogIn, Lock } from "lucide-react";
 import { RequestAccessModal } from "@/components/access/RequestAccessModal";
+import { canSearch, formatAccessDay } from "@/lib/access";
 
 const STATUS_LABELS: Record<string, { label: string; variant: "default" | "secondary" | "outline" }> = {
   draft: { label: "Черновик", variant: "secondary" },
@@ -30,9 +31,13 @@ export default function ProjectsPage() {
   });
   const createProject = useCreateProject();
   const [requestOpen, setRequestOpen] = useState(false);
+  // Paid access only; admins and manually granted users have no end date.
+  const paidUntil =
+    user && user.role !== "admin" && !user.searchEnabled ? user.searchPaidUntil ?? null : null;
+  const paidActive = !!paidUntil && Date.parse(paidUntil) > Date.now();
 
   const handleCreate = async () => {
-    if (user && user.role !== "admin" && !user.searchEnabled) {
+    if (user && !canSearch(user)) {
       setRequestOpen(true);
       return;
     }
@@ -89,6 +94,24 @@ export default function ProjectsPage() {
             Новый поиск
           </Button>
         </div>
+
+        {paidUntil && (
+          <div className="mb-4 -mt-2 flex flex-wrap items-center gap-x-2 text-sm text-muted-foreground">
+            <Clock className="h-3.5 w-3.5" />
+            <span>
+              {paidActive ? "Поиск открыт до " : "Подписка закончилась "}
+              {formatAccessDay(paidUntil, "ru")}
+            </span>
+            <span aria-hidden>·</span>
+            <button
+              type="button"
+              className="font-medium text-amber-700 dark:text-amber-400 hover:underline"
+              onClick={() => setRequestOpen(true)}
+            >
+              Продлить
+            </button>
+          </div>
+        )}
 
         {isLoading ? (
           <div className="space-y-3">
@@ -147,6 +170,7 @@ export default function ProjectsPage() {
         open={requestOpen}
         onClose={() => setRequestOpen(false)}
         type="search"
+        onGranted={handleCreate}
       />
     </div>
   );
