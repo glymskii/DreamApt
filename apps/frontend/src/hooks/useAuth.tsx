@@ -24,6 +24,8 @@ export interface AuthUser {
   phoneVerified?: boolean;
   searchEnabled?: boolean;
   expertEnabled?: boolean;
+  /** End of the paid search period (ISO), if the user ever paid. */
+  searchPaidUntil?: string | null;
 }
 
 interface LoginResponse {

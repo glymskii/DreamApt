@@ -6,6 +6,7 @@ import { X, Lock, CheckCircle2, Clock, ShieldQuestion, Loader2 } from "lucide-re
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
 import { useAuthDialog } from "@/components/auth/auth-dialog";
+import { SearchSubscription } from "@/components/access/SearchSubscription";
 import {
   AccessRequestType,
   useMyAccessRequests,
@@ -16,21 +17,25 @@ interface Props {
   open: boolean;
   onClose: () => void;
   type: AccessRequestType;
+  /** Search only: what to do once access opens (e.g. start the search). */
+  onGranted?: () => void;
 }
 
 /**
  * Modal shown when a logged-in but non-approved user tries to use a gated
- * feature (search launch / expert opinions). Three states:
+ * feature (search launch / expert opinions). States:
  *   - Not phone-verified → tell them to verify first (open auth dialog)
- *   - No request yet → form to submit a request with optional message
- *   - Pending request exists → "we'll get back to you" with current state
+ *   - Search → the paid subscription (plan, Kaspi invoice, access period)
+ *   - Expert, no request yet → form to submit a request with optional message
+ *   - Expert, request exists → "we'll get back to you" with current state
  */
-export function RequestAccessModal({ open, onClose, type }: Props) {
+export function RequestAccessModal({ open, onClose, type, onGranted }: Props) {
   const { t } = useTranslation();
   const { user, refreshUser } = useAuth();
   const { open: openAuth } = useAuthDialog();
   const isPhoneVerified = !!user?.phoneVerified;
-  const { data: mine, refetch } = useMyAccessRequests(open && isPhoneVerified);
+  const isSearch = type === "search";
+  const { data: mine, refetch } = useMyAccessRequests(open && isPhoneVerified && !isSearch);
   const submitMut = useSubmitAccessRequest();
   const [message, setMessage] = useState("");
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -127,8 +132,22 @@ export function RequestAccessModal({ open, onClose, type }: Props) {
           </div>
         )}
 
+        {/* Search is paid: plan, invoice, access period */}
+        {user && isPhoneVerified && isSearch && (
+          <SearchSubscription
+            onStart={
+              onGranted
+                ? () => {
+                    onClose();
+                    onGranted();
+                  }
+                : undefined
+            }
+          />
+        )}
+
         {/* State 3: pending or processed */}
-        {user && isPhoneVerified && existing && (
+        {user && isPhoneVerified && !isSearch && existing && (
           <div className="space-y-3">
             {existing.status === "pending" && (
               <div className="rounded-lg bg-blue-50 dark:bg-blue-900/30 p-3 text-sm text-blue-800 dark:text-blue-300 flex items-start gap-2">
@@ -167,7 +186,7 @@ export function RequestAccessModal({ open, onClose, type }: Props) {
         )}
 
         {/* State 4: ready to submit */}
-        {user && isPhoneVerified && !existing && (
+        {user && isPhoneVerified && !isSearch && !existing && (
           <form
             className="space-y-3"
             onSubmit={async (e) => {
