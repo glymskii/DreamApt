@@ -5,6 +5,7 @@ import { Repository } from "typeorm";
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const TelegramBot = require("node-telegram-bot-api");
 import { OtpCodeEntity } from "../database/entities/otp-code.entity";
+import { UserEntity } from "../database/entities/user.entity";
 
 /**
  * Telegram-bot integration for the OTP registration flow.
@@ -16,8 +17,9 @@ import { OtpCodeEntity } from "../database/entities/otp-code.entity";
  *    to /api/telegram/webhook.
  *  - The HTTP handler in TelegramController calls handleUpdate() with
  *    each incoming Telegram update payload.
- *  - sendCode() / sendMessage() let other services push messages to a
- *    known chat id.
+ *  - sendMessage() / notifyAdmins() let other services push messages:
+ *    to a user's saved chat (users.telegram_chat_id, stored on OTP
+ *    login) or to every admin who has signed in through the bot.
  *
  * Why webhook and not polling: we already have a public HTTPS endpoint
  * (Render), and webhooks scale to zero — the bot doesn't keep an idle
@@ -34,6 +36,8 @@ export class TelegramService implements OnModuleInit {
   constructor(
     @InjectRepository(OtpCodeEntity)
     private otpRepo: Repository<OtpCodeEntity>,
+    @InjectRepository(UserEntity)
+    private usersRepo: Repository<UserEntity>,
   ) {}
 
   get isConfigured(): boolean {
@@ -84,6 +88,32 @@ export class TelegramService implements OnModuleInit {
       this.logger.error(`Telegram bot init failed: ${err}`);
       this.bot = null;
     }
+  }
+
+  /** Plain-text message to one chat. Never throws: a failed notification
+   *  must not fail the action that triggered it. */
+  async sendMessage(chatId: string, text: string): Promise<boolean> {
+    if (!this.bot) return false;
+    try {
+      await this.bot.sendMessage(chatId, text, { disable_web_page_preview: true });
+      return true;
+    } catch (err) {
+      this.logger.warn(`sendMessage to ${chatId} failed: ${err}`);
+      return false;
+    }
+  }
+
+  /** Message every admin who has signed in through the bot. Returns how
+   *  many got it, so callers can log when nobody did. */
+  async notifyAdmins(text: string): Promise<number> {
+    const admins = await this.usersRepo.find({ where: { role: "admin" } });
+    const chats = admins.map((a) => a.telegramChatId).filter((c): c is string => !!c);
+    let sent = 0;
+    for (const chatId of chats) if (await this.sendMessage(chatId, text)) sent++;
+    if (sent === 0) {
+      this.logger.warn("No admin got the Telegram notice: sign in to the site through the bot once.");
+    }
+    return sent;
   }
 
   /**

@@ -55,6 +55,16 @@ export class UserEntity {
   @Column({ name: "expert_enabled", default: false })
   expertEnabled: boolean;
 
+  /** Paid search access runs until this moment; extended by each payment.
+   *  `searchEnabled` stays the admin's grant without an end date. */
+  @Column({ name: "search_paid_until", type: "timestamp", nullable: true })
+  searchPaidUntil: Date | null;
+
+  /** Telegram chat the user signed in from, saved on OTP login: lets the
+   *  bot tell the user about payments and admins about new ones. */
+  @Column({ name: "telegram_chat_id", type: "bigint", nullable: true })
+  telegramChatId: string | null;
+
   @CreateDateColumn({ name: "created_at" })
   createdAt: Date;
 

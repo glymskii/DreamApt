@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
-import { Repository, Like, Brackets } from "typeorm";
+import { Repository, Like, Brackets, MoreThan } from "typeorm";
 import { UserEntity } from "../database/entities/user.entity";
 
 export interface AdminUserDTO {
@@ -12,6 +12,8 @@ export interface AdminUserDTO {
   phoneVerified: boolean;
   searchEnabled: boolean;
   expertEnabled: boolean;
+  /** End of the paid search period, if the user ever paid. */
+  searchPaidUntil: string | null;
   createdAt: string;
 }
 
@@ -32,7 +34,7 @@ export class AdminUsersService {
     page?: number;
     limit?: number;
     search?: string;
-    filter?: "all" | "verified" | "search" | "expert" | "admin";
+    filter?: "all" | "verified" | "search" | "paid" | "expert" | "admin";
   }): Promise<{
     users: AdminUserDTO[];
     total: number;
@@ -42,6 +44,7 @@ export class AdminUsersService {
       total: number;
       verified: number;
       searchEnabled: number;
+      searchPaid: number;
       expertEnabled: number;
     };
   }> {
@@ -63,6 +66,7 @@ export class AdminUsersService {
     }
     if (filter === "verified") qb.andWhere("u.phoneVerified = true");
     if (filter === "search") qb.andWhere("u.searchEnabled = true");
+    if (filter === "paid") qb.andWhere("u.searchPaidUntil > :now", { now: new Date() });
     if (filter === "expert") qb.andWhere("u.expertEnabled = true");
     if (filter === "admin") qb.andWhere("u.role = 'admin'");
 
@@ -73,10 +77,11 @@ export class AdminUsersService {
       .getManyAndCount();
 
     // Compute top-level stats — cheap COUNT(*) per flag.
-    const [statTotal, statVerified, statSearch, statExpert] = await Promise.all([
+    const [statTotal, statVerified, statSearch, statPaid, statExpert] = await Promise.all([
       this.usersRepo.count(),
       this.usersRepo.count({ where: { phoneVerified: true } }),
       this.usersRepo.count({ where: { searchEnabled: true } }),
+      this.usersRepo.count({ where: { searchPaidUntil: MoreThan(new Date()) } }),
       this.usersRepo.count({ where: { expertEnabled: true } }),
     ]);
 
@@ -89,6 +94,7 @@ export class AdminUsersService {
         total: statTotal,
         verified: statVerified,
         searchEnabled: statSearch,
+        searchPaid: statPaid,
         expertEnabled: statExpert,
       },
     };
@@ -138,6 +144,7 @@ function toDTO(u: UserEntity): AdminUserDTO {
     phoneVerified: u.phoneVerified,
     searchEnabled: u.searchEnabled,
     expertEnabled: u.expertEnabled,
+    searchPaidUntil: u.searchPaidUntil ? new Date(u.searchPaidUntil).toISOString() : null,
     createdAt: u.createdAt.toISOString(),
   };
 }

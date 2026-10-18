@@ -13,6 +13,7 @@ import { Repository, MoreThan } from "typeorm";
 import * as bcrypt from "bcrypt";
 import * as crypto from "crypto";
 import { UserEntity } from "../database/entities/user.entity";
+import { hasSearchAccess } from "../access-control/search-access";
 import { RegistrationLeadEntity } from "../database/entities/registration-lead.entity";
 
 const BCRYPT_COST = 12;
@@ -184,6 +185,8 @@ export class AuthService implements OnModuleInit {
       phoneVerified: user.phoneVerified,
       searchEnabled: user.searchEnabled,
       expertEnabled: user.expertEnabled,
+      searchPaidUntil: user.searchPaidUntil ? new Date(user.searchPaidUntil).toISOString() : null,
+      canSearch: hasSearchAccess(user),
       createdAt: user.createdAt.toISOString(),
     };
   }
