@@ -5,7 +5,8 @@ import { DataSource } from "typeorm";
 import { entities } from "../src/database/database.module";
 import { PaymentEntity } from "../src/database/entities/payment.entity";
 import { UserEntity } from "../src/database/entities/user.entity";
-import { PaymentsService } from "../src/payments/payments.service";
+import { PaymentsService, searchPlan } from "../src/payments/payments.service";
+import { formatPeriod } from "../src/payments/payment-format";
 import type { PaymentProvider } from "../src/payments/providers/payment-provider";
 import { hasSearchAccess } from "../src/access-control/search-access";
 import type { TelegramService } from "../src/telegram/telegram.service";
@@ -27,6 +28,11 @@ async function main() {
     console.log("payments: skipped (set TEST_DATABASE_URL)");
     return;
   }
+  delete process.env.SEARCH_PLAN_PRICE_KZT;
+  delete process.env.SEARCH_PLAN_DAYS;
+  assert.deepEqual(searchPlan(), { id: "search-90d", feature: "search", days: 90, amount: 4990 });
+  assert.equal(formatPeriod(90), "3 мес.");
+  assert.equal(formatPeriod(45), "45 дн.");
   process.env.SEARCH_PLAN_PRICE_KZT = "3000";
   process.env.SEARCH_PLAN_DAYS = "30";
 

@@ -73,9 +73,10 @@ function positiveInt(raw: string | undefined, fallback: number): number {
   return Number.isInteger(n) && n > 0 ? n : fallback;
 }
 
-/** Search access plan; price and length come from the environment. */
+/** Search access plan; price and length come from the environment.
+ *  Default: 4 990 ₸ for three months (90 days). */
 export function searchPlan(): PaymentPlan {
-  const days = positiveInt(process.env.SEARCH_PLAN_DAYS, 30);
+  const days = positiveInt(process.env.SEARCH_PLAN_DAYS, 90);
   return {
     id: `search-${days}d`,
     feature: "search",

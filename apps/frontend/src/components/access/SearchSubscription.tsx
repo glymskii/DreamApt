@@ -13,7 +13,7 @@ import {
   usePaymentPlans,
 } from "@/hooks/usePayments";
 import { ApiUnauthorizedError } from "@/lib/api-client";
-import { canSearch, formatAccessDay, formatTenge } from "@/lib/access";
+import { canSearch, formatAccessDay, formatTenge, periodMonths } from "@/lib/access";
 import { formatStoredPhone } from "@/lib/phone";
 
 const PERKS = ["perkMatch", "perkScore", "perkUnlimited"] as const;
@@ -116,7 +116,9 @@ export function SearchSubscription({ onStart }: Props) {
                   {formatTenge(plan.amount)}
                 </span>
                 <span className="text-sm text-slate-600 dark:text-slate-400">
-                  {t("paywall.period", { count: plan.days })}
+                  {periodMonths(plan.days)
+                    ? t("paywall.periodMonths", { count: periodMonths(plan.days)! })
+                    : t("paywall.period", { count: plan.days })}
                 </span>
               </div>
               <ul className="mt-3 space-y-1.5 text-sm text-slate-700 dark:text-slate-300">
