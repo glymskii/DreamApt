@@ -39,6 +39,7 @@ import {
 import {
   useAdminPayments,
   useAdminPaymentAction,
+  useRevokeSubscription,
   type AdminPayment,
   type AdminPaymentsFilter,
   type PaymentStatus,
@@ -217,6 +218,7 @@ function UsersTab() {
   const [filter, setFilter] = useState<UsersFilter>("all");
   const { data, isLoading, error } = useAdminUsers({ page, search, filter });
   const update = useUpdateUserFlags();
+  const revoke = useRevokeSubscription();
 
   const filterButtons: { value: UsersFilter; label: string }[] = [
     { value: "all", label: "Все" },
@@ -273,6 +275,8 @@ function UsersTab() {
           ))}
         </div>
       </div>
+
+      {revoke.error && <p className="text-xs text-destructive">{revoke.error.message}</p>}
 
       {/* Table */}
       {isLoading ? (
@@ -341,6 +345,20 @@ function UsersTab() {
                         >
                           до {formatShortDay(u.searchPaidUntil)}
                         </div>
+                      )}
+                      {u.searchPaidUntil && Date.parse(u.searchPaidUntil) > Date.now() && (
+                        <button
+                          type="button"
+                          className="text-[10px] text-rose-600 dark:text-rose-400 hover:underline disabled:opacity-50"
+                          disabled={revoke.isPending}
+                          onClick={() => {
+                            if (confirmRevoke(u.displayName || u.phone || u.username, u.searchPaidUntil!)) {
+                              revoke.mutate(u.id);
+                            }
+                          }}
+                        >
+                          отменить
+                        </button>
                       )}
                     </td>
                     <td className="p-2 text-center">
@@ -428,12 +446,21 @@ const PAYMENT_STATUS: Record<PaymentStatus, { label: string; className: string }
   pending: { label: "Ждёт счёта", className: "text-amber-700 border-amber-300 dark:text-amber-300 dark:border-amber-800" },
   invoiced: { label: "Счёт выставлен", className: "text-blue-700 border-blue-300 dark:text-blue-300 dark:border-blue-800" },
   paid: { label: "Оплачен", className: "text-emerald-700 border-emerald-300 dark:text-emerald-300 dark:border-emerald-800" },
+  revoked: { label: "Подписка отменена", className: "text-purple-700 border-purple-300 dark:text-purple-300 dark:border-purple-800" },
   cancelled: { label: "Отменён", className: "text-slate-600 border-slate-300 dark:text-slate-400 dark:border-slate-700" },
   expired: { label: "Истёк", className: "text-rose-700 border-rose-300 dark:text-rose-300 dark:border-rose-800" },
 };
 
 const formatShortDay = (iso: string) =>
   new Date(iso).toLocaleDateString("ru-RU", { day: "numeric", month: "short", timeZone: "Asia/Almaty" });
+
+/** Asks before ending someone's paid access. */
+const confirmRevoke = (who: string, until: string) =>
+  window.confirm(
+    `Отменить подписку: ${who}?\n` +
+      `Доступ к поиску (до ${formatShortDay(until)}) закроется сразу, пользователю придёт сообщение в Telegram.\n` +
+      "Деньги, если нужно, верните через Kaspi вручную.",
+  );
 
 const formatMoment = (iso: string) =>
   new Date(iso).toLocaleString("ru-RU", {
@@ -444,6 +471,7 @@ function PaymentsTab() {
   const [status, setStatus] = useState<AdminPaymentsFilter>("open");
   const { data, isLoading, error } = useAdminPayments(status);
   const action = useAdminPaymentAction();
+  const revoke = useRevokeSubscription();
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   // Kaspi Pay's phone field already has +7: copy the ten digits after it.
@@ -492,8 +520,8 @@ function PaymentsTab() {
         ))}
       </div>
 
-      {action.error && (
-        <p className="text-xs text-destructive">{action.error.message}</p>
+      {(action.error || revoke.error) && (
+        <p className="text-xs text-destructive">{(action.error || revoke.error)!.message}</p>
       )}
 
       {isLoading ? (
@@ -511,6 +539,10 @@ function PaymentsTab() {
           {data.map((p) => {
             const busy = action.isPending && action.variables?.id === p.id;
             const open = p.status === "pending" || p.status === "invoiced";
+            const activeUntil =
+              p.status === "paid" && p.user.searchPaidUntil && Date.parse(p.user.searchPaidUntil) > Date.now()
+                ? p.user.searchPaidUntil
+                : null;
             return (
               <div
                 key={p.id}
@@ -542,7 +574,12 @@ function PaymentsTab() {
                     {formatMoment(p.createdAt)}
                     {p.invoicedAt && <span>· счёт {formatMoment(p.invoicedAt)}</span>}
                     {p.paidAt && <span>· оплачен {formatMoment(p.paidAt)}</span>}
-                    {p.accessUntil && <span>· доступ до {formatShortDay(p.accessUntil)}</span>}
+                    {p.accessUntil && (
+                      <span className={p.status === "revoked" ? "line-through" : undefined}>
+                        · доступ до {formatShortDay(p.accessUntil)}
+                      </span>
+                    )}
+                    {p.status === "revoked" && p.closedAt && <span>· отменена {formatMoment(p.closedAt)}</span>}
                     {open && p.user.searchPaidUntil && Date.parse(p.user.searchPaidUntil) > Date.now() && (
                       <span>· сейчас открыт до {formatShortDay(p.user.searchPaidUntil)}</span>
                     )}
@@ -553,6 +590,23 @@ function PaymentsTab() {
                     </p>
                   )}
                 </div>
+                {activeUntil && (
+                  <div className="flex flex-wrap gap-2 shrink-0">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={revoke.isPending}
+                      onClick={() => {
+                        if (confirmRevoke(p.user.displayName || formatStoredPhone(p.phone), activeUntil)) {
+                          revoke.mutate(p.user.id);
+                        }
+                      }}
+                    >
+                      <XCircle className="h-3.5 w-3.5 mr-1" />
+                      Отменить подписку
+                    </Button>
+                  </div>
+                )}
                 {(open || p.status === "expired") && (
                   <div className="flex flex-wrap gap-2 shrink-0">
                     {open && (

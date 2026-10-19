@@ -3,7 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api-client";
 
-export type PaymentStatus = "pending" | "invoiced" | "paid" | "cancelled" | "expired";
+export type PaymentStatus = "pending" | "invoiced" | "paid" | "revoked" | "cancelled" | "expired";
 
 export interface PaymentPlan {
   id: string;
@@ -80,6 +80,19 @@ export function useAdminPayments(status: AdminPaymentsFilter, enabled = true) {
     queryFn: () => api.get<AdminPayment[]>(`/admin/payments?status=${status}`),
     enabled,
     refetchInterval: status === "open" ? 30_000 : false,
+  });
+}
+
+/** Ends a user's paid search access now. */
+export function useRevokeSubscription() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (userId: string) =>
+      api.post<{ userId: string; revokedPayments: number }>(`/admin/subscriptions/${userId}/revoke`, {}),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin", "payments"] });
+      qc.invalidateQueries({ queryKey: ["admin", "users"] });
+    },
   });
 }
 

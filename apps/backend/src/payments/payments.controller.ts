@@ -82,4 +82,11 @@ export class PaymentsController {
   cancel(@Param("id", ParseUUIDPipe) id: string, @Body() dto: NoteDto, @Req() req: any) {
     return this.payments.cancel(id, req.user.id, dto.note);
   }
+
+  /** Ends a user's paid search access now. */
+  @Post("admin/subscriptions/:userId/revoke")
+  @UseGuards(AdminGuard)
+  revoke(@Param("userId", ParseUUIDPipe) userId: string, @Req() req: any) {
+    return this.payments.revokeSubscription(userId, req.user.id);
+  }
 }

@@ -8,7 +8,7 @@ import {
 } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Cron } from "@nestjs/schedule";
-import { In, LessThan, Repository } from "typeorm";
+import { In, LessThan, MoreThan, Repository } from "typeorm";
 import {
   OPEN_PAYMENT_STATUSES,
   PaymentEntity,
@@ -64,6 +64,7 @@ const STATUS_RU: Record<PaymentStatus, string> = {
   pending: "ожидает счёта",
   invoiced: "со счётом",
   paid: "оплачен",
+  revoked: "отозван",
   cancelled: "отменён",
   expired: "истёк",
 };
@@ -293,6 +294,40 @@ export class PaymentsService {
     }
     this.logger.log(`Payment ${paymentId} paid; access until ${paid.payment.accessUntil!.toISOString()}`);
     return paid.payment;
+  }
+
+  /**
+   * Cancel a user's paid subscription now: access ends at once and the
+   * payments still covering the future are marked revoked. Money, if it
+   * is to be returned, goes back through Kaspi by hand.
+   */
+  async revokeSubscription(userId: string, adminId: string): Promise<{ userId: string; revokedPayments: number }> {
+    const result = await this.paymentsRepo.manager.transaction(async (mgr) => {
+      const user = await mgr.getRepository(UserEntity).findOne({
+        where: { id: userId },
+        lock: { mode: "pessimistic_write" },
+      });
+      if (!user) throw new NotFoundException("Пользователь не найден");
+      const now = new Date();
+      if (!user.searchPaidUntil || new Date(user.searchPaidUntil) <= now) {
+        throw new BadRequestException("Подписка не активна");
+      }
+      await mgr.getRepository(UserEntity).update(user.id, { searchPaidUntil: now });
+      const revoked = await mgr.getRepository(PaymentEntity).update(
+        { userId, status: "paid", accessUntil: MoreThan(now) },
+        { status: "revoked", closedAt: now, processedBy: adminId },
+      );
+      return { chatId: user.telegramChatId, revokedPayments: revoked.affected ?? 0 };
+    });
+
+    if (result.chatId) {
+      await this.telegram.sendMessage(
+        result.chatId,
+        "Подписка на поиск квартир DreamApt отменена, доступ к поиску закрыт.",
+      );
+    }
+    this.logger.log(`Subscription of user ${userId} revoked by ${adminId}`);
+    return { userId, revokedPayments: result.revokedPayments };
   }
 
   /** Close open payments nobody paid. */
