@@ -17,13 +17,14 @@ import { UserEntity } from "./user.entity";
  *   pending  → the user asked to pay; nobody has billed them yet
  *   invoiced → a Kaspi invoice went to their phone
  *   paid     → money confirmed; the user's access was extended
+ *   revoked  → was paid, but an admin cancelled the subscription early
  *   cancelled / expired → closed without payment
  *
  * `provider` names who billed the user: "kaspi_manual" is an admin issuing
  * the invoice in the Kaspi Pay app by hand. An automated provider fills
  * `externalId` with its own operation id.
  */
-export type PaymentStatus = "pending" | "invoiced" | "paid" | "cancelled" | "expired";
+export type PaymentStatus = "pending" | "invoiced" | "paid" | "revoked" | "cancelled" | "expired";
 export type PaymentFeature = "search";
 
 export const OPEN_PAYMENT_STATUSES: PaymentStatus[] = ["pending", "invoiced"];

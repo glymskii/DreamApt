@@ -153,6 +153,25 @@ async function main() {
     assert.equal((await service.listForAdmin("open")).length, 0);
     assert.equal((await service.listForAdmin("paid")).length, 4);
 
+    // The admin cancels the subscription: access ends now, the payments
+    // still covering the future are revoked, the buyer hears about it.
+    await rejects(service.revokeSubscription(stranger.id, buyer.id), /не активна/);
+    const sent = messages.length;
+    const revoked = await service.revokeSubscription(buyer.id, buyer.id);
+    assert.equal(revoked.revokedPayments, 4);
+    const afterRevoke = await users.findOneByOrFail({ id: buyer.id });
+    assert.ok(!hasSearchAccess(afterRevoke));
+    assert.equal(messages.length, sent + 1);
+    assert.match(messages[sent][1], /отменена/);
+    assert.equal((await service.listForAdmin("paid")).length, 0);
+    await rejects(service.revokeSubscription(buyer.id, buyer.id), /не активна/);
+    await rejects(service.markPaid(first.id, buyer.id), /уже отозван/);
+
+    // Paying again starts from now, not from the revoked period's end.
+    const fresh = await service.checkout(buyer.id, plan.id);
+    const freshUntil = Date.parse((await service.markPaid(fresh.id, buyer.id)).accessUntil!);
+    assert.ok(Math.abs(freshUntil - (Date.now() + 30 * DAY)) < 60_000);
+
     console.log("payments: ok");
   } finally {
     await db.destroy();
