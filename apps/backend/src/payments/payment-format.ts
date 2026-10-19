@@ -9,6 +9,11 @@ export function formatPhone(phone: string): string {
   return m ? `+7 ${m[1]} ${m[2]} ${m[3]} ${m[4]}` : phone;
 }
 
+/** 90 → «3 мес.», 45 → «45 дн.» */
+export function formatPeriod(days: number): string {
+  return days % 30 === 0 ? `${days / 30} мес.` : `${days} дн.`;
+}
+
 /** «17 ноября» in Almaty time. */
 export function formatDay(date: Date): string {
   return new Intl.DateTimeFormat("ru-RU", { day: "numeric", month: "long", timeZone: "Asia/Almaty" }).format(date);

@@ -315,6 +315,8 @@
   "paywall": {
     "period_one": "{{count}} күнге",
     "period_other": "{{count}} күнге",
+    "periodMonths_one": "{{count}} айға",
+    "periodMonths_other": "{{count}} айға",
     "perkMatch": "Krisha.kz-тен сіздің талаптарыңыз бойынша пәтер іріктеу",
     "perkScore": "ТК бағасы: құрылыс компаниясы, сейсмика, ауа және инфрақұрылым",
     "perkUnlimited": "Кезең ішінде шексіз іздеу",

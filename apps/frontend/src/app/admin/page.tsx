@@ -43,7 +43,7 @@ import {
   type AdminPaymentsFilter,
   type PaymentStatus,
 } from "@/hooks/usePayments";
-import { formatTenge } from "@/lib/access";
+import { formatPeriodShort, formatTenge } from "@/lib/access";
 import {
   ArrowLeft, Phone, CheckCircle2, XCircle, Copy, Loader2, Clock,
   Shield, BarChart3, Users, KeyRound, MessageCircle, Search,
@@ -459,7 +459,7 @@ function PaymentsTab() {
 
   const run = (p: AdminPayment, act: "invoiced" | "paid" | "cancel") => {
     if (act === "paid" && !window.confirm(
-      `${formatTenge(p.amount)} от ${formatStoredPhone(p.phone)} пришли в Kaspi?\nДоступ к поиску продлится на ${p.days} дн.`,
+      `${formatTenge(p.amount)} от ${formatStoredPhone(p.phone)} пришли в Kaspi?\nДоступ к поиску продлится на ${formatPeriodShort(p.days)}`,
     )) return;
     if (act === "cancel" && !window.confirm("Отменить платёж?")) return;
     action.mutate({ id: p.id, action: act });
@@ -519,7 +519,7 @@ function PaymentsTab() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-base font-semibold">{formatTenge(p.amount)}</span>
-                    <span className="text-xs text-muted-foreground">· поиск на {p.days} дн.</span>
+                    <span className="text-xs text-muted-foreground">· поиск на {formatPeriodShort(p.days)}</span>
                     <Badge variant="outline" className={`text-[10px] py-0 ${PAYMENT_STATUS[p.status].className}`}>
                       {PAYMENT_STATUS[p.status].label}
                     </Badge>

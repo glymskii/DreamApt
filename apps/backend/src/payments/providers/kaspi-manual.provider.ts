@@ -3,7 +3,7 @@ import { TelegramService } from "../../telegram/telegram.service";
 import type { PaymentEntity } from "../../database/entities/payment.entity";
 import type { UserEntity } from "../../database/entities/user.entity";
 import type { PaymentProvider } from "./payment-provider";
-import { formatPhone, formatTenge } from "../payment-format";
+import { formatPeriod, formatPhone, formatTenge } from "../payment-format";
 
 /**
  * Kaspi Pay without an API: the admin gets a Telegram message with the
@@ -23,7 +23,7 @@ export class KaspiManualProvider implements PaymentProvider {
       [
         "💳 Новая оплата DreamApt",
         `Номер Kaspi: ${formatPhone(payment.phone)}`,
-        `Сумма: ${formatTenge(payment.amount)} — поиск на ${payment.days} дн.`,
+        `Сумма: ${formatTenge(payment.amount)} — поиск на ${formatPeriod(payment.days)}`,
         "",
         "Выставьте счёт в Kaspi Pay → «Удалённая оплата», затем отметьте его в админке:",
         `${site}/admin?tab=payments`,
