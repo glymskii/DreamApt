@@ -96,13 +96,35 @@ export interface DailyProfileStation {
   pm25: (number | null)[];
 }
 
+/**
+ * Which days a typical day is built from. Almaty's evenings are much
+ * dirtier on weekends (≈ +50–75% at 17–23 h over a year of data), so
+ * blending the two hides the pattern.
+ */
+export type DayType = "all" | "weekday" | "weekend";
+
+export function parseDayType(raw: unknown): DayType {
+  return raw === "weekday" || raw === "weekend" ? raw : "all";
+}
+
+/** SQL condition on `<alias>.day` for a DayType (ISO weekday 6–7 = Sat–Sun). */
+const dayTypeSql = (type: DayType, alias: string) =>
+  type === "weekday"
+    ? `AND EXTRACT(ISODOW FROM ${alias}.day) < 6`
+    : type === "weekend"
+      ? `AND EXTRACT(ISODOW FROM ${alias}.day) >= 6`
+      : "";
+
 /** A typical day: what each sensor usually shows at each hour. */
 export interface DailyProfile {
   timezone: string;
   /** Window asked for, in days. */
   days: number;
-  /** Local days in the window when at least CITYWIDE_STATIONS sensors
-   *  reported; days with any reading if there was no such day. */
+  /** Days of the week the profile is built from. */
+  dayType: DayType;
+  /** Local days in the window (of `dayType`) when at least
+   *  CITYWIDE_STATIONS sensors reported; days with any reading if there
+   *  was no such day. */
   daysCovered: number;
   /** First and last local day with data, YYYY-MM-DD. */
   firstDay: string | null;
@@ -129,7 +151,7 @@ const CITYWIDE_STATIONS = 10;
 export class AirQualityAggregateService {
   private readonly logger = new Logger(AirQualityAggregateService.name);
   private coverageCache: { value: ArchiveCoverage; at: number } | null = null;
-  private profileCache = new Map<number, { value: DailyProfile; at: number }>();
+  private profileCache = new Map<string, { value: DailyProfile; at: number }>();
 
   constructor(
     @InjectRepository(AirQualityDailyEntity)
@@ -268,13 +290,15 @@ export class AirQualityAggregateService {
 
   /**
    * Typical day for the map's time-of-day slider: each sensor's mean PM2.5
-   * at every local hour over the last `days` Almaty days. Co-located units
-   * are merged like the live map does.
+   * at every local hour over the last `days` Almaty days — all of them, or
+   * only weekdays / weekends. Co-located units are merged like the live
+   * map does.
    */
-  async getDailyProfile(days = 365): Promise<DailyProfile> {
+  async getDailyProfile(days = 365, dayType: DayType = "all"): Promise<DailyProfile> {
     const window = Math.min(MAX_WINDOW_DAYS, Math.max(1, Math.round(days)));
     const now = Date.now();
-    const cached = this.profileCache.get(window);
+    const cacheKey = `${window}:${dayType}`;
+    const cached = this.profileCache.get(cacheKey);
     if (cached && now - cached.at < CACHE_TTL_MS) return cached.value;
 
     const cells: Array<{ stationId: string; hour: number; avg: number }> =
@@ -282,7 +306,7 @@ export class AirQualityAggregateService {
         `SELECT d.station_id AS "stationId", (x.i - 1)::int AS hour, AVG(x.v)::float AS avg
          FROM air_quality_daily d
          ${UNNEST_SQL}
-         WHERE d.day >= ${sinceDaySql("$1")} AND x.v IS NOT NULL
+         WHERE d.day >= ${sinceDaySql("$1")} AND x.v IS NOT NULL ${dayTypeSql(dayType, "d")}
          GROUP BY d.station_id, x.i`,
         [window],
       );
@@ -292,8 +316,9 @@ export class AirQualityAggregateService {
     const [span]: Array<{ citywide: number; days: number; first: string | null; last: string | null }> =
       await this.dailyRepo.query(
         `WITH daily AS (
-           SELECT day AS d, COUNT(*) AS stations FROM air_quality_daily
-           WHERE day >= ${sinceDaySql("$1")} AND hours > 0 GROUP BY day
+           SELECT a.day AS d, COUNT(*) AS stations FROM air_quality_daily a
+           WHERE a.day >= ${sinceDaySql("$1")} AND a.hours > 0 ${dayTypeSql(dayType, "a")}
+           GROUP BY a.day
          )
          SELECT COUNT(*) FILTER (WHERE stations >= $2)::int AS citywide,
                 COUNT(*)::int AS days,
@@ -311,6 +336,7 @@ export class AirQualityAggregateService {
          WHERE EXISTS (
            SELECT 1 FROM air_quality_daily d
            WHERE d.station_id = s.station_id AND d.day >= ${sinceDaySql("$1")} AND d.hours > 0
+             ${dayTypeSql(dayType, "d")}
          )
          ORDER BY s.station_id`,
         [window],
@@ -357,13 +383,14 @@ export class AirQualityAggregateService {
     const value: DailyProfile = {
       timezone: ALMATY_TZ,
       days: window,
+      dayType,
       daysCovered: Number(span?.citywide || span?.days || 0),
       firstDay: span?.first ?? null,
       lastDay: span?.last ?? null,
       hours,
       stations,
     };
-    this.profileCache.set(window, { value, at: now });
+    this.profileCache.set(cacheKey, { value, at: now });
     return value;
   }
 }

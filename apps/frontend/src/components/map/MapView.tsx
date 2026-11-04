@@ -8,7 +8,7 @@ import { FeaturePanel } from "./FeaturePanel";
 import { MapLegend } from "./MapLegend";
 import { AirTimeline, formatHour } from "./AirTimeline";
 import { readMapColor, popupIcon } from "./feature-style";
-import { useAirDailyProfile, type AirStation, type MapData } from "@/hooks/useComplexes";
+import { useAirDailyProfile, type AirDayType, type AirStation, type MapData } from "@/hooks/useComplexes";
 import { formatPrice } from "@/lib/utils";
 import { useTheme } from "@/components/theme-provider";
 import { EMPTY_FIELD, FIELD_COORDINATES, renderPm25Field } from "@/lib/airquality-interpolation";
@@ -250,7 +250,8 @@ export default function MapView({
   // Air timeline: null = live readings, else an Almaty hour of the typical
   // day built from our archive.
   const [airHour, setAirHour] = useState<number | null>(null);
-  const airProfile = useAirDailyProfile(showAirQuality);
+  const [airDayType, setAirDayType] = useState<AirDayType>("all");
+  const airProfile = useAirDailyProfile(showAirQuality, airDayType);
 
   const liveAir = useMemo<AirStationView[]>(
     () => (data.airStations || []).map((s) => ({ ...s, hour: null })),
@@ -1049,6 +1050,7 @@ export default function MapView({
           className={`pointer-events-auto ${wideMap ? "mx-auto min-w-0 max-w-xl flex-1" : "order-first basis-full"}`}
           profile={airProfile.data} loading={airProfile.isLoading}
           hour={airHour} onHourChange={setAirHour}
+          dayType={airDayType} onDayTypeChange={setAirDayType}
           liveCount={liveAir.length} liveAvg={liveAirAvg} />
       )}
 
