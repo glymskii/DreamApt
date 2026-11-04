@@ -11,6 +11,7 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { AirKazService } from "./airkaz.service";
 import { AirQualityAggregateService, parseDayType } from "./air-quality-aggregate.service";
+import { AirQualityArchiveService } from "./air-quality-archive.service";
 import { ResidentialComplexEntity } from "../database/entities/residential-complex.entity";
 
 @Controller()
@@ -18,6 +19,7 @@ export class AirQualityController {
   constructor(
     private airKaz: AirKazService,
     private aggregates: AirQualityAggregateService,
+    private archive: AirQualityArchiveService,
     @InjectRepository(ResidentialComplexEntity)
     private complexesRepo: Repository<ResidentialComplexEntity>,
   ) {}
@@ -61,7 +63,9 @@ export class AirQualityController {
   @Get("air-quality/coverage")
   @Header("Cache-Control", "public, max-age=0, s-maxage=300")
   async getCoverage() {
-    return this.aggregates.getCoverage();
+    // `archive` is what the import/rollup jobs last did — the way to see a
+    // stuck dataset sync without the host's logs.
+    return { ...(await this.aggregates.getCoverage()), archive: this.archive.getStatus() };
   }
 
   /**
