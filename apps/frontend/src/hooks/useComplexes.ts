@@ -218,11 +218,13 @@ export interface AirDailyProfile {
   }>;
 }
 
-/** Powers the map's time-of-day slider; fetched once the air layer is on. */
+/** Powers the map's time-of-day slider; fetched once the air layer is on.
+ *  A year, not a few weeks: Almaty's air swings hard between seasons, and a
+ *  short window would describe whichever weeks we happened to record. */
 export function useAirDailyProfile(enabled: boolean) {
   return useQuery({
-    queryKey: ["air-daily-profile"],
-    queryFn: () => api.get<AirDailyProfile>("/air-quality/daily-profile?days=14"),
+    queryKey: ["air-daily-profile", 365],
+    queryFn: () => api.get<AirDailyProfile>("/air-quality/daily-profile?days=365"),
     enabled,
     staleTime: 30 * 60 * 1000,
   });

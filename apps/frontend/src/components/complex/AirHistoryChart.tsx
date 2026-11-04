@@ -184,6 +184,18 @@ export function AirHistoryChart({ data, isLoading }: Props) {
         })}
         {period ? ` · ${period}` : ""}
       </p>
+      <p className="text-xs leading-snug text-muted-foreground">
+        {t("airHistory.sourcePrefix")}{" "}
+        <a
+          href="https://air.org.kz"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline underline-offset-2 hover:text-foreground"
+        >
+          Almaty Air Initiative
+        </a>{" "}
+        {t("airHistory.sourceSuffix")}
+      </p>
     </div>
   );
 }

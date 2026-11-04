@@ -3,6 +3,7 @@ import { Cron, CronExpression } from "@nestjs/schedule";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository, LessThan } from "typeorm";
 import { AirKazService } from "./airkaz.service";
+import { AirQualityArchiveService } from "./air-quality-archive.service";
 import { AirQualityReadingEntity } from "../database/entities/air-quality-reading.entity";
 
 /**
@@ -16,9 +17,10 @@ import { AirQualityReadingEntity } from "../database/entities/air-quality-readin
  * grow ~19k rows/day = ~7M/year. The (recordedAt, stationId) compound
  * index keeps time-window queries cheap.
  *
- * Retention: 90 days of detailed data — beyond that we should pre-aggregate
- * into hourly/daily averages and prune. For now we keep raw rows; the
- * pruneOldReadings cron at 3:30 AM enforces the cap.
+ * Retention: raw rows are only a buffer. AirQualityArchiveService rolls
+ * them up hourly into `air_quality_daily` (the long-term history), and the
+ * pruneOldReadings cron at 3:30 AM drops raw rows older than the retention
+ * window — but never ones the archive hasn't taken in yet.
  */
 @Injectable()
 export class AirQualityRecorderService implements OnModuleInit {
@@ -30,6 +32,7 @@ export class AirQualityRecorderService implements OnModuleInit {
 
   constructor(
     private airKaz: AirKazService,
+    private archive: AirQualityArchiveService,
     @InjectRepository(AirQualityReadingEntity)
     private readingsRepo: Repository<AirQualityReadingEntity>,
   ) {}
@@ -61,10 +64,23 @@ export class AirQualityRecorderService implements OnModuleInit {
    * must be fresher than the retention window. Otherwise the whole table
    * is "old" and pruning would wipe irreplaceable history that no upstream
    * can ever backfill.
+   *
+   * Archive guard: a raw row is only deleted once its day is in the
+   * long-term archive, so the rollup runs first and the cutoff never passes
+   * the newest archived day.
    */
   @Cron("30 3 * * *")
   async pruneOldReadings() {
-    const cutoff = new Date(Date.now() - this.retentionDays * 24 * 60 * 60 * 1000);
+    let cutoff = new Date(Date.now() - this.retentionDays * 24 * 60 * 60 * 1000);
+
+    await this.archive.rollupLive();
+    const archivedThrough = await this.archive.lastArchivedDay();
+    if (!archivedThrough) {
+      this.logger.warn("AQ prune skipped — the long-term archive is empty");
+      return;
+    }
+    const archivedEnd = new Date(`${archivedThrough}T00:00:00+05:00`);
+    if (archivedEnd < cutoff) cutoff = archivedEnd;
 
     const newest = await this.readingsRepo.findOne({
       where: {},

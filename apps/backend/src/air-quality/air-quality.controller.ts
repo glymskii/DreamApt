@@ -66,8 +66,9 @@ export class AirQualityController {
 
   /**
    * Historical averages around a point, bucketed by hour-of-day and
-   * weekday. PUBLIC.
-   *   /air-quality/aggregate?lat=43.23&lng=76.92&radiusKm=3&days=90
+   * weekday, over the last `days` (default a year — stable across seasons,
+   * unlike a few recent weeks). PUBLIC.
+   *   /air-quality/aggregate?lat=43.23&lng=76.92&radiusKm=3&days=365
    */
   @Get("air-quality/aggregate")
   @Header("Cache-Control", "public, max-age=0, s-maxage=300")
@@ -86,20 +87,20 @@ export class AirQualityController {
       lat,
       lng,
       radiusRaw ? Number(radiusRaw) : 3,
-      daysRaw ? Number(daysRaw) : 90,
+      daysRaw ? Number(daysRaw) : 365,
     );
   }
 
   /**
    * Typical day for the map's time-of-day slider: PM2.5 per station by
-   * local (Almaty) hour over the last `days` days. PUBLIC.
-   *   /air-quality/daily-profile?days=14
+   * local (Almaty) hour over the last `days` days (default a year). PUBLIC.
+   *   /air-quality/daily-profile?days=365
    */
   @Get("air-quality/daily-profile")
   @Header("Cache-Control", "public, max-age=0, s-maxage=300")
   async getDailyProfile(@Query("days") daysRaw?: string) {
     const days = Number(daysRaw);
-    return this.aggregates.getDailyProfile(Number.isFinite(days) && days > 0 ? days : 14);
+    return this.aggregates.getDailyProfile(Number.isFinite(days) && days > 0 ? days : 365);
   }
 
   /** Same breakdown, addressed by complex id instead of raw coords. */
@@ -117,7 +118,7 @@ export class AirQualityController {
       Number(complex.lat),
       Number(complex.lng),
       radiusRaw ? Number(radiusRaw) : 3,
-      daysRaw ? Number(daysRaw) : 90,
+      daysRaw ? Number(daysRaw) : 365,
     );
     return { found: true, ...result };
   }
