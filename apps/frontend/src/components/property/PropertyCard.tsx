@@ -4,6 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Heart, MapPin, Clock, ArrowUpRight } from "lucide-react";
 import { formatPrice, formatArea } from "@/lib/utils";
+import { Photo } from "@/components/ui/photo";
 
 interface Props {
   property: {
@@ -47,17 +48,8 @@ export function PropertyCard({ property, onWishlistToggle, onClick }: Props) {
     >
       <div className="relative">
         {/* Photo */}
-        <div className="h-48 bg-muted flex items-center justify-center">
-          {property.photos?.[0] ? (
-            <img
-              src={property.photos[0]}
-              alt={property.title}
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            <span className="text-muted-foreground text-sm">Нет фото</span>
-          )}
-        </div>
+        <Photo src={property.photos?.[0]} alt={property.title} className="h-48"
+          fallback={<span className="text-sm">Нет фото</span>} />
 
         {/* Score badge */}
         {property.scoreTotal > 0 && (

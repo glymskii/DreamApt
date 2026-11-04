@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Clock, Search, Activity, Building, AlertTriangle, Construction, House, SlidersHorizontal, RotateCcw, Check } from "lucide-react";
+import { Clock, Search, Activity, AlertTriangle, Construction, House, SlidersHorizontal, RotateCcw, Check } from "lucide-react";
 import { formatPrice } from "@/lib/utils";
 import {
   completedYear,
@@ -14,6 +14,7 @@ import {
   type Stage,
 } from "@/lib/construction";
 import type { ComplexFilters } from "@/hooks/useComplexFilters";
+import { Photo } from "@/components/ui/photo";
 
 interface MapSidebarProps {
   // Owned by the page: the map draws the same filtered ЖК.
@@ -235,15 +236,7 @@ export function MapSidebar({ filters, selectedId, onSelect, onHover, isMobile }:
               onMouseLeave={() => onHover(null)}
             >
               {/* Photo */}
-              <div className="w-14 h-14 rounded-lg overflow-hidden bg-muted shrink-0">
-                {complex.photoUrl ? (
-                  <img src={complex.photoUrl} alt="" className="w-full h-full object-cover" />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center">
-                    <Building className="h-5 w-5 text-muted-foreground" />
-                  </div>
-                )}
-              </div>
+              <Photo src={complex.photoUrl} className="w-14 h-14 rounded-lg shrink-0" />
 
               {/* Info */}
               <div className="flex-1 min-w-0">

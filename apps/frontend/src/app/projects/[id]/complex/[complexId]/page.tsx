@@ -18,6 +18,7 @@ import {
   Calendar, Star, Shield, AlertTriangle, Activity, Home,
   ChevronRight, ExternalLink, SortAsc, Search,
 } from "lucide-react";
+import { Photo } from "@/components/ui/photo";
 
 const SHUTOV_LABELS: Record<number, string> = {
   0: "А ЧТО ТАК МОЖНО БЫЛО",
@@ -102,11 +103,7 @@ export default function ComplexDetailPage() {
 
         {/* Hero */}
         <div className="mb-6">
-          {complex.photoUrl && (
-            <div className="h-48 sm:h-64 md:h-80 rounded-lg overflow-hidden mb-4">
-              <img src={complex.photoUrl} alt="" className="w-full h-full object-cover" />
-            </div>
-          )}
+          <Photo src={complex.photoUrl} className="h-48 sm:h-64 md:h-80 rounded-lg mb-4" hideWhenMissing />
 
           <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-4">
             <div className="flex-1">
@@ -246,15 +243,7 @@ export default function ComplexDetailPage() {
                         className="flex items-center gap-3 p-3 border rounded-lg cursor-pointer hover:bg-accent/50 transition-colors"
                         onClick={() => router.push(`/projects/${projectId}/property/${prop.id}`)}
                       >
-                        <div className="w-16 h-16 rounded-md overflow-hidden flex-shrink-0 bg-muted">
-                          {prop.photos?.[0] ? (
-                            <img src={prop.photos[0]} alt="" className="w-full h-full object-cover" />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center">
-                              <Building className="h-5 w-5 text-muted-foreground" />
-                            </div>
-                          )}
-                        </div>
+                        <Photo src={prop.photos?.[0]} className="w-16 h-16 rounded-md flex-shrink-0" />
 
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-0.5">
