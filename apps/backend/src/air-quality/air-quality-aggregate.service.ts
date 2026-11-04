@@ -1,27 +1,32 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
-import { AirQualityReadingEntity } from "../database/entities/air-quality-reading.entity";
+import { AirQualityDailyEntity } from "../database/entities/air-quality-daily.entity";
 
 /**
- * Historical PM2.5 aggregates over our own `air_quality_readings` archive.
+ * Historical PM2.5 aggregates over the long-term archive `air_quality_daily`
+ * (one row per station per Almaty day, 24 hourly means — see
+ * AirQualityArchiveService for how it's filled: Almaty Air Initiative's
+ * open dataset plus our own rolled-up live snapshots).
  *
- * This is the feature the original spec deferred until "enough data has
- * accumulated": average air quality at a location broken down by hour of
- * day and by day of week — e.g. "у этого ЖК воздух стабильно хуже по
- * будним утрам" — which a single live reading can never tell you.
+ * Average air quality at a location broken down by hour of day and by day
+ * of week — e.g. "у этого ЖК воздух стабильно хуже по будним утрам" — which
+ * a single live reading can never tell you. With a year of history the
+ * numbers are stable instead of reflecting whichever weeks we happened to
+ * record.
  *
- * Everything is computed in SQL (one grouped scan per breakdown) so we
- * never pull raw rows into Node. The archive is append-only, so results
- * are cached briefly — the numbers only shift as new snapshots land.
+ * Every station-hour counts exactly once: the archive already holds one
+ * value per (station, hour). Everything is computed in SQL; results are
+ * cached briefly.
  *
- * Timezone: buckets are Almaty wall-clock hours, see LOCAL_TIME_SQL.
+ * Timezone: buckets are Almaty wall-clock hours.
  */
 
 export const ALMATY_TZ = "Asia/Almaty";
 
 /**
- * Almaty wall-clock time of a reading, as a SQL expression.
+ * Almaty wall-clock time of a raw `air_quality_readings` row, as a SQL
+ * expression (used when rolling raw snapshots up into the archive).
  *
  * `recorded_at` (timestamp without time zone) holds the upstream's own
  * timestamp in one of two conventions. Rows written before the October 2026
@@ -36,6 +41,14 @@ export const LOCAL_TIME_SQL = `(CASE
   ELSE (recorded_at AT TIME ZONE 'UTC') AT TIME ZONE '${ALMATY_TZ}'
 END)`;
 
+/** First Almaty day of an N-day window ending today, as SQL on `$n`. */
+const sinceDaySql = (param: string) =>
+  `((now() AT TIME ZONE '${ALMATY_TZ}')::date - (${param}::int - 1))`;
+
+/** Every archived station-hour as (station_id, day, hour, pm25). */
+const UNNEST_SQL = `
+  CROSS JOIN LATERAL unnest(d.pm25) WITH ORDINALITY AS x(v, i)`;
+
 export interface HourBucket {
   hour: number; // 0..23 local
   avgPm25: number;
@@ -49,6 +62,7 @@ export interface WeekdayBucket {
 }
 
 export interface ArchiveCoverage {
+  /** Station-hours held. */
   totalRows: number;
   stations: number;
   firstReading: string | null;
@@ -105,6 +119,8 @@ const MIN_SAMPLES_TOTAL = 24;
 /** Enough history for weekday patterns to be meaningful. */
 const MIN_DAYS_FOR_SUFFICIENT = 14;
 const CACHE_TTL_MS = 10 * 60 * 1000;
+/** Longest window any breakdown accepts. */
+export const MAX_WINDOW_DAYS = 400;
 /** Sensors reporting on a day for it to count as a citywide picture; the
  *  map draws its interpolated field from the same number. */
 const CITYWIDE_STATIONS = 10;
@@ -116,8 +132,8 @@ export class AirQualityAggregateService {
   private profileCache = new Map<number, { value: DailyProfile; at: number }>();
 
   constructor(
-    @InjectRepository(AirQualityReadingEntity)
-    private readingsRepo: Repository<AirQualityReadingEntity>,
+    @InjectRepository(AirQualityDailyEntity)
+    private dailyRepo: Repository<AirQualityDailyEntity>,
   ) {}
 
   /** How much history we actually hold. Also the honest answer to
@@ -127,27 +143,27 @@ export class AirQualityAggregateService {
     if (this.coverageCache && now - this.coverageCache.at < CACHE_TTL_MS) {
       return this.coverageCache.value;
     }
-    const row = await this.readingsRepo
-      .createQueryBuilder("r")
-      .select("COUNT(*)", "total")
-      .addSelect("COUNT(DISTINCT r.stationId)", "stations")
-      .addSelect("MIN(r.recordedAt)", "first")
-      .addSelect("MAX(r.recordedAt)", "last")
-      .getRawOne<{ total: string; stations: string; first: Date | null; last: Date | null }>();
+    const [row] = await this.dailyRepo.query(
+      `SELECT COALESCE(SUM(hours), 0)::bigint AS total,
+              COUNT(DISTINCT station_id)::int AS stations,
+              to_char(MIN(day), 'YYYY-MM-DD') AS first,
+              to_char(MAX(day), 'YYYY-MM-DD') AS last
+       FROM air_quality_daily WHERE hours > 0`,
+    );
 
-    const first = row?.first ? new Date(row.first) : null;
-    const last = row?.last ? new Date(row.last) : null;
+    // Days are Almaty dates; report them as the instant the day starts.
+    const iso = (day: string | null) => (day ? new Date(`${day}T00:00:00+05:00`).toISOString() : null);
+    const first = iso(row?.first ?? null);
+    const last = iso(row?.last ?? null);
     const daysSpanned =
-      first && last
-        ? Math.max(0, Math.round((last.getTime() - first.getTime()) / 86400000))
-        : 0;
-    const totalRows = parseInt(row?.total || "0", 10);
+      first && last ? Math.round((Date.parse(last) - Date.parse(first)) / 86400000) : 0;
+    const totalRows = Number(row?.total || 0);
 
     const value: ArchiveCoverage = {
       totalRows,
-      stations: parseInt(row?.stations || "0", 10),
-      firstReading: first ? first.toISOString() : null,
-      lastReading: last ? last.toISOString() : null,
+      stations: Number(row?.stations || 0),
+      firstReading: first,
+      lastReading: last,
       daysSpanned,
       sufficient: totalRows >= 1000 && daysSpanned >= MIN_DAYS_FOR_SUFFICIENT,
     };
@@ -156,26 +172,17 @@ export class AirQualityAggregateService {
   }
 
   /**
-   * Averages around a point, bucketed by hour-of-day and weekday.
+   * Averages around a point, bucketed by hour-of-day and weekday, over the
+   * last `days` Almaty days.
    *
-   * Radius filtering uses a bounding box on the indexed lat/lng columns
-   * plus an exact haversine — the box lets Postgres skip most rows before
-   * doing trig.
-   *
-   * De-duplication matters more than it looks. The upstream publishes
-   * *hourly* values, while we snapshot every 30 min AND on every boot —
-   * and on a free-tier host that sleeps, boots cluster around whenever
-   * traffic happened to arrive. Averaging raw rows therefore weights each
-   * hour by how often we polled it, not by time: one real Thursday
-   * afternoon reading could outvote a whole quiet Saturday. So we first
-   * collapse to one value per (station, hour), then average those. Every
-   * station-hour now counts exactly once, whatever the polling did.
+   * Stations are picked by a bounding box plus an exact haversine on the
+   * small stations table; only their archive rows are unnested.
    */
   async getForLocation(
     lat: number,
     lng: number,
     radiusKm = 3,
-    days = 90,
+    days = 365,
   ): Promise<AggregateResult> {
     const coverage = await this.getCoverage();
     if (coverage.totalRows === 0) {
@@ -183,44 +190,34 @@ export class AirQualityAggregateService {
     }
 
     const radius = Math.min(15, Math.max(0.5, radiusKm));
-    const since = new Date(Date.now() - Math.min(365, Math.max(1, days)) * 86400000);
+    const window = Math.min(MAX_WINDOW_DAYS, Math.max(1, Math.round(days)));
 
     // Degrees of latitude/longitude covering the radius at this latitude.
     const dLat = radius / 111.32;
     const dLng = radius / (111.32 * Math.cos((lat * Math.PI) / 180) || 1);
 
-    // One row per (station, hour) after the geo/time filter. Parameters are
-    // positional so the CTE can be reused verbatim by each aggregate below.
-    const dedupedCte = `
-      WITH deduped AS (
-        SELECT station_id,
-               date_trunc('hour', ${LOCAL_TIME_SQL}) AS h,
-               AVG(pm25)::float AS pm25
-        FROM air_quality_readings
-        WHERE pm25 IS NOT NULL
-          AND recorded_at >= $1
-          AND lat BETWEEN $2 AND $3
+    const hoursCte = `
+      WITH st AS (
+        SELECT station_id FROM air_quality_stations
+        WHERE lat BETWEEN $2 AND $3
           AND lng BETWEEN $4 AND $5
           AND 6371 * acos(LEAST(1,
                 cos(radians($6)) * cos(radians(lat)) *
                 cos(radians(lng) - radians($7)) +
                 sin(radians($6)) * sin(radians(lat)))) <= $8
-        GROUP BY station_id, h
+      ),
+      hours AS (
+        SELECT d.day, (x.i - 1)::int AS hour, x.v::float AS pm25
+        FROM air_quality_daily d
+        JOIN st ON st.station_id = d.station_id
+        ${UNNEST_SQL}
+        WHERE d.day >= ${sinceDaySql("$1")} AND x.v IS NOT NULL
       )`;
-    const params = [
-      since,
-      lat - dLat,
-      lat + dLat,
-      lng - dLng,
-      lng + dLng,
-      lat,
-      lng,
-      radius,
-    ];
+    const params = [window, lat - dLat, lat + dLat, lng - dLng, lng + dLng, lat, lng, radius];
 
-    const [totalRow] = await this.readingsRepo.query(
-      `${dedupedCte}
-       SELECT COUNT(*)::int AS samples, AVG(pm25) AS avg FROM deduped`,
+    const [totalRow] = await this.dailyRepo.query(
+      `${hoursCte}
+       SELECT COUNT(*)::int AS samples, AVG(pm25) AS avg FROM hours`,
       params,
     );
 
@@ -228,31 +225,23 @@ export class AirQualityAggregateService {
     if (samples < MIN_SAMPLES_TOTAL) {
       return {
         coverage,
-        location: {
-          lat,
-          lng,
-          radiusKm: radius,
-          samples,
-          avgPm25: null,
-          byHour: [],
-          byWeekday: [],
-        },
+        location: { lat, lng, radiusKm: radius, samples, avgPm25: null, byHour: [], byWeekday: [] },
       };
     }
 
     const hourRows: Array<{ bucket: string; avg: string; samples: number }> =
-      await this.readingsRepo.query(
-        `${dedupedCte}
-         SELECT EXTRACT(HOUR FROM h) AS bucket, AVG(pm25) AS avg, COUNT(*)::int AS samples
-         FROM deduped GROUP BY bucket ORDER BY bucket ASC`,
+      await this.dailyRepo.query(
+        `${hoursCte}
+         SELECT hour AS bucket, AVG(pm25) AS avg, COUNT(*)::int AS samples
+         FROM hours GROUP BY bucket ORDER BY bucket ASC`,
         params,
       );
 
     const weekdayRows: Array<{ bucket: string; avg: string; samples: number }> =
-      await this.readingsRepo.query(
-        `${dedupedCte}
-         SELECT EXTRACT(DOW FROM h) AS bucket, AVG(pm25) AS avg, COUNT(*)::int AS samples
-         FROM deduped GROUP BY bucket ORDER BY bucket ASC`,
+      await this.dailyRepo.query(
+        `${hoursCte}
+         SELECT EXTRACT(DOW FROM day)::int AS bucket, AVG(pm25) AS avg, COUNT(*)::int AS samples
+         FROM hours GROUP BY bucket ORDER BY bucket ASC`,
         params,
       );
 
@@ -269,82 +258,62 @@ export class AirQualityAggregateService {
         avgPm25: round1(totalRow?.avg ?? null),
         byHour: hourRows
           .filter((r) => Number(r.samples) >= MIN_SAMPLES_PER_BUCKET)
-          .map((r) => ({
-            hour: Number(r.bucket),
-            avgPm25: round1(r.avg),
-            samples: Number(r.samples),
-          })),
+          .map((r) => ({ hour: Number(r.bucket), avgPm25: round1(r.avg), samples: Number(r.samples) })),
         byWeekday: weekdayRows
           .filter((r) => Number(r.samples) >= MIN_SAMPLES_PER_BUCKET)
-          .map((r) => ({
-            weekday: Number(r.bucket),
-            avgPm25: round1(r.avg),
-            samples: Number(r.samples),
-          })),
+          .map((r) => ({ weekday: Number(r.bucket), avgPm25: round1(r.avg), samples: Number(r.samples) })),
       },
     };
   }
 
   /**
    * Typical day for the map's time-of-day slider: each sensor's mean PM2.5
-   * at every local hour over the last `days` days.
-   *
-   * Same de-duplication as getForLocation — one value per station per
-   * clock hour first — so a burst of boot snapshots can't outweigh the
-   * other days. Co-located units are merged like the live map does.
+   * at every local hour over the last `days` Almaty days. Co-located units
+   * are merged like the live map does.
    */
-  async getDailyProfile(days = 14): Promise<DailyProfile> {
-    const window = Math.min(90, Math.max(1, Math.round(days)));
+  async getDailyProfile(days = 365): Promise<DailyProfile> {
+    const window = Math.min(MAX_WINDOW_DAYS, Math.max(1, Math.round(days)));
     const now = Date.now();
     const cached = this.profileCache.get(window);
     if (cached && now - cached.at < CACHE_TTL_MS) return cached.value;
 
-    const since = new Date(now - window * 86400000);
-    const localCte = `
-      WITH local AS (
-        SELECT station_id, pm25::float AS pm25, ${LOCAL_TIME_SQL} AS t
-        FROM air_quality_readings
-        WHERE pm25 IS NOT NULL AND recorded_at >= $1
-      )`;
-
     const cells: Array<{ stationId: string; hour: number; avg: number }> =
-      await this.readingsRepo.query(
-        `${localCte},
-         hourly AS (
-           SELECT station_id, date_trunc('hour', t) AS h, AVG(pm25) AS pm25
-           FROM local GROUP BY station_id, h
-         )
-         SELECT station_id AS "stationId", EXTRACT(HOUR FROM h)::int AS hour,
-                AVG(pm25)::float AS avg
-         FROM hourly GROUP BY station_id, hour`,
-        [since],
+      await this.dailyRepo.query(
+        `SELECT d.station_id AS "stationId", (x.i - 1)::int AS hour, AVG(x.v)::float AS avg
+         FROM air_quality_daily d
+         ${UNNEST_SQL}
+         WHERE d.day >= ${sinceDaySql("$1")} AND x.v IS NOT NULL
+         GROUP BY d.station_id, x.i`,
+        [window],
       );
 
     // A day the whole city was measured, not just a fallback trickle: what
     // «среднее за N дней» honestly means while a big feed is still new.
     const [span]: Array<{ citywide: number; days: number; first: string | null; last: string | null }> =
-      await this.readingsRepo.query(
-        `${localCte},
-         daily AS (
-           SELECT t::date AS d, COUNT(DISTINCT station_id) AS stations FROM local GROUP BY d
+      await this.dailyRepo.query(
+        `WITH daily AS (
+           SELECT day AS d, COUNT(*) AS stations FROM air_quality_daily
+           WHERE day >= ${sinceDaySql("$1")} AND hours > 0 GROUP BY day
          )
          SELECT COUNT(*) FILTER (WHERE stations >= $2)::int AS citywide,
                 COUNT(*)::int AS days,
                 to_char(MIN(d), 'YYYY-MM-DD') AS first,
                 to_char(MAX(d), 'YYYY-MM-DD') AS last
          FROM daily`,
-        [since, CITYWIDE_STATIONS],
+        [window, CITYWIDE_STATIONS],
       );
 
-    // Latest name and position of each station.
+    // Newest name and position of each station that reported in the window.
     const meta: Array<{ stationId: string; name: string; lat: number; lng: number; origin: string | null }> =
-      await this.readingsRepo.query(
-        `SELECT DISTINCT ON (station_id) station_id AS "stationId", name,
-                lat::float AS lat, lng::float AS lng, origin
-         FROM air_quality_readings
-         WHERE pm25 IS NOT NULL AND recorded_at >= $1
-         ORDER BY station_id, recorded_at DESC`,
-        [since],
+      await this.dailyRepo.query(
+        `SELECT s.station_id AS "stationId", s.name, s.lat, s.lng, s.origin
+         FROM air_quality_stations s
+         WHERE EXISTS (
+           SELECT 1 FROM air_quality_daily d
+           WHERE d.station_id = s.station_id AND d.day >= ${sinceDaySql("$1")} AND d.hours > 0
+         )
+         ORDER BY s.station_id`,
+        [window],
       );
 
     const byStation = new Map<string, number[][]>();

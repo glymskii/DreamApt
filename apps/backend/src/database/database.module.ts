@@ -8,6 +8,9 @@ import { CJMScenarioEntity } from "./entities/cjm-scenario.entity";
 import { WishlistItemEntity } from "./entities/wishlist-item.entity";
 import { RegistrationLeadEntity } from "./entities/registration-lead.entity";
 import { AirQualityReadingEntity } from "./entities/air-quality-reading.entity";
+import { AirQualityDailyEntity } from "./entities/air-quality-daily.entity";
+import { AirQualityStationEntity } from "./entities/air-quality-station.entity";
+import { AirQualityImportEntity } from "./entities/air-quality-import.entity";
 import { RequestStatEntity } from "./entities/request-stat.entity";
 import { MapOverlayConfigEntity } from "./entities/map-overlay-config.entity";
 import { OtpCodeEntity } from "./entities/otp-code.entity";
@@ -25,6 +28,9 @@ export const entities = [
   WishlistItemEntity,
   RegistrationLeadEntity,
   AirQualityReadingEntity,
+  AirQualityDailyEntity,
+  AirQualityStationEntity,
+  AirQualityImportEntity,
   RequestStatEntity,
   MapOverlayConfigEntity,
   OtpCodeEntity,
