@@ -106,6 +106,19 @@ async function main() {
     const year = await aggregates().getDailyProfile(365);
     assert.equal(year.firstDay, almatyDay(day - 30 * 86400000));
 
+    // Weekdays and weekends split the same days between them.
+    const isWeekend = (iso: string) => [0, 6].includes(new Date(`${iso}T12:00:00Z`).getUTCDay());
+    const weekday = await aggregates().getDailyProfile(14, "weekday");
+    const weekend = await aggregates().getDailyProfile(14, "weekend");
+    assert.equal(weekday.dayType, "weekday");
+    assert.equal(profile.dayType, "all");
+    assert.equal(weekday.daysCovered + weekend.daysCovered, profile.daysCovered);
+    for (const p of [weekday, weekend]) {
+      for (const d of [p.firstDay, p.lastDay]) {
+        if (d) assert.equal(isWeekend(d), p.dayType === "weekend", `${d} in the ${p.dayType} profile`);
+      }
+    }
+
     // Once a big feed arrives, only the days it covered count: ten more
     // sensors on the first day make it the one citywide day.
     for (let i = 1; i <= 10; i++) {

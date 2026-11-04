@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import * as Slider from "@radix-ui/react-slider";
 import { Pause, Play, Wind } from "lucide-react";
-import type { AirDailyProfile } from "@/hooks/useComplexes";
+import type { AirDailyProfile, AirDayType } from "@/hooks/useComplexes";
 import { classifyPm25 } from "@/lib/pm25";
 
 const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
@@ -13,6 +13,11 @@ const TICKS = [0, 6, 12, 18, 23];
  *  keeps the thumb inside the track, and this lands it on bar centres. */
 const THUMB = 16;
 const STEP_MS = 1000;
+const DAY_TYPES: { value: AirDayType; label: string }[] = [
+  { value: "all", label: "airTimeline.dayAll" },
+  { value: "weekday", label: "airTimeline.dayWeekday" },
+  { value: "weekend", label: "airTimeline.dayWeekend" },
+];
 
 export const formatHour = (hour: number) => `${String(hour).padStart(2, "0")}:00`;
 
@@ -28,12 +33,17 @@ export function almatyHour(now = new Date()): number {
  * with a playhead. Moving it switches the map from live readings to what
  * each sensor usually shows at that hour; «Сейчас» switches back.
  */
-export function AirTimeline({ profile, loading, hour, onHourChange, liveCount, liveAvg, className = "" }: {
+export function AirTimeline({
+  profile, loading, hour, onHourChange, dayType, onDayTypeChange, liveCount, liveAvg, className = "",
+}: {
   profile?: AirDailyProfile;
   loading: boolean;
   /** Selected Almaty hour; null shows live readings. */
   hour: number | null;
   onHourChange: (hour: number | null) => void;
+  /** Days the typical day is built from — weekend evenings run much dirtier. */
+  dayType: AirDayType;
+  onDayTypeChange: (dayType: AirDayType) => void;
   liveCount: number;
   liveAvg: number | null;
   className?: string;
@@ -142,6 +152,31 @@ export function AirTimeline({ profile, loading, hour, onHourChange, liveCount, l
           </span>
         ))}
       </div>
+      {/* The bars are the yearly history in both modes, so the day filter
+          and the credit stay put instead of jumping in and out with the
+          playhead. On narrow maps the credit wraps under the filter. */}
+      {(hasHistory || dayType !== "all") && (
+        <div className="mt-1 flex flex-wrap items-center justify-between gap-x-2">
+          <div role="group" aria-label={t("airTimeline.days")} className="flex gap-1 text-xs">
+            {DAY_TYPES.map(({ value, label }) => (
+              <button key={value} type="button" aria-pressed={dayType === value}
+                onClick={() => onDayTypeChange(value)}
+                className={`min-h-10 min-w-10 rounded-lg px-2.5 transition-colors ${
+                  dayType === value ? "bg-muted font-medium" : "text-muted-foreground hover:text-foreground"
+                }`}>
+                {t(label)}
+              </button>
+            ))}
+          </div>
+          <p className="ml-auto text-[11px] leading-tight text-muted-foreground">
+            {t("airHistory.sourcePrefix")}{" "}
+            <a href="https://air.org.kz" target="_blank" rel="noopener noreferrer"
+              className="underline underline-offset-2 hover:text-foreground">
+              Almaty Air Initiative
+            </a>
+          </p>
+        </div>
+      )}
     </section>
   );
 }

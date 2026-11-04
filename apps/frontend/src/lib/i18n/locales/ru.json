@@ -237,6 +237,10 @@
     "play": "Прокрутить сутки",
     "pause": "Остановить",
     "hour": "Час суток",
+    "days": "Дни недели",
+    "dayAll": "Все дни",
+    "dayWeekday": "Будни",
+    "dayWeekend": "Выходные",
     "popupTypical": "Обычно в {{time}} · среднее за {{days}} дн."
   },
   "comments": {

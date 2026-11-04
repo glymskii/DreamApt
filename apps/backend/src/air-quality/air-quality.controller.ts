@@ -10,7 +10,7 @@ import {
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { AirKazService } from "./airkaz.service";
-import { AirQualityAggregateService } from "./air-quality-aggregate.service";
+import { AirQualityAggregateService, parseDayType } from "./air-quality-aggregate.service";
 import { ResidentialComplexEntity } from "../database/entities/residential-complex.entity";
 
 @Controller()
@@ -93,14 +93,18 @@ export class AirQualityController {
 
   /**
    * Typical day for the map's time-of-day slider: PM2.5 per station by
-   * local (Almaty) hour over the last `days` days (default a year). PUBLIC.
-   *   /air-quality/daily-profile?days=365
+   * local (Almaty) hour over the last `days` days (default a year), from
+   * all days or only weekdays / weekends (`daytype`). PUBLIC.
+   *   /air-quality/daily-profile?days=365&daytype=weekend
    */
   @Get("air-quality/daily-profile")
   @Header("Cache-Control", "public, max-age=0, s-maxage=300")
-  async getDailyProfile(@Query("days") daysRaw?: string) {
+  async getDailyProfile(@Query("days") daysRaw?: string, @Query("daytype") dayTypeRaw?: string) {
     const days = Number(daysRaw);
-    return this.aggregates.getDailyProfile(Number.isFinite(days) && days > 0 ? days : 365);
+    return this.aggregates.getDailyProfile(
+      Number.isFinite(days) && days > 0 ? days : 365,
+      parseDayType(dayTypeRaw),
+    );
   }
 
   /** Same breakdown, addressed by complex id instead of raw coords. */

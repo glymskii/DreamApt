@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api-client";
 
 export interface ResidentialComplex {
@@ -199,10 +199,15 @@ export function useComplexAirHistory(complexId: string) {
   });
 }
 
+/** Which days a typical day is built from: weekend evenings in Almaty are
+ *  much dirtier than weekday ones, so the two are worth telling apart. */
+export type AirDayType = "all" | "weekday" | "weekend";
+
 /** A typical day from our archive: each sensor's mean PM2.5 per Almaty hour. */
 export interface AirDailyProfile {
   timezone: string;
   days: number;
+  dayType: AirDayType;
   daysCovered: number;
   firstDay: string | null;
   lastDay: string | null;
@@ -221,11 +226,14 @@ export interface AirDailyProfile {
 /** Powers the map's time-of-day slider; fetched once the air layer is on.
  *  A year, not a few weeks: Almaty's air swings hard between seasons, and a
  *  short window would describe whichever weeks we happened to record. */
-export function useAirDailyProfile(enabled: boolean) {
+export function useAirDailyProfile(enabled: boolean, dayType: AirDayType = "all") {
   return useQuery({
-    queryKey: ["air-daily-profile", 365],
-    queryFn: () => api.get<AirDailyProfile>("/air-quality/daily-profile?days=365"),
+    queryKey: ["air-daily-profile", 365, dayType],
+    queryFn: () =>
+      api.get<AirDailyProfile>(`/air-quality/daily-profile?days=365&daytype=${dayType}`),
     enabled,
+    // Switching days keeps the old bars until the new ones arrive.
+    placeholderData: keepPreviousData,
     staleTime: 30 * 60 * 1000,
   });
 }
