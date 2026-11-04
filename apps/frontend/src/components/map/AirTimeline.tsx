@@ -29,6 +29,17 @@ export function almatyHour(now = new Date()): number {
 }
 
 /**
+ * Whether it's a weekday or a weekend in Almaty right now, whatever the
+ * visitor's own timezone. The timeline opens on today's kind of day: a
+ * typical Saturday evening is far dirtier than a typical Tuesday one, so
+ * an all-days average would understate (or overstate) what's ahead today.
+ */
+export function almatyDayType(now = new Date()): "weekday" | "weekend" {
+  const day = new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: "Asia/Almaty" }).format(now);
+  return day === "Sat" || day === "Sun" ? "weekend" : "weekday";
+}
+
+/**
  * Time-of-day view of the air layer: 24 bars of the city's typical PM 2.5
  * with a playhead. Moving it switches the map from live readings to what
  * each sensor usually shows at that hour; «Сейчас» switches back.

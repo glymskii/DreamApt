@@ -6,7 +6,7 @@ import maplibregl, { type FilterSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { FeaturePanel } from "./FeaturePanel";
 import { MapLegend } from "./MapLegend";
-import { AirTimeline, formatHour } from "./AirTimeline";
+import { AirTimeline, almatyDayType, formatHour } from "./AirTimeline";
 import { readMapColor, popupIcon } from "./feature-style";
 import { useAirDailyProfile, type AirDayType, type AirStation, type MapData } from "@/hooks/useComplexes";
 import { formatPrice } from "@/lib/utils";
@@ -250,7 +250,9 @@ export default function MapView({
   // Air timeline: null = live readings, else an Almaty hour of the typical
   // day built from our archive.
   const [airHour, setAirHour] = useState<number | null>(null);
-  const [airDayType, setAirDayType] = useState<AirDayType>("all");
+  // Opens on today's kind of day (MapView renders client-only, so the
+  // visitor's clock is safe to read here); «Все дни» is one tap away.
+  const [airDayType, setAirDayType] = useState<AirDayType>(() => almatyDayType());
   const airProfile = useAirDailyProfile(showAirQuality, airDayType);
 
   const liveAir = useMemo<AirStationView[]>(
