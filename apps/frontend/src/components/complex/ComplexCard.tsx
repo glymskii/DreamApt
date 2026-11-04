@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { MapPin, Clock, Building, Star, Activity, Home } from "lucide-react";
 import { formatPrice } from "@/lib/utils";
 import type { ResidentialComplex } from "@/hooks/useComplexes";
+import { Photo } from "@/components/ui/photo";
 
 const SHUTOV_LABELS: Record<number, string> = {
   0: "Идеально",
@@ -51,17 +52,7 @@ export function ComplexCard({ complex, onClick }: Props) {
     >
       <div className="relative">
         {/* Photo */}
-        <div className="h-44 bg-muted flex items-center justify-center">
-          {complex.photoUrl ? (
-            <img
-              src={complex.photoUrl}
-              alt={complex.displayName}
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            <Building className="h-8 w-8 text-muted-foreground" />
-          )}
-        </div>
+        <Photo src={complex.photoUrl} alt={complex.displayName} className="h-44" iconClassName="h-8 w-8" />
 
         {/* Score badge */}
         {complex.scoreTotal != null && complex.scoreTotal > 0 && (

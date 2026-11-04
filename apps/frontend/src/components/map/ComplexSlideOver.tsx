@@ -33,6 +33,7 @@ import {
   MessageSquare, ThumbsUp, ChevronDown, Camera, MessageCircle, Construction,
 } from "lucide-react";
 import Link from "next/link";
+import { Photo } from "@/components/ui/photo";
 
 /**
  * Backend's `seismic.riskLabel` is hardcoded Russian (e.g. "Опасная зона")
@@ -666,11 +667,7 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
               <AirHistoryChart data={airHistory} isLoading={airHistoryLoading} />
 
             {/* Hero photo */}
-            {complex.photoUrl && (
-              <div className="h-48 bg-muted">
-                <img src={complex.photoUrl} alt="" className="w-full h-full object-cover" />
-              </div>
-            )}
+            <Photo src={complex.photoUrl} className="h-48" hideWhenMissing />
 
               {/* Stats row. The "До работы" cell is gated behind auth — for
                   guests the commute is calculated against a project-wide
@@ -839,11 +836,7 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
                         href={`/projects/${prop.projectId}/property/${prop.id}`}
                         className="flex items-center gap-2 p-2 rounded-lg border hover:bg-accent/50 transition-colors"
                       >
-                        <div className="w-10 h-10 rounded bg-muted overflow-hidden shrink-0">
-                          {prop.photos?.[0] && (
-                            <img src={prop.photos[0]} alt="" className="w-full h-full object-cover" />
-                          )}
-                        </div>
+                        <Photo src={prop.photos?.[0]} className="w-10 h-10 rounded shrink-0" iconClassName="h-4 w-4" />
                         <div className="flex-1 min-w-0">
                           <p className="text-xs font-medium">{formatPrice(prop.price)}</p>
                           <p className="text-xs text-muted-foreground">
