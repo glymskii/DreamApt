@@ -17,7 +17,7 @@ import { useAuthDialog } from "@/components/auth/auth-dialog";
 import { RequestAccessModal } from "@/components/access/RequestAccessModal";
 import { canSearch } from "@/lib/access";
 import {
-  Building2, Plus, LogOut, Loader2, List, Search, X, LogIn, Shield,
+  Building2, Plus, LogOut, Loader2, List, Search, X, LogIn, Shield, Wind,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -109,6 +109,12 @@ export default function DashboardPage() {
               <Plus className="h-3.5 w-3.5 sm:mr-1" />
               <span className="hidden sm:inline">{t("header.newSearch")}</span>
             </Button>
+            <Link href="/air-atlas">
+              <Button variant="ghost" size="sm" className="h-10 text-xs hidden sm:flex">
+                <Wind className="h-3.5 w-3.5 mr-1 text-feature-air" />
+                {t("header.airAtlas")}
+              </Button>
+            </Link>
             {user && (
               <Link href="/projects">
                 <Button variant="ghost" size="sm" className="h-10 text-xs hidden sm:flex">
