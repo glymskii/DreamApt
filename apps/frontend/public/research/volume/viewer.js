@@ -13,7 +13,13 @@ const displayNames={analysis:'Расчёт + станции',transport:'Толь
 async function main(){
  const query = new URLSearchParams(location.search);
  const archive = query.has('episode');
+ // Open on today in Almaty: its season (winter is Dec–Feb), weekday and
+ // clock, on the scene's own UTC+5 time. The URL can still pin any of them.
+ const almaty = new Date(Date.now()+5*36e5);
+ const nowHour = almaty.getUTCHours()+almaty.getUTCMinutes()/60;
  if(!archive){
+   $('season').value=seasons[Math.floor((almaty.getUTCMonth()+1)%12/3)];
+   $('weekday').value=String((almaty.getUTCDay()+6)%7);
    if(seasons.includes(query.get('season'))) $('season').value=query.get('season');
    if(/^[0-6]$/.test(query.get('day'))) $('weekday').value=query.get('day');
  }
@@ -75,7 +81,7 @@ async function main(){
  let buildingMesh;async function loadBuildings(){try{const feats=JSON.parse(new TextDecoder().decode(await unzip('buildings.json.gz'))),vs=[],idx=[];for(const [h,measured,pts] of feats){let ring=pts.map(([a,b])=>new T.Vector2((a/65535-.5)*ww,(.5-b/65535)*dd));let ctr=ring[0],g=ground(ctr.x,ctr.y),base=vs.length/3,n=ring.length;for(let dup of [0,1])for(let p of ring)vs.push(p.x,g+.010+dup*h*.0016,p.y);for(let f of T.ShapeUtils.triangulateShape(ring,[]))idx.push(base+n+f[2],base+n+f[1],base+n+f[0]);for(let i=0;i<n;i++){let j=(i+1)%n;idx.push(base+i,base+j,base+i+n,base+j,base+j+n,base+i+n)}}const g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(vs,3));g.setIndex(idx);g.computeVertexNormals();buildingMesh=new T.Mesh(g,new T.MeshLambertMaterial({color:0xa2afa6,side:T.DoubleSide}));scene.add(buildingMesh)}catch(e){console.warn('Building LOD',e.message)}}loadBuildings();
  let fields={analysis:initialField};
  function texture(arr,index){let d=new T.Data3DTexture(arr.subarray(index*vox,(index+1)*vox),nx,ny,nz);d.format=T.RedFormat;d.minFilter=d.magFilter=T.LinearFilter;d.unpackAlignment=1;d.needsUpdate=true;return d}
- let frame=pinnedHour?start:(archive?44:8.35),playing=!pinnedHour&&!matchMedia('(prefers-reduced-motion: reduce)').matches,mode='analysis',prevFrame=-1,lastMode='',pending=0,loading=false;
+ let frame=pinnedHour?start:(archive?44:nowHour),playing=!pinnedHour&&!matchMedia('(prefers-reduced-motion: reduce)').matches,mode='analysis',prevFrame=-1,lastMode='',pending=0,loading=false;
  let lastMinute=-1,chartedDay=null;
  let chartY=[];
  function showMeasurements(hour){
