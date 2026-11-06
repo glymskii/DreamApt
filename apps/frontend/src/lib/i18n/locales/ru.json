@@ -27,7 +27,8 @@
     "logout": "Выйти",
     "home": "DreamApt — карта ЖК",
     "openList": "Поиск и список ЖК",
-    "closeList": "Закрыть список ЖК"
+    "closeList": "Закрыть список ЖК",
+    "airAtlas": "Атлас воздуха"
   },
   "map": {
     "featureNew": "Новостройки",
@@ -241,7 +242,14 @@
     "dayAll": "Все дни",
     "dayWeekday": "Будни",
     "dayWeekend": "Выходные",
-    "popupTypical": "Обычно в {{time}} · среднее за {{days}} дн."
+    "popupTypical": "Обычно в {{time}} · среднее за {{days}} дн.",
+    "open3d": "Облако в 3D"
+  },
+  "airAtlas": {
+    "title": "Атлас воздуха",
+    "subtitle": "Облако PM2.5 и ветер над Алматы в 3D",
+    "fullscreen": "На весь экран",
+    "frameTitle": "Трёхмерная сцена Алматы: облако PM2.5 и ветер по часам суток"
   },
   "comments": {
     "title": "Обсуждение",

@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import Link from "next/link";
 import * as Slider from "@radix-ui/react-slider";
-import { Pause, Play, Wind } from "lucide-react";
+import { Box, Pause, Play, Wind } from "lucide-react";
 import type { AirDailyProfile, AirDayType } from "@/hooks/useComplexes";
 import { classifyPm25 } from "@/lib/pm25";
 
@@ -179,13 +180,20 @@ export function AirTimeline({
               </button>
             ))}
           </div>
-          <p className="ml-auto text-[11px] leading-tight text-muted-foreground">
-            {t("airHistory.sourcePrefix")}{" "}
-            <a href="https://air.org.kz" target="_blank" rel="noopener noreferrer"
-              className="underline underline-offset-2 hover:text-foreground">
-              Almaty Air Initiative
-            </a>
-          </p>
+          <div className="ml-auto flex items-center gap-x-3">
+            <Link href="/air-atlas"
+              className="flex min-h-10 items-center gap-1 text-xs font-medium text-feature-air hover:underline">
+              <Box className="h-3.5 w-3.5" aria-hidden="true" />
+              {t("airTimeline.open3d")}
+            </Link>
+            <p className="text-[11px] leading-tight text-muted-foreground">
+              {t("airHistory.sourcePrefix")}{" "}
+              <a href="https://air.org.kz" target="_blank" rel="noopener noreferrer"
+                className="underline underline-offset-2 hover:text-foreground">
+                Almaty Air Initiative
+              </a>
+            </p>
+          </div>
         </div>
       )}
     </section>
