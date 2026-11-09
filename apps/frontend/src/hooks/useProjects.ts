@@ -2,6 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api-client";
+import { ensureGuestId } from "@/lib/guest-id";
 
 interface Project {
   id: string;
@@ -13,6 +14,7 @@ interface Project {
   updatedAt: string;
 }
 
+/** The viewer's searches: the account's, or a guest's own. */
 export function useProjects(
   _unused?: undefined,
   options: { enabled?: boolean } = {},
@@ -36,7 +38,11 @@ export function useProject(id: string) {
 export function useCreateProject() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (name: string) => api.post<Project>("/projects", { name }),
+    mutationFn: (name: string) => {
+      // The search is open to guests: their searches hang on this id.
+      if (!api.getToken()) ensureGuestId();
+      return api.post<Project>("/projects", { name });
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["projects"] });
     },

@@ -1,25 +1,29 @@
 import { Injectable } from "@nestjs/common";
 import OpenAI from "openai";
+import type { AiPurpose } from "../database/entities/ai-usage-stat.entity";
+import { SearchStatsService } from "../search-stats/search-stats.service";
 
 @Injectable()
 export class AIService {
   private client: OpenAI;
 
-  constructor() {
+  constructor(private searchStats: SearchStatsService) {
     this.client = new OpenAI({
       apiKey: process.env.OPENAI_API_KEY || "",
     });
   }
 
-  private async chat(systemPrompt: string, userMessage: string): Promise<string> {
+  /** `purpose` labels the call's tokens in the admin analytics. */
+  private async chat(purpose: AiPurpose, systemPrompt: string, userMessage: string): Promise<string> {
     if (!process.env.OPENAI_API_KEY) {
       console.warn("OPENAI_API_KEY not set, returning mock response");
       return this.getMockResponse(systemPrompt);
     }
 
     try {
+      const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
       const response = await this.client.chat.completions.create({
-        model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+        model,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userMessage },
@@ -28,6 +32,14 @@ export class AIService {
         temperature: 0.7,
       });
 
+      if (response.usage) {
+        await this.searchStats.recordAiUsage(
+          purpose,
+          model,
+          response.usage.prompt_tokens,
+          response.usage.completion_tokens,
+        );
+      }
       return response.choices[0]?.message?.content || "";
     } catch (err) {
       console.error("OpenAI API error, falling back to mock:", (err as Error).message);
@@ -56,6 +68,7 @@ export class AIService {
 Верни ТОЛЬКО валидный JSON без markdown.`;
 
     const result = await this.chat(
+      "expand",
       systemPrompt,
       `Параметры пользователя: ${JSON.stringify(interviewAnswers)}`,
     );
@@ -111,6 +124,7 @@ export class AIService {
 Верни ТОЛЬКО JSON: {"scoreInfrastructure": число, "scoreLifestyle": число, "scoreValue": число, "explanation": "текст"}`;
 
     const result = await this.chat(
+      "score",
       systemPrompt,
       `Квартира: ${JSON.stringify(property)}\nПредпочтения: ${JSON.stringify(userPrefs)}`,
     );
@@ -269,6 +283,7 @@ export class AIService {
 Верни ТОЛЬКО валидный JSON массив без markdown.`;
 
     const result = await this.chat(
+      "cjm",
       systemPrompt,
       `Квартира: ${JSON.stringify({ ...property, nearbyPlaces: undefined })}\nПредпочтения: ${JSON.stringify(userPrefs)}`,
     );

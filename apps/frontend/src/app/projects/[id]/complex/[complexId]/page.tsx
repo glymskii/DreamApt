@@ -19,6 +19,7 @@ import {
   ChevronRight, ExternalLink, SortAsc, Search,
 } from "lucide-react";
 import { Photo } from "@/components/ui/photo";
+import { ShutovLockedCard } from "@/components/access/ShutovLockedCard";
 
 const SHUTOV_LABELS: Record<number, string> = {
   0: "А ЧТО ТАК МОЖНО БЫЛО",
@@ -302,8 +303,11 @@ export default function ComplexDetailPage() {
 
           {/* Right column */}
           <div className="space-y-4 sm:space-y-6">
-            {/* Shutov Rating */}
-            {shutovRating?.found && (
+            {/* Shutov Rating — sign-in + Kaspi subscription */}
+            {shutovRating?.found && shutovRating.locked && (
+              <ShutovLockedCard name={shutovRating.name} reason={shutovRating.reason} />
+            )}
+            {shutovRating?.found && !shutovRating.locked && (
               <Card
                 className="border-l-4"
                 style={{ borderLeftColor: shutovRating.categoryColor }}

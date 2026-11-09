@@ -10,6 +10,9 @@ import { Header } from "@/components/layout/Header";
 import { PropertyCard } from "@/components/property/PropertyCard";
 import { ComplexCard } from "@/components/complex/ComplexCard";
 import { EditSearchDialog } from "@/components/search/EditSearchDialog";
+import { SearchStartError } from "@/components/search/SearchStartError";
+import { useAuth } from "@/hooks/useAuth";
+import { useAuthDialog } from "@/components/auth/auth-dialog";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api-client";
 import {
@@ -133,6 +136,9 @@ export default function ResultsPage() {
   const [propertyPage, setPropertyPage] = useState(1);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [isMigrating, setIsMigrating] = useState(false);
+  const [startError, setStartError] = useState<unknown>(null);
+  const { user } = useAuth();
+  const authDialog = useAuthDialog();
 
   const { data: project, refetch: refetchProject } = useProject(projectId);
   const {
@@ -165,20 +171,37 @@ export default function ResultsPage() {
   }, [isSearching, refetchProject, refetchComplexes, refetchProperties]);
 
   const handleWishlistToggle = (propertyId: string, wishlisted: boolean) => {
+    // The search is open to guests, the wishlist needs an account.
+    if (!user) {
+      authDialog.open("otp");
+      return;
+    }
     if (wishlisted) add.mutate(propertyId);
     else remove.mutate(propertyId);
   };
 
   const handleEditApply = async (answers: Record<string, unknown>, name: string) => {
+    setStartError(null);
     const hasResults = (propertiesData?.total || 0) > 0;
+    // A search that doesn't start (daily limit, busy server) says why above
+    // the results; the edited answers are already saved.
     if (!hasResults) {
       await updateInterview.mutateAsync({ answers, name });
-      await api.post("/search/start", { projectId });
+      try {
+        await api.post("/search/start", { projectId });
+      } catch (err) {
+        setStartError(err);
+      }
       refetchProject();
     } else {
       const newProject = await createProject.mutateAsync(name);
       await api.patch(`/projects/${newProject.id}/interview`, { answers, name });
-      await api.post("/search/start", { projectId: newProject.id });
+      try {
+        await api.post("/search/start", { projectId: newProject.id });
+      } catch (err) {
+        setStartError(err);
+        return;
+      }
       router.push(`/projects/${newProject.id}/results`);
     }
   };
@@ -215,6 +238,7 @@ export default function ResultsPage() {
     <div className="min-h-screen bg-surface">
       <Header />
       <main className="container mx-auto px-4 py-8">
+        <SearchStartError error={startError} />
         <div className="flex items-center gap-4 mb-6">
           <Button variant="ghost" size="icon" onClick={() => router.push("/dashboard")}>
             <ArrowLeft className="h-5 w-5" />

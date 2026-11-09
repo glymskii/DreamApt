@@ -13,22 +13,22 @@ import {
   usePaymentPlans,
 } from "@/hooks/usePayments";
 import { ApiUnauthorizedError } from "@/lib/api-client";
-import { canSearch, formatAccessDay, formatTenge, periodMonths } from "@/lib/access";
+import { canSeeShutov, formatAccessDay, formatTenge, periodMonths } from "@/lib/access";
 import { formatStoredPhone } from "@/lib/phone";
 
-const PERKS = ["perkMatch", "perkScore", "perkUnlimited"] as const;
+const PERKS = ["perkRating", "perkReview", "perkEverywhere"] as const;
 
 interface Props {
-  /** Offered once access is open: carries on to the search. */
+  /** Offered once access is open: back to the rating. */
   onStart?: () => void;
 }
 
 /**
- * Paid search for a signed-in user with a verified phone: the plan and a
- * Kaspi invoice request, then the invoice's progress, then the access
- * period with an option to renew.
+ * The Kaspi subscription to Тихон Шутов's ratings, for a signed-in user
+ * with a verified phone: the plan and a Kaspi invoice request, then the
+ * invoice's progress, then the access period with an option to renew.
  */
-export function SearchSubscription({ onStart }: Props) {
+export function ShutovSubscription({ onStart }: Props) {
   const { t, i18n } = useTranslation();
   const { user, refreshUser } = useAuth();
   const { data: plans, isLoading: plansLoading } = usePaymentPlans();
@@ -38,7 +38,7 @@ export function SearchSubscription({ onStart }: Props) {
 
   const plan = plans?.[0];
   const open = mine?.find(isOpenPayment) ?? null;
-  const hasAccess = canSearch(user);
+  const hasAccess = canSeeShutov(user);
   const paidUntil =
     user?.searchPaidUntil && Date.parse(user.searchPaidUntil) > Date.now()
       ? user.searchPaidUntil

@@ -15,6 +15,9 @@ import {
   SeismicRiskResponse,
 } from "@/hooks/useProperties";
 import { useToggleWishlist, useIsWishlisted } from "@/hooks/useWishlist";
+import { useAuth } from "@/hooks/useAuth";
+import { useAuthDialog } from "@/components/auth/auth-dialog";
+import { ShutovLockedCard } from "@/components/access/ShutovLockedCard";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api-client";
 import { Header } from "@/components/layout/Header";
@@ -596,6 +599,8 @@ export default function PropertyDetailPage() {
   const { data: seismicRisk } = useSeismicRisk(propertyId);
   const { add, remove } = useToggleWishlist();
   const { data: isWishlisted } = useIsWishlisted(propertyId);
+  const { user } = useAuth();
+  const authDialog = useAuthDialog();
   const [activeTab, setActiveTab] = useState<"weekday" | "weekend">("weekday");
   const [expandedScenario, setExpandedScenario] = useState<string | null>(null);
   const [isRescoring, setIsRescoring] = useState(false);
@@ -669,6 +674,11 @@ export default function PropertyDetailPage() {
               variant="outline"
               size="sm"
               onClick={() => {
+                // The search is open to guests, the wishlist needs an account.
+                if (!user) {
+                  authDialog.open("otp");
+                  return;
+                }
                 if (isWishlisted) {
                   remove.mutate(property.id);
                 } else {
@@ -972,8 +982,11 @@ export default function PropertyDetailPage() {
               </Card>
             )}
 
-            {/* Shutov-Tikhonov Expert Rating */}
-            {shutovRating?.found && (
+            {/* Shutov-Tikhonov Expert Rating — sign-in + Kaspi subscription */}
+            {shutovRating?.found && shutovRating.locked && (
+              <ShutovLockedCard name={shutovRating.name} reason={shutovRating.reason} />
+            )}
+            {shutovRating?.found && !shutovRating.locked && (
               <Card className="border-l-4" style={{ borderLeftColor: shutovRating.categoryColor }}>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-lg flex items-center gap-2">

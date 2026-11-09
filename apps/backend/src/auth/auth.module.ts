@@ -6,6 +6,7 @@ import { AuthService } from "./auth.service";
 import { JwtAuthGuard } from "./auth.guard";
 import { OptionalJwtGuard } from "./optional-jwt.guard";
 import { AdminGuard } from "./admin.guard";
+import { ViewerGuard } from "./viewer.guard";
 import { UserEntity } from "../database/entities/user.entity";
 import { RegistrationLeadEntity } from "../database/entities/registration-lead.entity";
 
@@ -50,7 +51,7 @@ function resolveJwtSecret(): string {
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtAuthGuard, OptionalJwtGuard, AdminGuard],
-  exports: [AuthService, JwtAuthGuard, OptionalJwtGuard, AdminGuard, JwtModule],
+  providers: [AuthService, JwtAuthGuard, OptionalJwtGuard, AdminGuard, ViewerGuard],
+  exports: [AuthService, JwtAuthGuard, OptionalJwtGuard, AdminGuard, ViewerGuard, JwtModule],
 })
 export class AuthModule {}

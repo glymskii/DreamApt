@@ -2,6 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api-client";
+import type { ShutovLockReason } from "@/components/access/ShutovLockedCard";
 
 interface Property {
   id: string;
@@ -151,6 +152,9 @@ export function useReviews(propertyId: string) {
 
 export interface ShutovRatingResponse {
   found: boolean;
+  /** Hidden from guests and from users without the Kaspi subscription. */
+  locked?: boolean;
+  reason?: ShutovLockReason;
   name?: string;
   category?: number;
   categoryLabel?: string;

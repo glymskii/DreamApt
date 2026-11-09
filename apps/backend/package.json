@@ -12,6 +12,7 @@
     "test:air-profile": "ts-node test/air-daily-profile.test.ts",
     "test:air-archive": "ts-node test/aai-archive.test.ts",
     "test:payments": "ts-node test/payments.test.ts",
+    "test:search-stats": "ts-node -r tsconfig-paths/register test/search-stats.test.ts",
     "test:krisha-html": "ts-node test/krisha-complex-html.test.ts",
     "test:twogis-reviews": "ts-node test/twogis-reviews.test.ts",
     "typeorm": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js"

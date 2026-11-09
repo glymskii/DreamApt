@@ -10,6 +10,18 @@ import {
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api-client";
+import { clearGuestId, getGuestId } from "@/lib/guest-id";
+
+/** Right after sign-in: the searches made as a guest move to the account. */
+async function claimGuestSearches() {
+  if (!getGuestId()) return;
+  try {
+    await api.post("/projects/claim-guest");
+    clearGuestId();
+  } catch {
+    // Keep the id: the next sign-in tries again.
+  }
+}
 
 export interface AuthUser {
   id: string;
@@ -24,8 +36,12 @@ export interface AuthUser {
   phoneVerified?: boolean;
   searchEnabled?: boolean;
   expertEnabled?: boolean;
-  /** End of the paid search period (ISO), if the user ever paid. */
+  /** End of the paid Kaspi subscription (ISO), if the user ever paid. It
+   *  opens Тихон Шутов's ratings; the name stays from when it bought the
+   *  search. */
   searchPaidUntil?: string | null;
+  /** Server's verdict: sees the Шутов ratings (subscription, admin grant). */
+  shutovAccess?: boolean;
 }
 
 interface LoginResponse {
@@ -133,6 +149,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       api.setToken(data.accessToken);
       localStorage.setItem("user", JSON.stringify(data.user));
       setUser(data.user);
+      await claimGuestSearches();
       // Refresh all queries — guest-mode responses (e.g. shutov: locked)
       // need to refetch with the new auth header to unlock data.
       queryClient.invalidateQueries();
@@ -166,6 +183,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       api.setToken(data.accessToken);
       localStorage.setItem("user", JSON.stringify(data.user));
       setUser(data.user);
+      await claimGuestSearches();
       queryClient.invalidateQueries();
       return data.user;
     },
@@ -201,6 +219,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       api.setToken(data.accessToken);
       localStorage.setItem("user", JSON.stringify(data.user));
       setUser(data.user);
+      await claimGuestSearches();
       queryClient.invalidateQueries();
       return data;
     },

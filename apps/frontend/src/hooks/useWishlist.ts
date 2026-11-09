@@ -17,7 +17,8 @@ export function useIsWishlisted(propertyId: string) {
     queryFn: () => api.get<{ items: any[] }>("/wishlist"),
     select: (data) =>
       data.items.some((item: any) => item.propertyId === propertyId),
-    enabled: !!propertyId,
+    // The wishlist needs an account; a guest's search has none.
+    enabled: !!propertyId && !!api.getToken(),
   });
 }
 

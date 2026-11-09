@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useProjects, useCreateProject } from "@/hooks/useProjects";
 import { useAuth } from "@/hooks/useAuth";
@@ -9,9 +9,8 @@ import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Search, Home, Clock, ArrowLeft, LogIn, Lock } from "lucide-react";
-import { RequestAccessModal } from "@/components/access/RequestAccessModal";
-import { canSearch, formatAccessDay } from "@/lib/access";
+import { Plus, Search, Home, Clock, ArrowLeft, LogIn } from "lucide-react";
+import { getGuestId } from "@/lib/guest-id";
 
 const STATUS_LABELS: Record<string, { label: string; variant: "default" | "secondary" | "outline" }> = {
   draft: { label: "Черновик", variant: "secondary" },
@@ -26,49 +25,20 @@ export default function ProjectsPage() {
   const router = useRouter();
   const { user, isLoading: authLoading } = useAuth();
   const authDialog = useAuthDialog();
+  // The search is open to guests: a guest sees the searches made from this
+  // browser (by its guest id), an account its own.
+  const [guestId, setGuestId] = useState<string | null>(null);
+  useEffect(() => setGuestId(getGuestId()), [user]);
   const { data: projects, isLoading } = useProjects(undefined, {
-    enabled: !!user,
+    enabled: !authLoading && (!!user || !!guestId),
   });
   const createProject = useCreateProject();
-  const [requestOpen, setRequestOpen] = useState(false);
-  // Paid access only; admins and manually granted users have no end date.
-  const paidUntil =
-    user && user.role !== "admin" && !user.searchEnabled ? user.searchPaidUntil ?? null : null;
-  const paidActive = !!paidUntil && Date.parse(paidUntil) > Date.now();
+  const isGuest = !authLoading && !user;
 
   const handleCreate = async () => {
-    if (user && !canSearch(user)) {
-      setRequestOpen(true);
-      return;
-    }
     const project = await createProject.mutateAsync("Новый поиск");
     router.push(`/projects/${project.id}/interview`);
   };
-
-  // Guest fallback
-  if (!authLoading && !user) {
-    return (
-      <div className="min-h-screen bg-surface">
-        <Header />
-        <main className="container mx-auto px-4 py-12 max-w-md text-center space-y-4">
-          <Lock className="h-10 w-10 mx-auto text-muted-foreground" />
-          <p className="font-medium">Раздел доступен после авторизации</p>
-          <p className="text-sm text-muted-foreground">
-            Здесь будут ваши персональные поиски и подбор квартир.
-          </p>
-          <div className="flex gap-2 justify-center">
-            <Button onClick={() => authDialog.open("login")}>
-              <LogIn className="h-4 w-4 mr-1" />
-              Войти
-            </Button>
-            <Button variant="outline" onClick={() => router.push("/dashboard")}>
-              На главную
-            </Button>
-          </div>
-        </main>
-      </div>
-    );
-  }
 
   const handleClick = (project: { id: string; status: string }) => {
     if (project.status === "draft") {
@@ -95,25 +65,21 @@ export default function ProjectsPage() {
           </Button>
         </div>
 
-        {paidUntil && (
+        {isGuest && (
           <div className="mb-4 -mt-2 flex flex-wrap items-center gap-x-2 text-sm text-muted-foreground">
-            <Clock className="h-3.5 w-3.5" />
-            <span>
-              {paidActive ? "Поиск открыт до " : "Подписка закончилась "}
-              {formatAccessDay(paidUntil, "ru")}
-            </span>
-            <span aria-hidden>·</span>
+            <span>Поиски сохранены в этом браузере. Войдите, чтобы они перешли в ваш аккаунт.</span>
             <button
               type="button"
-              className="font-medium text-amber-700 dark:text-amber-400 hover:underline"
-              onClick={() => setRequestOpen(true)}
+              className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
+              onClick={() => authDialog.open("otp")}
             >
-              Продлить
+              <LogIn className="h-3.5 w-3.5" />
+              Войти
             </button>
           </div>
         )}
 
-        {isLoading ? (
+        {isLoading || authLoading ? (
           <div className="space-y-3">
             {[1, 2, 3].map((i) => (
               <Card key={i} className="animate-pulse">
@@ -166,12 +132,6 @@ export default function ProjectsPage() {
           </Card>
         )}
       </main>
-      <RequestAccessModal
-        open={requestOpen}
-        onClose={() => setRequestOpen(false)}
-        type="search"
-        onGranted={handleCreate}
-      />
     </div>
   );
 }

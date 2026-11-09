@@ -1,9 +1,25 @@
+import { getGuestId } from "@/lib/guest-id";
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3003/api";
 
 export class ApiUnauthorizedError extends Error {
   constructor() {
     super("Unauthorized");
     this.name = "ApiUnauthorizedError";
+  }
+}
+
+/** A non-2xx answer: the server's message, its HTTP status and, when the
+ *  server gives one, a machine-readable `code` (e.g. "SEARCH_LIMIT"). */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly code?: string,
+    readonly body?: Record<string, unknown>,
+  ) {
+    super(message);
+    this.name = "ApiError";
   }
 }
 
@@ -36,9 +52,12 @@ class ApiClient {
     options: RequestInit = {},
   ): Promise<T> {
     const token = this.getToken();
+    // A guest's own searches are found by this id (see lib/guest-id).
+    const guestId = getGuestId();
     const headers: HeadersInit = {
       "Content-Type": "application/json",
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(guestId ? { "X-Guest-Id": guestId } : {}),
       ...options.headers,
     };
 
@@ -59,7 +78,11 @@ class ApiClient {
 
     if (!res.ok) {
       const error = await res.json().catch(() => ({ message: "Request failed" }));
-      throw new Error(error.message || `HTTP ${res.status}`);
+      // Validation errors come back as a list of messages.
+      const message = Array.isArray(error.message)
+        ? error.message.join(", ")
+        : typeof error.message === "string" ? error.message : `HTTP ${res.status}`;
+      throw new ApiError(message, res.status, typeof error.code === "string" ? error.code : undefined, error);
     }
 
     return res.json();

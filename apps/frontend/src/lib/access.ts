@@ -1,11 +1,13 @@
 import type { AuthUser } from "@/hooks/useAuth";
 
-/** Mirrors the backend's hasSearchAccess; the server re-checks on launch. */
-export function canSearch(user: AuthUser | null | undefined, now = Date.now()): boolean {
+/** Mirrors the backend's hasShutovAccess: the Kaspi subscription (or the
+ *  admin's grant) opens Тихон Шутов's ratings. The search itself is open
+ *  to everyone. The server decides what it sends either way. */
+export function canSeeShutov(user: AuthUser | null | undefined, now = Date.now()): boolean {
   if (!user) return false;
   return (
     user.role === "admin" ||
-    !!user.searchEnabled ||
+    !!user.expertEnabled ||
     (!!user.searchPaidUntil && Date.parse(user.searchPaidUntil) > now)
   );
 }

@@ -6,11 +6,13 @@ import { RequestStatService } from "./request-stat.service";
 import { RequestStatInterceptor } from "./request-stat.interceptor";
 import { MonitoringController } from "./monitoring.controller";
 import { AuthModule } from "../auth/auth.module";
+import { SearchStatsModule } from "../search-stats/search-stats.module";
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([RequestStatEntity]),
     AuthModule, // AdminGuard depends on JwtAuthGuard which lives in AuthModule
+    SearchStatsModule, // search launches + OpenAI tokens for /admin/stats/search
   ],
   controllers: [MonitoringController],
   providers: [

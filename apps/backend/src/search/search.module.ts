@@ -10,6 +10,7 @@ import { UserEntity } from "../database/entities/user.entity";
 import { AIModule } from "../ai/ai.module";
 import { ScoringModule } from "../scoring/scoring.module";
 import { AuthModule } from "../auth/auth.module";
+import { SearchStatsModule } from "../search-stats/search-stats.module";
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { AuthModule } from "../auth/auth.module";
     AIModule,
     ScoringModule,
     AuthModule,
+    SearchStatsModule,
   ],
   controllers: [SearchController],
   providers: [SearchService, KrishaParserService],

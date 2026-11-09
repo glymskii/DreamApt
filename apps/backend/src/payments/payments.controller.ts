@@ -83,7 +83,7 @@ export class PaymentsController {
     return this.payments.cancel(id, req.user.id, dto.note);
   }
 
-  /** Ends a user's paid search access now. */
+  /** Ends a user's paid subscription (the Shutov ratings) now. */
   @Post("admin/subscriptions/:userId/revoke")
   @UseGuards(AdminGuard)
   revoke(@Param("userId", ParseUUIDPipe) userId: string, @Req() req: any) {

@@ -1,6 +1,7 @@
 import { Controller, Get, Query, UseGuards } from "@nestjs/common";
 import { AdminGuard } from "../auth/admin.guard";
 import { RequestStatService } from "./request-stat.service";
+import { SearchStatsService } from "../search-stats/search-stats.service";
 
 /**
  * Admin-only traffic dashboard endpoints. Every method takes a `hours`
@@ -15,7 +16,17 @@ import { RequestStatService } from "./request-stat.service";
 @Controller("admin/stats")
 @UseGuards(AdminGuard)
 export class MonitoringController {
-  constructor(private readonly stats: RequestStatService) {}
+  constructor(
+    private readonly stats: RequestStatService,
+    private readonly searchStats: SearchStatsService,
+  ) {}
+
+  /** Search launches (by guests / users, how they ended) and the OpenAI
+   *  tokens spent, with a timeline and the latest launches. */
+  @Get("search")
+  async search(@Query("hours") hoursRaw?: string) {
+    return this.searchStats.summary(clampHours(hoursRaw, 24));
+  }
 
   @Get("overview")
   async overview(@Query("hours") hoursRaw?: string) {

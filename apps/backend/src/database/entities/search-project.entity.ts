@@ -7,6 +7,7 @@ import {
   ManyToOne,
   OneToMany,
   JoinColumn,
+  Index,
 } from "typeorm";
 import { UserEntity } from "./user.entity";
 import { PropertyEntity } from "./property.entity";
@@ -17,8 +18,15 @@ export class SearchProjectEntity {
   @PrimaryGeneratedColumn("uuid")
   id: string;
 
-  @Column({ name: "user_id" })
-  userId: string;
+  /** Null while the search belongs to a guest (see `guestId`). */
+  @Column({ name: "user_id", type: "uuid", nullable: true })
+  userId: string | null;
+
+  /** Search is open without an account: the random id the guest's browser
+   *  keeps. Cleared once the guest signs in and the search moves to them. */
+  @Index("idx_search_projects_guest")
+  @Column({ name: "guest_id", type: "uuid", nullable: true })
+  guestId: string | null;
 
   @Column()
   name: string;

@@ -13,7 +13,7 @@ import * as crypto from "crypto";
 import { OtpCodeEntity } from "../database/entities/otp-code.entity";
 import { UserEntity } from "../database/entities/user.entity";
 import { TelegramService } from "./telegram.service";
-import { hasSearchAccess } from "../access-control/search-access";
+import { hasShutovAccess } from "../access-control/shutov-access";
 
 /** OTPs live 10 minutes — long enough that a slow user can switch apps,
  *  short enough that a leaked code becomes useless quickly. */
@@ -110,7 +110,7 @@ export class OtpService {
       searchEnabled: boolean;
       expertEnabled: boolean;
       searchPaidUntil: string | null;
-      canSearch: boolean;
+      shutovAccess: boolean;
     };
     isNewUser: boolean;
   }> {
@@ -199,7 +199,7 @@ export class OtpService {
         searchEnabled: user!.searchEnabled,
         expertEnabled: user!.expertEnabled,
         searchPaidUntil: user!.searchPaidUntil ? new Date(user!.searchPaidUntil).toISOString() : null,
-        canSearch: hasSearchAccess(user!),
+        shutovAccess: hasShutovAccess(user!),
       },
       isNewUser,
     };

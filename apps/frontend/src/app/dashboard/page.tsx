@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
@@ -14,8 +14,7 @@ import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { LangToggle } from "@/components/lang-toggle";
 import { useAuthDialog } from "@/components/auth/auth-dialog";
-import { RequestAccessModal } from "@/components/access/RequestAccessModal";
-import { canSearch } from "@/lib/access";
+import { getGuestId } from "@/lib/guest-id";
 import {
   Building2, Plus, LogOut, Loader2, List, Search, X, LogIn, Shield, Wind,
 } from "lucide-react";
@@ -45,18 +44,13 @@ export default function DashboardPage() {
   const [selectedComplexId, setSelectedComplexId] = useState<string | null>(null);
   const [hoveredComplexId, setHoveredComplexId] = useState<string | null>(null);
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
-  const [requestSearchOpen, setRequestSearchOpen] = useState(false);
+  // A guest who already searched gets «Мои поиски» too (read after mount:
+  // the id lives in localStorage).
+  const [hasGuestSearches, setHasGuestSearches] = useState(false);
+  useEffect(() => setHasGuestSearches(!!getGuestId()), []);
 
+  // The search is open to everyone, guests included.
   const handleNewSearch = async () => {
-    if (!user) {
-      authDialog.open("otp", t("auth.newSearchGate"));
-      return;
-    }
-    // Admins, granted and paying users skip the gate.
-    if (!canSearch(user)) {
-      setRequestSearchOpen(true);
-      return;
-    }
     const project = await createProject.mutateAsync(t("header.newSearch"));
     router.push(`/projects/${project.id}/interview`);
   };
@@ -115,7 +109,7 @@ export default function DashboardPage() {
                 {t("header.airAtlas")}
               </Button>
             </Link>
-            {user && (
+            {(user || hasGuestSearches) && (
               <Link href="/projects">
                 <Button variant="ghost" size="sm" className="h-10 text-xs hidden sm:flex">
                   <List className="h-3.5 w-3.5 mr-1" />
@@ -225,12 +219,6 @@ export default function DashboardPage() {
         )}
       </div>
 
-      <RequestAccessModal
-        open={requestSearchOpen}
-        onClose={() => setRequestSearchOpen(false)}
-        type="search"
-        onGranted={handleNewSearch}
-      />
     </div>
   );
 }

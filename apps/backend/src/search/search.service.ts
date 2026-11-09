@@ -15,7 +15,11 @@ import { UserEntity } from "../database/entities/user.entity";
 import { AIService } from "../ai/ai.service";
 import { ScoringService } from "../scoring/scoring.service";
 import { KrishaParserService, KrishaPropertyDetail } from "./krisha-parser.service";
-import { hasSearchAccess } from "../access-control/search-access";
+import type { Viewer } from "../auth/viewer.guard";
+import { canAccessProject } from "../projects/project-access";
+import { SearchStatsService } from "../search-stats/search-stats.service";
+import { aiUsageContext } from "../search-stats/ai-usage-context";
+import type { SearchRunStatus } from "../database/entities/search-run.entity";
 import { ALMATY_DEVELOPERS, findShutovRating, findNearestFault } from "@dreamapt/shared";
 
 const MAX_RESULTS = parseInt(process.env.PARSER_MAX_RESULTS || "100");
@@ -30,6 +34,16 @@ const MAX_RESULTS = parseInt(process.env.PARSER_MAX_RESULTS || "100");
 // safe with headroom.
 const MAX_CONCURRENT_SEARCHES = parseInt(process.env.MAX_CONCURRENT_SEARCHES || "2");
 const activeSearches = new Set<string>();
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Searches a day per guest address / per account (env; 0 = no limit).
+ *  The search is free and open to guests, and every launch spends OpenAI
+ *  tokens: the limit keeps one visitor from spending them all. */
+function dailyLimit(name: string, fallback: number): number {
+  const n = Number(process.env[name]);
+  return Number.isInteger(n) && n >= 0 ? n : fallback;
+}
 
 @Injectable()
 export class SearchService {
@@ -47,36 +61,19 @@ export class SearchService {
     private aiService: AIService,
     private scoringService: ScoringService,
     private krishaParser: KrishaParserService,
+    private searchStats: SearchStatsService,
   ) {}
 
   async startSearch(
     projectId: string,
-    userId?: string,
+    viewer: Viewer,
+    ipHash: string | null,
   ): Promise<{ jobId: string; status: string }> {
-    // Access gate — admins, users the admin enabled, and users with a
-    // paid period running can launch the paid OpenAI/parser pipeline. The
-    // frontend hides the button for non-eligible users, but we re-check
-    // server-side so a forged request can't bypass it.
-    if (userId) {
-      const user = await this.usersRepo.findOne({ where: { id: userId } });
-      if (!user) throw new ForbiddenException("User not found");
-      if (!hasSearchAccess(user)) {
-        throw new ForbiddenException({
-          message: "Поиск доступен по подписке.",
-          code: "SEARCH_NOT_ALLOWED",
-        });
-      }
-    }
-
-    // Ownership check — controller passes the authenticated user's id so
-    // anyone holding a JWT can only start searches for projects they own.
-    // Without this, the pre-IDOR-fix attacker could trigger our paid OpenAI
-    // pipeline on every project UUID.
-    const where = userId
-      ? { id: projectId, userId }
-      : { id: projectId };
-    const project = await this.projectsRepo.findOne({ where });
-    if (!project) {
+    // Ownership — a user starts searches only on their own projects, a
+    // guest only on the ones made under their guest id. Without it anyone
+    // could run our paid OpenAI pipeline on every project UUID.
+    const project = await this.projectsRepo.findOne({ where: { id: projectId } });
+    if (!project || !canAccessProject(project, viewer)) {
       throw new NotFoundException("Project not found");
     }
     if (!project.interviewAnswers) {
@@ -90,6 +87,8 @@ export class SearchService {
         HttpStatus.CONFLICT,
       );
     }
+
+    await this.assertWithinDailyLimit(viewer, ipHash);
 
     // Capacity check — stop new pipelines when the box is saturated. Returns
     // 429 so the frontend can show "we're busy, retry in a minute" instead
@@ -110,37 +109,101 @@ export class SearchService {
     // two near-simultaneous starts both pass the capacity check.
     activeSearches.add(projectId);
 
-    // Update status
-    await this.projectsRepo.update(projectId, { status: "searching" });
-
-    // AI expand search params
-    let searchParams = project.interviewAnswers;
-    let aiSuggestions = "";
+    let runId: string;
     try {
-      const expanded = await this.aiService.expandSearchParams(project.interviewAnswers);
-      searchParams = expanded.expandedParams as Record<string, unknown>;
-      aiSuggestions = expanded.explanation;
-      await this.projectsRepo.update(projectId, {
-        searchParams: searchParams as any,
-        aiSuggestions,
+      runId = await this.searchStats.startRun({
+        projectId,
+        userId: viewer.userId ?? null,
+        guestId: viewer.guestId ?? null,
+        userType: viewer.role === "admin" ? "admin" : viewer.userId ? "user" : "guest",
+        ipHash,
       });
+      await this.projectsRepo.update(projectId, { status: "searching" });
     } catch (err) {
-      this.logger.error("AI expansion failed:", err);
+      activeSearches.delete(projectId);
+      throw err;
     }
 
-    // Run the pipeline in the background. The finally clause is critical —
-    // without it a thrown error in the pipeline would leave the slot
-    // permanently reserved and eventually wedge the queue.
-    this.runSearchPipeline(projectId, project.interviewAnswers)
-      .catch((err) => this.logger.error("Search pipeline failed:", err))
-      .finally(() => {
-        activeSearches.delete(projectId);
-        this.logger.log(
-          `Search slot released for ${projectId} (${activeSearches.size}/${MAX_CONCURRENT_SEARCHES} active)`,
-        );
-      });
+    // Everything below runs in the run's context: the OpenAI calls of the
+    // expansion and of the pipeline add their tokens to this run.
+    return aiUsageContext.run({ searchRunId: runId }, async () => {
+      // AI expand search params
+      let searchParams = project.interviewAnswers;
+      let aiSuggestions = "";
+      try {
+        const expanded = await this.aiService.expandSearchParams(project.interviewAnswers);
+        searchParams = expanded.expandedParams as Record<string, unknown>;
+        aiSuggestions = expanded.explanation;
+        await this.projectsRepo.update(projectId, {
+          searchParams: searchParams as any,
+          aiSuggestions,
+        });
+      } catch (err) {
+        this.logger.error("AI expansion failed:", err);
+      }
 
-    return { jobId: projectId, status: "searching" };
+      // Run the pipeline in the background. The finally clause is critical —
+      // without it a thrown error in the pipeline would leave the slot
+      // permanently reserved and eventually wedge the queue.
+      this.runSearchPipeline(projectId, project.interviewAnswers, runId)
+        .catch((err) => this.logger.error("Search pipeline failed:", err))
+        .finally(() => {
+          activeSearches.delete(projectId);
+          this.logger.log(
+            `Search slot released for ${projectId} (${activeSearches.size}/${MAX_CONCURRENT_SEARCHES} active)`,
+          );
+        });
+
+      return { jobId: projectId, status: "searching" };
+    });
+  }
+
+  /** Admins search freely, and so do users the admin let search without a
+   *  limit (`searchEnabled`); everyone else gets so many launches a day. */
+  private async assertWithinDailyLimit(viewer: Viewer, ipHash: string | null) {
+    if (viewer.role === "admin") return;
+    const since = new Date(Date.now() - DAY_MS);
+
+    if (viewer.userId) {
+      const user = await this.usersRepo.findOne({ where: { id: viewer.userId } });
+      if (!user) throw new ForbiddenException("User not found");
+      if (user.role === "admin" || user.searchEnabled) return;
+      const limit = dailyLimit("SEARCH_USER_DAILY_LIMIT", 10);
+      if (limit && (await this.searchStats.countRunsSince({ userId: user.id }, since)) >= limit) {
+        throw new HttpException(
+          {
+            message: `Лимит — ${limit} в сутки, он уже исчерпан. Новый поиск можно будет запустить позже.`,
+            code: "SEARCH_LIMIT",
+            limit,
+            signIn: false,
+          },
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
+      return;
+    }
+
+    const limit = dailyLimit("SEARCH_GUEST_DAILY_LIMIT", 3);
+    if (limit && ipHash && (await this.searchStats.countRunsSince({ ipHash }, since)) >= limit) {
+      throw new HttpException(
+        {
+          message: "Лимит поисков без входа на сегодня исчерпан. Войдите через Telegram, чтобы продолжить.",
+          code: "SEARCH_LIMIT",
+          limit,
+          signIn: true,
+        },
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+  }
+
+  /** Analytics are best-effort: a failed write never fails the search. */
+  private async finishRun(runId: string, status: Exclude<SearchRunStatus, "running">, propertyCount: number) {
+    try {
+      await this.searchStats.finishRun(runId, status, propertyCount);
+    } catch (err) {
+      this.logger.warn(`Search run ${runId} not closed: ${err}`);
+    }
   }
 
   /**
@@ -436,7 +499,9 @@ export class SearchService {
   private async runSearchPipeline(
     projectId: string,
     interviewAnswers: Record<string, unknown>,
+    runId: string,
   ): Promise<void> {
+    let savedCount = 0;
     try {
       // Phase 1: Parse real listings from Krisha.kz
       this.logger.log(`Starting Krisha.kz parsing for project ${projectId}`);
@@ -463,6 +528,7 @@ export class SearchService {
           status: "scored",
           propertyCount: 0,
         });
+        await this.finishRun(runId, "empty", 0);
         return;
       }
 
@@ -472,7 +538,7 @@ export class SearchService {
       }
 
       // Phase 3: Grouping — group properties into residential complexes
-      const savedCount = Math.min(parsedProperties.length, MAX_RESULTS);
+      savedCount = Math.min(parsedProperties.length, MAX_RESULTS);
       await this.projectsRepo.update(projectId, {
         status: "grouping",
         propertyCount: savedCount,
@@ -490,9 +556,11 @@ export class SearchService {
 
       // Phase 5: Done
       await this.projectsRepo.update(projectId, { status: "scored" });
+      await this.finishRun(runId, "done", savedCount);
       this.logger.log(`Search pipeline complete for project ${projectId}`);
     } catch (err) {
       this.logger.error("Search pipeline error:", err);
+      await this.finishRun(runId, "failed", savedCount);
       await this.projectsRepo.update(projectId, { status: "interview_complete" });
     }
   }
