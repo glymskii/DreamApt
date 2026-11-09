@@ -6,13 +6,14 @@ import { TwoGisReviewsService } from "./twogis-reviews.service";
 import { PropertyEntity } from "../database/entities/property.entity";
 import { CJMScenarioEntity } from "../database/entities/cjm-scenario.entity";
 import { SearchProjectEntity } from "../database/entities/search-project.entity";
+import { UserEntity } from "../database/entities/user.entity";
 import { AuthModule } from "../auth/auth.module";
 import { CJMModule } from "../cjm/cjm.module";
 import { ScoringModule } from "../scoring/scoring.module";
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([PropertyEntity, CJMScenarioEntity, SearchProjectEntity]),
+    TypeOrmModule.forFeature([PropertyEntity, CJMScenarioEntity, SearchProjectEntity, UserEntity]),
     AuthModule,
     CJMModule,
     ScoringModule,

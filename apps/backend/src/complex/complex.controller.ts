@@ -14,10 +14,12 @@ import { Repository } from "typeorm";
 import { ComplexService } from "./complex.service";
 import { KrishaComplexParserService } from "./krisha-complex-parser.service";
 import { SearchService } from "../search/search.service";
-import { JwtAuthGuard } from "../auth/auth.guard";
 import { OptionalJwtGuard } from "../auth/optional-jwt.guard";
 import { AdminGuard } from "../auth/admin.guard";
+import { ViewerGuard, viewerOf, type Viewer } from "../auth/viewer.guard";
 import { UserEntity } from "../database/entities/user.entity";
+import { canAccessProject } from "../projects/project-access";
+import { omitShutov, shutovLockFor } from "../access-control/shutov-access";
 
 @Controller()
 export class ComplexController {
@@ -77,9 +79,10 @@ export class ComplexController {
   // ── Mixed: public but unlocks data when authenticated ──
 
   /**
-   * Shutov rating: guests + non-expert-enabled users see only existence + locked
-   * teaser. Admins and users with expertEnabled=true get full data
-   * (category, label, color, description).
+   * Shutov rating — for signed-in users with the Kaspi subscription (or
+   * the admin's grant) only. Everyone else gets that a rating exists plus
+   * why it's locked: `reason: "login"` for guests, `"subscribe"` for users
+   * without the subscription.
    */
   @Get("complexes/:id/shutov")
   @UseGuards(OptionalJwtGuard)
@@ -87,20 +90,12 @@ export class ComplexController {
     const full = await this.complexService.getShutovRating(id);
     if (!full.found) return { found: false };
 
-    let unlocked = false;
-    if (req.user) {
-      if (req.user.role === "admin") {
-        unlocked = true;
-      } else {
-        const u = await this.usersRepo.findOne({ where: { id: req.user.id } });
-        if (u?.expertEnabled) unlocked = true;
-      }
-    }
-
-    if (!unlocked) {
+    const lock = await shutovLockFor(this.usersRepo, req.user);
+    if (lock) {
       return {
         found: true,
         locked: true,
+        reason: lock,
         name: full.name,
       };
     }
@@ -110,20 +105,27 @@ export class ComplexController {
 
   // ── PRIVATE endpoints (login required) ──
 
-  /** Properties list — only for authenticated users */
+  /** Properties of a ЖК: any signed-in user; a guest only for the ЖК of
+   *  their own search. */
   @Get("complexes/:id/properties")
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(ViewerGuard)
   async findProperties(
     @Param("id") id: string,
+    @Req() req: any,
     @Query("sort") sort: string = "scoreTotal",
   ) {
+    if (!req.user) {
+      const complex = await this.complexService.findOne(id);
+      if (!complex.projectId) throw new UnauthorizedException();
+      await this.assertProjectAccess(complex.projectId, viewerOf(req));
+    }
     return { properties: await this.complexService.findProperties(id, sort) };
   }
 
-  // ── Project-scoped (private) ──
+  // ── Project-scoped: the search's owner, a user or a guest ──
 
   @Get("projects/:projectId/complexes")
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(ViewerGuard)
   async findByProject(
     @Param("projectId") projectId: string,
     @Req() req: any,
@@ -131,31 +133,31 @@ export class ComplexController {
     @Query("page") page: string = "1",
     @Query("limit") limit: string = "20",
   ) {
-    await this.assertProjectAccess(projectId, req.user);
-    return this.complexService.findByProject(
+    await this.assertProjectAccess(projectId, viewerOf(req));
+    const result = await this.complexService.findByProject(
       projectId,
       sort,
       parseInt(page) || 1,
       parseInt(limit) || 20,
     );
+    // The Шутов badge on the cards: subscribers only.
+    if (await shutovLockFor(this.usersRepo, req.user)) {
+      return { ...result, complexes: result.complexes.map(omitShutov) };
+    }
+    return result;
   }
 
   @Get("projects/:projectId/map-data")
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(ViewerGuard)
   async getMapData(@Param("projectId") projectId: string, @Req() req: any) {
-    await this.assertProjectAccess(projectId, req.user);
+    await this.assertProjectAccess(projectId, viewerOf(req));
     return this.complexService.getMapData(projectId);
   }
 
-  private async assertProjectAccess(
-    projectId: string,
-    user: { id: string; role?: string } | undefined,
-  ) {
-    if (!user) throw new UnauthorizedException();
+  private async assertProjectAccess(projectId: string, viewer: Viewer) {
     const project = await this.complexService.getProjectForScoring(projectId);
-    if (!project) throw new UnauthorizedException("Project not found");
-    if (user.role !== "admin" && project.userId !== user.id) {
-      // Don't reveal which project IDs exist — same NotFound semantics as ownership-fail
+    // Don't reveal which project IDs exist — same answer as an ownership miss.
+    if (!project || !canAccessProject(project, viewer)) {
       throw new UnauthorizedException("Project not found");
     }
   }
@@ -219,9 +221,9 @@ export class ComplexController {
   }
 
   @Post("projects/:projectId/migrate-complexes")
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(ViewerGuard)
   async migrateComplexes(@Param("projectId") projectId: string, @Req() req: any) {
-    await this.assertProjectAccess(projectId, req.user);
+    await this.assertProjectAccess(projectId, viewerOf(req));
     await this.searchService.groupPropertiesIntoComplexes(projectId);
     const project = await this.complexService.getProjectForScoring(projectId);
     if (project?.interviewAnswers) {

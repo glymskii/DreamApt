@@ -7,22 +7,26 @@ import {
   Req,
   UseGuards,
   Logger,
-  ForbiddenException,
   NotFoundException,
 } from "@nestjs/common";
 import { PropertiesService } from "./properties.service";
 import { CJMService } from "../cjm/cjm.service";
 import { TwoGisReviewsService } from "./twogis-reviews.service";
 import { ScoringService } from "../scoring/scoring.service";
-import { JwtAuthGuard } from "../auth/auth.guard";
+import { ViewerGuard, viewerOf, type Viewer } from "../auth/viewer.guard";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { PropertyEntity } from "../database/entities/property.entity";
 import { SearchProjectEntity } from "../database/entities/search-project.entity";
+import { UserEntity } from "../database/entities/user.entity";
+import { canAccessProject } from "../projects/project-access";
+import { shutovLockFor } from "../access-control/shutov-access";
 import { findShutovRating, SHUTOV_CATEGORY_COLORS, findNearestFault } from "@dreamapt/shared";
 
+/** A search's properties: its owner sees them — a signed-in user, or the
+ *  guest who ran it (ViewerGuard). */
 @Controller()
-@UseGuards(JwtAuthGuard)
+@UseGuards(ViewerGuard)
 export class PropertiesController {
   private readonly logger = new Logger(PropertiesController.name);
 
@@ -35,38 +39,36 @@ export class PropertiesController {
     private propertiesRepo: Repository<PropertyEntity>,
     @InjectRepository(SearchProjectEntity)
     private projectsRepo: Repository<SearchProjectEntity>,
+    @InjectRepository(UserEntity)
+    private usersRepo: Repository<UserEntity>,
   ) {}
 
   /**
-   * Verify the current user owns the project. Admins bypass the check so
-   * the admin dashboard can inspect any project. NotFound for the unauth-
-   * orised case so we don't leak which UUIDs exist.
+   * Verify the viewer owns the project (admins see any, for the admin
+   * dashboard). NotFound for the unauthorised case so we don't leak which
+   * UUIDs exist.
    */
   private async assertProjectOwnership(
     projectId: string,
-    user: { id: string; role?: string },
+    viewer: Viewer,
   ): Promise<SearchProjectEntity> {
-    if (!user) throw new ForbiddenException();
-    const project = await this.projectsRepo.findOne({
-      where: user.role === "admin" ? { id: projectId } : { id: projectId, userId: user.id },
-    });
-    if (!project) throw new NotFoundException("Project not found");
+    const project = await this.projectsRepo.findOne({ where: { id: projectId } });
+    if (!project || !canAccessProject(project, viewer)) {
+      throw new NotFoundException("Project not found");
+    }
     return project;
   }
 
   /** Same idea but starting from a property — looks up its project first. */
   private async assertPropertyOwnership(
     propertyId: string,
-    user: { id: string; role?: string },
+    viewer: Viewer,
   ): Promise<PropertyEntity> {
-    if (!user) throw new ForbiddenException();
     const property = await this.propertiesRepo.findOne({ where: { id: propertyId } });
     if (!property) throw new NotFoundException("Property not found");
-    if (user.role !== "admin") {
-      const project = await this.projectsRepo.findOne({
-        where: { id: property.projectId, userId: user.id },
-      });
-      if (!project) throw new NotFoundException("Property not found");
+    const project = await this.projectsRepo.findOne({ where: { id: property.projectId } });
+    if (!project || !canAccessProject(project, viewer)) {
+      throw new NotFoundException("Property not found");
     }
     return property;
   }
@@ -79,7 +81,7 @@ export class PropertiesController {
     @Query("page") page?: string,
     @Query("limit") limit?: string,
   ) {
-    await this.assertProjectOwnership(projectId, req.user);
+    await this.assertProjectOwnership(projectId, viewerOf(req));
     return this.propertiesService.findByProject(projectId, {
       sort,
       page: page ? parseInt(page) : undefined,
@@ -89,7 +91,7 @@ export class PropertiesController {
 
   @Get("properties/:id")
   async findOne(@Param("id") id: string, @Req() req: any) {
-    const property = await this.assertPropertyOwnership(id, req.user);
+    const property = await this.assertPropertyOwnership(id, viewerOf(req));
     const full = await this.propertiesService.findOne(id);
 
     // Auto-rescore if AI comment is missing or contains mock text
@@ -110,13 +112,13 @@ export class PropertiesController {
 
   @Get("properties/:id/duplicates")
   async findDuplicates(@Param("id") id: string, @Req() req: any) {
-    await this.assertPropertyOwnership(id, req.user);
+    await this.assertPropertyOwnership(id, viewerOf(req));
     return this.propertiesService.findDuplicates(id);
   }
 
   @Get("properties/:id/cjm")
   async getCJM(@Param("id") id: string, @Req() req: any) {
-    const property = await this.assertPropertyOwnership(id, req.user);
+    const property = await this.assertPropertyOwnership(id, viewerOf(req));
     const cjm = await this.cjmService.getOrGenerate(id);
 
     // Find other properties in the same project with higher score
@@ -154,7 +156,7 @@ export class PropertiesController {
 
   @Get("properties/:id/reviews")
   async getReviews(@Param("id") id: string, @Req() req: any) {
-    await this.assertPropertyOwnership(id, req.user);
+    await this.assertPropertyOwnership(id, viewerOf(req));
     const property = await this.propertiesService.findOne(id);
     if (!property.complexName) {
       return { reviews: [], totalReviews: 0, averageRating: 0, twogisUrl: null };
@@ -167,15 +169,22 @@ export class PropertiesController {
     return result || { totalReviews: 0, averageRating: 0, twogisUrl: null, complexName: "", address: "", buildingName: "", reviews: [] };
   }
 
+  /** Subscribers only, like /complexes/:id/shutov: others learn that a
+   *  rating exists and why it's locked (sign in / subscribe). */
   @Get("properties/:id/shutov-rating")
   async getShutovRating(@Param("id") id: string, @Req() req: any) {
-    await this.assertPropertyOwnership(id, req.user);
+    await this.assertPropertyOwnership(id, viewerOf(req));
     const property = await this.propertiesService.findOne(id);
     const rating = findShutovRating(property.complexName || "");
     if (!rating) {
       return { found: false };
     }
+    const lock = await shutovLockFor(this.usersRepo, req.user);
+    if (lock) {
+      return { found: true, locked: true, reason: lock, name: rating.name };
+    }
     return {
+      locked: false,
       found: true,
       name: rating.name,
       category: rating.category,
@@ -187,7 +196,7 @@ export class PropertiesController {
 
   @Get("properties/:id/seismic-risk")
   async getSeismicRisk(@Param("id") id: string, @Req() req: any) {
-    await this.assertPropertyOwnership(id, req.user);
+    await this.assertPropertyOwnership(id, viewerOf(req));
     const property = await this.propertiesService.findOne(id);
     if (!property.lat || !property.lng) {
       return { found: false, message: "No coordinates" };
@@ -198,7 +207,7 @@ export class PropertiesController {
 
   @Post("properties/:id/rescore")
   async rescore(@Param("id") id: string, @Req() req: any) {
-    const property = await this.assertPropertyOwnership(id, req.user);
+    const property = await this.assertPropertyOwnership(id, viewerOf(req));
     await this.rescoreProperty(property.id, property.projectId);
     const updated = await this.propertiesRepo.findOne({ where: { id } });
     return {
@@ -212,7 +221,7 @@ export class PropertiesController {
   async rescoreAll(@Param("projectId") projectId: string, @Req() req: any) {
     // Without ownership check this endpoint lets any logged-in user trigger
     // OpenAI rescoring against any project ID — straight bill drain.
-    const project = await this.assertProjectOwnership(projectId, req.user);
+    const project = await this.assertProjectOwnership(projectId, viewerOf(req));
     const interviewAnswers = (project.interviewAnswers || {}) as Record<string, unknown>;
 
     // Run full re-scoring in background
@@ -229,7 +238,7 @@ export class PropertiesController {
     @Query("projectId") projectId: string,
     @Req() req: any,
   ) {
-    await this.assertProjectOwnership(projectId, req.user);
+    await this.assertProjectOwnership(projectId, viewerOf(req));
     return this.propertiesService.getDrilldown(scenarioId, projectId);
   }
 

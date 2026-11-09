@@ -18,6 +18,8 @@ import { CommentEntity } from "./entities/comment.entity";
 import { CommentLikeEntity } from "./entities/comment-like.entity";
 import { AccessRequestEntity } from "./entities/access-request.entity";
 import { PaymentEntity } from "./entities/payment.entity";
+import { SearchRunEntity } from "./entities/search-run.entity";
+import { AiUsageStatEntity } from "./entities/ai-usage-stat.entity";
 
 export const entities = [
   UserEntity,
@@ -38,6 +40,8 @@ export const entities = [
   CommentLikeEntity,
   AccessRequestEntity,
   PaymentEntity,
+  SearchRunEntity,
+  AiUsageStatEntity,
 ];
 
 @Module({

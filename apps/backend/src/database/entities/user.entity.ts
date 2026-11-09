@@ -47,16 +47,19 @@ export class UserEntity {
   @Column({ name: "phone_verified", default: false })
   phoneVerified: boolean;
 
-  /** Admin has granted access to the search / interview pipeline. */
+  /** Admin let this user search without the daily limit (the search
+   *  itself is open to everyone). */
   @Column({ name: "search_enabled", default: false })
   searchEnabled: boolean;
 
-  /** Admin has granted access to expert opinions (Шутов rating etc). */
+  /** Admin opened the Шутов ratings for this user without a subscription. */
   @Column({ name: "expert_enabled", default: false })
   expertEnabled: boolean;
 
-  /** Paid search access runs until this moment; extended by each payment.
-   *  `searchEnabled` stays the admin's grant without an end date. */
+  /** The paid Kaspi subscription runs until this moment; extended by each
+   *  payment. It opens the Шутов ratings — the name stays from when it
+   *  bought the search. `expertEnabled` is the admin's grant without an
+   *  end date. */
   @Column({ name: "search_paid_until", type: "timestamp", nullable: true })
   searchPaidUntil: Date | null;
 

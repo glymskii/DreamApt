@@ -2,21 +2,28 @@ import { Injectable, ConflictException } from "@nestjs/common";
 import { InjectRepository } from "@nestjs/typeorm";
 import { Repository } from "typeorm";
 import { WishlistItemEntity } from "../database/entities/wishlist-item.entity";
+import { UserEntity } from "../database/entities/user.entity";
+import { omitShutov, shutovLockFor } from "../access-control/shutov-access";
 
 @Injectable()
 export class WishlistService {
   constructor(
     @InjectRepository(WishlistItemEntity)
     private wishlistRepo: Repository<WishlistItemEntity>,
+    @InjectRepository(UserEntity)
+    private usersRepo: Repository<UserEntity>,
   ) {}
 
   async findByUser(userId: string) {
+    const items = await this.wishlistRepo.find({
+      where: { userId },
+      relations: ["property", "complex"],
+      order: { createdAt: "DESC" },
+    });
+    // A wishlisted ЖК carries its Шутов category only for subscribers.
+    if (!(await shutovLockFor(this.usersRepo, { id: userId }))) return { items };
     return {
-      items: await this.wishlistRepo.find({
-        where: { userId },
-        relations: ["property", "complex"],
-        order: { createdAt: "DESC" },
-      }),
+      items: items.map((item) => (item.complex ? { ...item, complex: omitShutov(item.complex) } : item)),
     };
   }
 

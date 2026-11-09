@@ -8,7 +8,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { api } from "@/lib/api-client";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Activity, AlertTriangle, Users, BarChart3 } from "lucide-react";
+import { ArrowLeft, Activity, AlertTriangle, Users, BarChart3, Search, Cpu } from "lucide-react";
+import { formatStoredPhone } from "@/lib/phone";
 
 type Range = { label: string; hours: number; bucket: "hour" | "day" };
 const RANGES: Range[] = [
@@ -40,6 +41,55 @@ interface TimelineRow {
   count: string | number;
   errors: string | number;
 }
+
+type AiPurpose = "expand" | "score" | "cjm";
+type RunStatus = "running" | "done" | "empty" | "failed";
+interface SearchStats {
+  hours: number;
+  bucket: "hour" | "day";
+  searches: {
+    total: number;
+    people: number;
+    byUserType: { guest: number; user: number; admin: number };
+    byStatus: Record<RunStatus, number>;
+  };
+  tokens: {
+    calls: number;
+    prompt: number;
+    completion: number;
+    total: number;
+    byPurpose: Array<{ purpose: AiPurpose; calls: number; prompt: number; completion: number; total: number }>;
+    searchPipeline: { calls: number; total: number; perSearch: number };
+  };
+  timeline: Array<{ bucket: string; searches: number; tokens: number }>;
+  recent: Array<{
+    id: string;
+    projectId: string;
+    userType: "guest" | "user" | "admin";
+    status: RunStatus;
+    propertyCount: number;
+    aiCalls: number;
+    tokens: number;
+    startedAt: string;
+    finishedAt: string | null;
+    user: { name: string; phone: string | null } | null;
+  }>;
+}
+
+const PURPOSE_LABELS: Record<AiPurpose, string> = {
+  expand: "Расширение параметров поиска",
+  score: "Оценка квартир",
+  cjm: "Сценарии жизни (страница квартиры)",
+};
+
+const STATUS_LABELS: Record<RunStatus, string> = {
+  running: "идёт",
+  done: "готово",
+  empty: "ничего не нашлось",
+  failed: "ошибка",
+};
+
+const fmt = (n: number) => n.toLocaleString("ru-RU");
 
 export default function AdminStatsPage() {
   const router = useRouter();
@@ -84,9 +134,18 @@ export default function AdminStatsPage() {
     refetchInterval: 60_000,
   });
 
+  const searchStats = useQuery({
+    queryKey: ["stats", "search", range.hours],
+    queryFn: () => api.get<SearchStats>(`/admin/stats/search?hours=${range.hours}`),
+    enabled: !!user && user.role === "admin",
+    refetchInterval: 60_000,
+  });
+
   if (isLoading || !user || user.role !== "admin") {
     return null;
   }
+
+  const ss = searchStats.data;
 
   return (
     <div className="min-h-screen bg-background">
@@ -103,7 +162,7 @@ export default function AdminStatsPage() {
             </Link>
             <h1 className="text-xl font-bold flex items-center gap-2">
               <BarChart3 className="h-5 w-5" />
-              Трафик и мониторинг
+              Статистика: поиск, токены, трафик
             </h1>
           </div>
           <div className="flex gap-1 p-1 bg-muted rounded-md text-sm">
@@ -123,7 +182,62 @@ export default function AdminStatsPage() {
           </div>
         </div>
 
+        {/* Search usage + OpenAI tokens */}
+        <h2 className="text-sm font-semibold flex items-center gap-2">
+          <Search className="h-4 w-4" />
+          Поиск и токены агента
+        </h2>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <KPI
+            icon={<Search className="h-4 w-4" />}
+            label="Запусков поиска"
+            value={ss?.searches.total ?? "—"}
+            sub={
+              ss
+                ? `гости ${ss.searches.byUserType.guest} · пользователи ${ss.searches.byUserType.user}` +
+                  (ss.searches.byUserType.admin ? ` · админ ${ss.searches.byUserType.admin}` : "")
+                : ""
+            }
+          />
+          <KPI
+            icon={<Users className="h-4 w-4" />}
+            label="Искали людей"
+            value={ss?.searches.people ?? "—"}
+            sub={ss && ss.searches.byStatus.failed > 0 ? `${ss.searches.byStatus.failed} с ошибкой` : ""}
+            accent={ss && ss.searches.byStatus.failed > 0 ? "warn" : undefined}
+          />
+          <KPI
+            icon={<Cpu className="h-4 w-4" />}
+            label="Токенов OpenAI"
+            value={ss?.tokens.total ?? "—"}
+            sub={ss ? `вход ${fmt(ss.tokens.prompt)} · выход ${fmt(ss.tokens.completion)}` : ""}
+          />
+          <KPI
+            icon={<Cpu className="h-4 w-4" />}
+            label="Токенов на поиск"
+            value={ss?.tokens.searchPipeline.perSearch ?? "—"}
+            sub={ss ? `в среднем · ${fmt(ss.tokens.calls)} вызовов всего` : ""}
+          />
+        </div>
+
+        <div className="grid md:grid-cols-2 gap-4">
+          <Card title="Токены по назначению">
+            <PurposeTable rows={ss?.tokens.byPurpose || []} />
+          </Card>
+          <Card title="Поиски и токены по времени">
+            <SearchTimeline rows={ss?.timeline || []} bucket={ss?.bucket || "hour"} />
+          </Card>
+        </div>
+
+        <Card title="Последние запуски">
+          <RecentRuns rows={ss?.recent || []} />
+        </Card>
+
         {/* KPI cards */}
+        <h2 className="text-sm font-semibold flex items-center gap-2 pt-2">
+          <Activity className="h-4 w-4" />
+          Трафик
+        </h2>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <KPI
             icon={<Activity className="h-4 w-4" />}
@@ -262,6 +376,118 @@ function Timeline({ rows }: { rows: TimelineRow[] }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function PurposeTable({ rows }: { rows: SearchStats["tokens"]["byPurpose"] }) {
+  if (rows.length === 0) {
+    return <p className="text-sm text-muted-foreground py-4 text-center">Нет данных</p>;
+  }
+  const max = rows.reduce((m, r) => Math.max(m, r.total), 1);
+  return (
+    <div className="space-y-2">
+      {rows.map((r) => (
+        <div key={r.purpose} className="text-xs space-y-1">
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="truncate">{PURPOSE_LABELS[r.purpose] ?? r.purpose}</span>
+            <span className="font-mono tabular-nums">{fmt(r.total)}</span>
+          </div>
+          <div className="h-2 bg-muted/30 rounded overflow-hidden">
+            <div className="h-full bg-blue-500 dark:bg-blue-400" style={{ width: `${(r.total / max) * 100}%` }} />
+          </div>
+          <div className="text-[11px] text-muted-foreground tabular-nums">
+            {fmt(r.calls)} вызовов · вход {fmt(r.prompt)} · выход {fmt(r.completion)}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SearchTimeline({ rows, bucket }: { rows: SearchStats["timeline"]; bucket: "hour" | "day" }) {
+  if (rows.length === 0) {
+    return <p className="text-sm text-muted-foreground py-4 text-center">Нет данных</p>;
+  }
+  const max = rows.reduce((m, r) => Math.max(m, r.searches), 1);
+  return (
+    <div className="space-y-1">
+      {rows.map((r) => {
+        const label = new Date(r.bucket).toLocaleString("ru-RU", {
+          month: "short",
+          day: "numeric",
+          ...(bucket === "hour" ? { hour: "2-digit", minute: "2-digit" } : {}),
+        });
+        return (
+          <div key={r.bucket} className="flex items-center gap-2 text-xs">
+            <span className="text-muted-foreground w-28 shrink-0 tabular-nums">{label}</span>
+            <div className="flex-1 h-4 bg-muted/30 rounded overflow-hidden">
+              <div className="h-full bg-blue-500 dark:bg-blue-400" style={{ width: `${(r.searches / max) * 100}%` }} />
+            </div>
+            <span className="font-mono w-8 text-right tabular-nums" title="запусков">{r.searches}</span>
+            <span className="font-mono w-20 text-right tabular-nums text-muted-foreground" title="токенов">
+              {fmt(r.tokens)}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function RecentRuns({ rows }: { rows: SearchStats["recent"] }) {
+  if (rows.length === 0) {
+    return <p className="text-sm text-muted-foreground py-4 text-center">Поиск ещё не запускали</p>;
+  }
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b text-muted-foreground">
+            <th className="text-left font-medium py-1.5 pr-2">Когда</th>
+            <th className="text-left font-medium py-1.5 pr-2">Кто</th>
+            <th className="text-left font-medium py-1.5 pr-2">Итог</th>
+            <th className="text-right font-medium py-1.5 pr-2">Квартир</th>
+            <th className="text-right font-medium py-1.5">Токенов</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.id} className="border-b last:border-0">
+              <td className="py-1.5 pr-2 whitespace-nowrap tabular-nums">
+                {new Date(r.startedAt).toLocaleString("ru-RU", {
+                  month: "short",
+                  day: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </td>
+              <td className="py-1.5 pr-2">
+                {r.user ? (
+                  <span>
+                    {r.user.name || "—"}
+                    {r.user.phone && (
+                      <span className="text-muted-foreground font-mono"> · {formatStoredPhone(r.user.phone)}</span>
+                    )}
+                    {r.userType === "admin" && <span className="text-muted-foreground"> · admin</span>}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">Гость</span>
+                )}
+              </td>
+              <td
+                className={`py-1.5 pr-2 whitespace-nowrap ${
+                  r.status === "failed" ? "text-orange-600 dark:text-orange-400" : ""
+                }`}
+              >
+                {STATUS_LABELS[r.status] ?? r.status}
+              </td>
+              <td className="py-1.5 pr-2 text-right tabular-nums">{r.propertyCount}</td>
+              <td className="py-1.5 text-right font-mono tabular-nums">{fmt(r.tokens)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

@@ -74,8 +74,11 @@ function positiveInt(raw: string | undefined, fallback: number): number {
   return Number.isInteger(n) && n > 0 ? n : fallback;
 }
 
-/** Search access plan; price and length come from the environment.
- *  Default: 4 990 ₸ for three months (90 days). */
+/** The Kaspi subscription — it opens Тихон Шутов's ratings of ЖК (the
+ *  search itself is free). Price and length come from the environment;
+ *  default 4 990 ₸ for three months (90 days). The id, the feature and the
+ *  env names keep "search" from when the subscription bought the search:
+ *  payments already in the database carry them. */
 export function searchPlan(): PaymentPlan {
   const days = positiveInt(process.env.SEARCH_PLAN_DAYS, 90);
   return {
@@ -289,7 +292,7 @@ export class PaymentsService {
       await this.telegram.sendMessage(
         paid.chatId,
         `✅ Оплата ${formatTenge(paid.payment.amount)} получена.\n` +
-          `Поиск квартир на DreamApt открыт до ${formatDay(paid.payment.accessUntil!)}.`,
+          `Рейтинг ЖК от Тихона Шутова на DreamApt открыт до ${formatDay(paid.payment.accessUntil!)}.`,
       );
     }
     this.logger.log(`Payment ${paymentId} paid; access until ${paid.payment.accessUntil!.toISOString()}`);
@@ -323,7 +326,7 @@ export class PaymentsService {
     if (result.chatId) {
       await this.telegram.sendMessage(
         result.chatId,
-        "Подписка на поиск квартир DreamApt отменена, доступ к поиску закрыт.",
+        "Подписка DreamApt отменена, рейтинг ЖК от Тихона Шутова закрыт.",
       );
     }
     this.logger.log(`Subscription of user ${userId} revoked by ${adminId}`);

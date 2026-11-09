@@ -23,7 +23,7 @@ export class KaspiManualProvider implements PaymentProvider {
       [
         "💳 Новая оплата DreamApt",
         `Номер Kaspi: ${formatPhone(payment.phone)}`,
-        `Сумма: ${formatTenge(payment.amount)} — поиск на ${formatPeriod(payment.days)}`,
+        `Сумма: ${formatTenge(payment.amount)} — рейтинг Шутова на ${formatPeriod(payment.days)}`,
         "",
         "Выставьте счёт в Kaspi Pay → «Удалённая оплата», затем отметьте его в админке:",
         `${site}/admin?tab=payments`,

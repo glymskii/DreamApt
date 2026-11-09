@@ -2,6 +2,7 @@
 
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api-client";
+import type { ShutovLockReason } from "@/components/access/ShutovLockedCard";
 
 export interface ResidentialComplex {
   id: string;
@@ -99,7 +100,9 @@ export function useComplexProperties(complexId: string, sort: string = "scoreTot
 
 export interface ShutovResponse {
   found: boolean;
+  /** Hidden from guests and from users without the Kaspi subscription. */
   locked?: boolean;
+  reason?: ShutovLockReason;
   name?: string;
   category?: number;
   categoryLabel?: string;

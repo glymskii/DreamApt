@@ -9,6 +9,7 @@ import { TwoGisReviewsService } from "../properties/twogis-reviews.service";
 import { MapOverlaysService } from "../map-overlays/map-overlays.service";
 import { CommentsService } from "../comments/comments.service";
 import { findShutovRating, findNearestFault, SHUTOV_CATEGORY_COLORS, SHUTOV_CATEGORY_LABELS } from "@dreamapt/shared";
+import { omitShutov } from "../access-control/shutov-access";
 
 // In-memory cache for the public map-data response. Built every request before
 // caching: ~500 row scan + dedup + AirKaz fetch + O(N×M) station backfill +
@@ -94,7 +95,9 @@ export class ComplexService {
         "listingsCount", "seismicRiskLevel", "seismicDistanceMeters",
         "seismicConfirmedM", "seismicStudiedM", "seismicDisputedM",
         "commuteMinutes", "photoUrl", "district", "priceMin", "priceMax",
-        "shutovCategory", "scoreInfrastructure", "scoreLifestyle",
+        // No shutovCategory: the Шутов rating is for subscribers only and
+        // this response is public and edge-cached.
+        "scoreInfrastructure", "scoreLifestyle",
         "scoreCommute", "scoreSeismic", "floorsMax", "floorSegment",
         "yearBuilt",
         "airQualityPm25", "airQualityLevel", "airQualityStation",
@@ -280,7 +283,8 @@ export class ComplexService {
     });
 
     const total = deduped.length;
-    const paged = deduped.slice((page - 1) * limit, page * limit);
+    // Public and edge-cached: without the subscribers-only Шутов category.
+    const paged = deduped.slice((page - 1) * limit, page * limit).map(omitShutov);
 
     const result = { complexes: paged, total, page, totalPages: Math.ceil(total / limit) };
     this.globalListCache.set(cacheKey, { value: result, expiresAt: now + GLOBAL_LIST_TTL_MS });
@@ -363,7 +367,8 @@ export class ComplexService {
         .getOne();
       inheritProblematic(complex, flagged);
     }
-    return complex;
+    // Public and edge-cached: without the subscribers-only Шутов category.
+    return omitShutov(complex);
   }
 
   async findProperties(complexId: string, sort: string = "scoreTotal") {
@@ -486,7 +491,7 @@ export class ComplexService {
         "id", "displayName", "lat", "lng", "scoreTotal", "priceAvg",
         "listingsCount", "seismicRiskLevel", "seismicDistanceMeters",
         "commuteMinutes", "photoUrl",
-        "district", "priceMin", "priceMax", "shutovCategory",
+        "district", "priceMin", "priceMax",
       ],
     });
 

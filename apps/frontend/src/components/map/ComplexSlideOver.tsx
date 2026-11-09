@@ -14,7 +14,7 @@ import {
 import { useAuth } from "@/hooks/useAuth";
 import { useAuthDialog } from "@/components/auth/auth-dialog";
 import { CommentsSection } from "@/components/comments/CommentsSection";
-import { RequestAccessModal } from "@/components/access/RequestAccessModal";
+import { ShutovLockedCard } from "@/components/access/ShutovLockedCard";
 import { AirHistoryChart } from "@/components/complex/AirHistoryChart";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -318,9 +318,8 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
     closeButton.current?.focus();
     return () => { if (previous?.isConnected) previous.focus(); };
   }, []);
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated } = useAuth();
   const authDialog = useAuthDialog();
-  const [expertModalOpen, setExpertModalOpen] = useState(false);
   const { data: complex, isLoading } = useComplex(complexId);
   // Properties are gated server-side for guests; only fetch when authenticated.
   const { data: properties } = useComplexProperties(
@@ -735,32 +734,9 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
                 </div>
               )}
 
-              {/* Shutov rating — locked for guests AND for users without expertEnabled */}
+              {/* Shutov rating — sign-in + Kaspi subscription; the server says which is missing */}
               {shutov?.found && shutov.locked ? (
-                <button
-                  onClick={() => {
-                    if (!user) {
-                      authDialog.open("otp", t("auth.shutovGate"));
-                    } else {
-                      setExpertModalOpen(true);
-                    }
-                  }}
-                  className="flex items-center gap-3 p-3 rounded-lg border w-full text-left hover:bg-muted/50 transition-colors"
-                  style={{ borderLeftWidth: 4, borderLeftColor: "#94a3b8" }}
-                >
-                  <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-muted">
-                    <Lock className="h-4 w-4 text-muted-foreground" />
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold">{t("complex.shutovExpertTitle")}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {shutov.name
-                        ? t("complex.shutovLockedHint", { name: shutov.name })
-                        : t("complex.shutovEvaluatedHint")}
-                    </p>
-                  </div>
-                  <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
-                </button>
+                <ShutovLockedCard name={shutov.name} reason={shutov.reason} />
               ) : shutov?.found && !shutov.locked ? (
                 <div
                   className="flex items-center gap-3 p-3 rounded-lg border"
@@ -895,11 +871,6 @@ export function ComplexSlideOver({ complexId, onClose }: Props) {
         </div>
       )}
 
-      <RequestAccessModal
-        open={expertModalOpen}
-        onClose={() => setExpertModalOpen(false)}
-        type="expert"
-      />
     </div>
   );
 }

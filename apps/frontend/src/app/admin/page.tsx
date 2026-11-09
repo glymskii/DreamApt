@@ -223,9 +223,9 @@ function UsersTab() {
   const filterButtons: { value: UsersFilter; label: string }[] = [
     { value: "all", label: "Все" },
     { value: "verified", label: "С подтверждённым номером" },
-    { value: "search", label: "С доступом к поиску" },
+    { value: "search", label: "Поиск без лимита" },
     { value: "paid", label: "С подпиской" },
-    { value: "expert", label: "С доступом к экспертам" },
+    { value: "expert", label: "Шутов вручную" },
     { value: "admin", label: "Админы" },
   ];
 
@@ -236,9 +236,9 @@ function UsersTab() {
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
           <StatCard label="Всего" value={data.stats.total} />
           <StatCard label="Подтв. номер" value={data.stats.verified} />
-          <StatCard label="Поиск" value={data.stats.searchEnabled} />
+          <StatCard label="Без лимита" value={data.stats.searchEnabled} />
           <StatCard label="Подписка" value={data.stats.searchPaid} />
-          <StatCard label="Эксперты" value={data.stats.expertEnabled} />
+          <StatCard label="Шутов вручную" value={data.stats.expertEnabled} />
         </div>
       )}
 
@@ -300,8 +300,18 @@ function UsersTab() {
                   <th className="text-left p-2 font-medium text-xs">Пользователь</th>
                   <th className="text-left p-2 font-medium text-xs">Телефон</th>
                   <th className="text-left p-2 font-medium text-xs">Статус</th>
-                  <th className="text-center p-2 font-medium text-xs">Поиск</th>
-                  <th className="text-center p-2 font-medium text-xs">Эксперт</th>
+                  <th
+                    className="text-center p-2 font-medium text-xs"
+                    title="Поиск открыт всем; включённый — без дневного лимита"
+                  >
+                    Без лимита
+                  </th>
+                  <th
+                    className="text-center p-2 font-medium text-xs"
+                    title="Рейтинг Шутова: по подписке Kaspi или вручную"
+                  >
+                    Шутов
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -334,6 +344,13 @@ function UsersTab() {
                         disabled={u.role === "admin" || update.isPending}
                         onChange={(v) => update.mutate({ id: u.id, patch: { searchEnabled: v } })}
                       />
+                    </td>
+                    <td className="p-2 text-center">
+                      <Toggle
+                        checked={u.expertEnabled}
+                        disabled={u.role === "admin" || update.isPending}
+                        onChange={(v) => update.mutate({ id: u.id, patch: { expertEnabled: v } })}
+                      />
                       {u.searchPaidUntil && (
                         <div
                           className={`text-[10px] mt-0.5 whitespace-nowrap ${
@@ -360,13 +377,6 @@ function UsersTab() {
                           отменить
                         </button>
                       )}
-                    </td>
-                    <td className="p-2 text-center">
-                      <Toggle
-                        checked={u.expertEnabled}
-                        disabled={u.role === "admin" || update.isPending}
-                        onChange={(v) => update.mutate({ id: u.id, patch: { expertEnabled: v } })}
-                      />
                     </td>
                   </tr>
                 ))}
@@ -458,7 +468,7 @@ const formatShortDay = (iso: string) =>
 const confirmRevoke = (who: string, until: string) =>
   window.confirm(
     `Отменить подписку: ${who}?\n` +
-      `Доступ к поиску (до ${formatShortDay(until)}) закроется сразу, пользователю придёт сообщение в Telegram.\n` +
+      `Рейтинг Шутова (до ${formatShortDay(until)}) закроется сразу, пользователю придёт сообщение в Telegram.\n` +
       "Деньги, если нужно, верните через Kaspi вручную.",
   );
 
@@ -487,7 +497,7 @@ function PaymentsTab() {
 
   const run = (p: AdminPayment, act: "invoiced" | "paid" | "cancel") => {
     if (act === "paid" && !window.confirm(
-      `${formatTenge(p.amount)} от ${formatStoredPhone(p.phone)} пришли в Kaspi?\nДоступ к поиску продлится на ${formatPeriodShort(p.days)}`,
+      `${formatTenge(p.amount)} от ${formatStoredPhone(p.phone)} пришли в Kaspi?\nРейтинг Шутова продлится на ${formatPeriodShort(p.days)}`,
     )) return;
     if (act === "cancel" && !window.confirm("Отменить платёж?")) return;
     action.mutate({ id: p.id, action: act });
@@ -551,7 +561,7 @@ function PaymentsTab() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-base font-semibold">{formatTenge(p.amount)}</span>
-                    <span className="text-xs text-muted-foreground">· поиск на {formatPeriodShort(p.days)}</span>
+                    <span className="text-xs text-muted-foreground">· рейтинг Шутова на {formatPeriodShort(p.days)}</span>
                     <Badge variant="outline" className={`text-[10px] py-0 ${PAYMENT_STATUS[p.status].className}`}>
                       {PAYMENT_STATUS[p.status].label}
                     </Badge>

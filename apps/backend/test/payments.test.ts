@@ -8,7 +8,7 @@ import { UserEntity } from "../src/database/entities/user.entity";
 import { PaymentsService, searchPlan } from "../src/payments/payments.service";
 import { formatPeriod } from "../src/payments/payment-format";
 import type { PaymentProvider } from "../src/payments/providers/payment-provider";
-import { hasSearchAccess } from "../src/access-control/search-access";
+import { hasShutovAccess } from "../src/access-control/shutov-access";
 import type { TelegramService } from "../src/telegram/telegram.service";
 
 /**
@@ -90,14 +90,14 @@ async function main() {
     assert.equal(invoiced.status, "invoiced");
     assert.equal(invoiced.externalId, "KP-1");
 
-    // Paid: 30 days from now, the buyer can search and hears about it.
+    // Paid: 30 days from now, the buyer sees the Shutov ratings and hears about it.
     const before = Date.now();
     const paid = await service.markPaid(first.id, buyer.id);
     assert.equal(paid.status, "paid");
     const until1 = new Date(paid.accessUntil!).getTime();
     assert.ok(Math.abs(until1 - (before + 30 * DAY)) < 60_000);
-    assert.ok(hasSearchAccess((await users.findOneByOrFail({ id: buyer.id }))));
-    assert.ok(!hasSearchAccess((await users.findOneByOrFail({ id: buyer.id })), new Date(until1 + 1000)));
+    assert.ok(hasShutovAccess((await users.findOneByOrFail({ id: buyer.id }))));
+    assert.ok(!hasShutovAccess((await users.findOneByOrFail({ id: buyer.id })), new Date(until1 + 1000)));
     assert.equal(messages.length, 1);
     assert.equal(messages[0][0], "555");
     assert.match(messages[0][1], /3 000 ₸/);
@@ -160,7 +160,7 @@ async function main() {
     const revoked = await service.revokeSubscription(buyer.id, buyer.id);
     assert.equal(revoked.revokedPayments, 4);
     const afterRevoke = await users.findOneByOrFail({ id: buyer.id });
-    assert.ok(!hasSearchAccess(afterRevoke));
+    assert.ok(!hasShutovAccess(afterRevoke));
     assert.equal(messages.length, sent + 1);
     assert.match(messages[sent][1], /отменена/);
     assert.equal((await service.listForAdmin("paid")).length, 0);
